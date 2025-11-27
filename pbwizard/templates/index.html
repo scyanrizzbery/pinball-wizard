@@ -22,7 +22,7 @@
         #app {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 0 20px;
+            padding: 0 20px 90px;
         }
 
         #main-layout {
@@ -339,15 +339,15 @@
                 <span class="label">BALLS</span>
                 <span class="value">[[ stats.balls ]]</span>
             </div>
-            <div class="stat-box">
+            <div class="stat-box" v-if="stats.is_training">
                 <span class="label">GAMES</span>
                 <span class="value">[[ stats.games_played ]]</span>
             </div>
-            <div class="stat-box">
+            <div class="stat-box" v-if="stats.is_training">
                 <span class="label">STEPS</span>
                 <span class="value">[[ stats.timesteps ]]</span>
             </div>
-            <div class="stat-box">
+            <div class="stat-box" v-if="stats.is_training">
                 <span class="label">LAST REWARD</span>
                 <span class="value text-blue">[[ formatNumber(stats.mean_reward) ]]</span>
             </div>
@@ -480,7 +480,8 @@
                     balls: 0,
                     games_played: 0,
                     timesteps: 0,
-                    mean_reward: 0
+                    mean_reward: 0,
+                    is_training: false
                 });
 
                 const physics = reactive({

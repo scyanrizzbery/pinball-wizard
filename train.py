@@ -124,7 +124,8 @@ def main():
             stats.update({
                 'score': current_score,
                 'high_score': self.high_score,
-                'balls': balls
+                'balls': balls,
+                'is_training': True
             })
             return stats
 

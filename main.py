@@ -136,7 +136,8 @@ def main():
                 'score': current_score,
                 'high_score': self.high_score,
                 'balls': current_balls,
-                'games_played': self.games_played
+                'games_played': self.games_played,
+                'is_training': False
             }
 
         @property
