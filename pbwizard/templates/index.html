@@ -457,11 +457,8 @@
 
                 <div style="display: flex; gap: 10px; margin-top: 15px;">
                     <button class="control-btn"
-                        style="padding: 10px; font-size: 0.9em; flex: 1; background-color: #2196F3;"
-                        @click="saveConfig">Save</button>
-                    <button class="control-btn"
-                        style="padding: 10px; font-size: 0.9em; flex: 1; background-color: #FF9800;"
-                        @click="loadConfig">Load</button>
+                        style="padding: 10px; font-size: 0.9em; flex: 1; background-color: #f44336;"
+                        @click="resetConfig">Reset to Defaults</button>
                 </div>
 
                 <div id="game-log" ref="logContainer">
@@ -546,17 +543,15 @@
                     if (debounceTimers[param]) clearTimeout(debounceTimers[param]);
                     debounceTimers[param] = setTimeout(() => {
                         socket.emit('update_physics', { [param]: physics[param] });
+                        socket.emit('save_physics'); // Auto-save
                         delete debounceTimers[param];
                     }, 300);
                 };
 
-                const saveConfig = () => {
-                    socket.emit('save_physics');
-                    alert('Configuration Saved!');
-                };
-
-                const loadConfig = () => {
-                    socket.emit('load_physics');
+                const resetConfig = () => {
+                    if (confirm('Are you sure you want to reset physics settings to defaults?')) {
+                        socket.emit('reset_physics');
+                    }
                 };
 
                 const toggleAI = () => {
@@ -654,8 +649,7 @@
                     formatNumber,
                     handleInput,
                     updatePhysics,
-                    saveConfig,
-                    loadConfig,
+                    resetConfig,
                     toggleAI,
                     toggleAutoStart
                 };

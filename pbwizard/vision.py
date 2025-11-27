@@ -346,6 +346,32 @@ class SimulatedFrameCapture:
             logger.error(f"Failed to load config: {e}")
             return False
 
+    def reset_to_defaults(self):
+        """Reset all physics parameters to class constants and save."""
+        self.gravity = self.GRAVITY
+        self.friction = self.FRICTION
+        self.restitution = self.RESTITUTION
+        self.flipper_speed = self.FLIPPER_SPEED
+        self.flipper_length = self.FLIPPER_LENGTH
+        self.flipper_resting_angle = self.LEFT_DOWN_ANGLE
+        self.flipper_stroke_angle = self.LEFT_UP_ANGLE - self.LEFT_DOWN_ANGLE # 20 - (-30) = 50
+        
+        self._update_flipper_rects()
+        logger.info("Physics parameters reset to defaults")
+        
+        # Save the defaults
+        self.save_config()
+        
+        return {
+            'gravity': self.gravity,
+            'friction': self.friction,
+            'restitution': self.restitution,
+            'flipper_speed': self.flipper_speed,
+            'flipper_resting_angle': self.flipper_resting_angle,
+            'flipper_stroke_angle': self.flipper_stroke_angle,
+            'flipper_length': self.flipper_length
+        }
+
     def launch_ball(self):
         with self.lock:
             if len(self.balls) == 0:

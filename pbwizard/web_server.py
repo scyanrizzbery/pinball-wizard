@@ -152,6 +152,20 @@ def handle_load_physics():
             logger.info(f"Loaded config from file: {config}")
             socketio.emit('physics_config_loaded', config)
             logger.info("Physics config loaded via web request")
+
+
+@socketio.on('reset_physics')
+def handle_reset_physics():
+    if not vision_system:
+        return
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    if hasattr(capture, 'reset_to_defaults'):
+        config = capture.reset_to_defaults()
+        if config:
+            socketio.emit('physics_config_loaded', config)
+            logger.info("Physics config reset to defaults")
+
+
 @socketio.on('toggle_ai')
 def handle_toggle_ai(data):
     if not vision_system:
