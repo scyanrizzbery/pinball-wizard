@@ -104,6 +104,66 @@
             color: #2196F3;
         }
 
+        /* Score Board */
+        .score-board {
+            background: #000;
+            border: 4px solid #333;
+            border-radius: 10px;
+            padding: 10px 20px;
+            display: inline-flex;
+            gap: 5px;
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8), 0 5px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 10px;
+        }
+
+        .score-reel {
+            width: 40px;
+            height: 60px;
+            background: #151515;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 1);
+            border: 1px solid #222;
+        }
+
+        .score-strip {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            transition: transform 0.5s cubic-bezier(0.1, 0.7, 0.1, 1);
+            /* Will contain numbers 0-9 vertically */
+        }
+
+        .reel-number {
+            height: 60px;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #e0e0e0;
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+            background: linear-gradient(to bottom, #111, #222 50%, #111);
+        }
+
+        .score-comma {
+            height: 60px;
+            width: 15px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #e0e0e0;
+            padding-bottom: 5px;
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+        }
+
         /* Controls */
         #controls-container {
             margin-top: 20px;
@@ -396,13 +456,31 @@
         </div>
 
         <div id="stats-container">
-            <div class="stat-box">
-                <span class="label">SCORE</span>
-                <span class="value text-green">[[ formatNumber(stats.score, 0) ]]</span>
+            <div class="stat-box" style="background: transparent; border: none; box-shadow: none; padding: 0;">
+                <span class="label" style="margin-bottom: 5px;">SCORE</span>
+                <div class="score-board">
+                    <template v-for="(item, index) in scoreReels" :key="index">
+                        <div class="score-reel" v-if="item.type === 'digit'">
+                            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 60}px)` }">
+                                <div class="reel-number" v-for="n in 10" :key="n">[[ n - 1 ]]</div>
+                            </div>
+                        </div>
+                        <div class="score-comma" v-else>,</div>
+                    </template>
+                </div>
             </div>
-            <div class="stat-box">
-                <span class="label">HIGH SCORE</span>
-                <span class="value text-yellow">[[ formatNumber(stats.high_score, 0) ]]</span>
+            <div class="stat-box" style="background: transparent; border: none; box-shadow: none; padding: 0;">
+                <span class="label" style="margin-bottom: 5px;">HIGH SCORE</span>
+                <div class="score-board">
+                    <template v-for="(item, index) in highScoreReels" :key="index">
+                        <div class="score-reel" v-if="item.type === 'digit'">
+                            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 60}px)` }">
+                                <div class="reel-number" v-for="n in 10" :key="n">[[ n - 1 ]]</div>
+                            </div>
+                        </div>
+                        <div class="score-comma" v-else>,</div>
+                    </template>
+                </div>
             </div>
             <div class="stat-box">
                 <span class="label">BALLS</span>
@@ -574,6 +652,32 @@
                 const videoSrc = ref('');
                 const logContainer = ref(null);
                 const lastNudgeTime = ref(0);
+
+                // Computed
+                const formatToReels = (num) => {
+                    // Pad to 9 digits (allows for 100,000,000 range comfortably)
+                    // Format with commas: "000,000,000"
+                    let str = Math.round(num).toString().padStart(9, '0');
+
+                    // Insert commas manually to ensure fixed positions if we want fixed width,
+                    // OR just use toLocaleString and padStart.
+                    // Let's stick to a fixed pattern: "XXX,XXX,XXX" (11 chars)
+
+                    // Better approach: Pad raw string to 9 digits, then insert commas
+                    const padded = Math.round(num).toString().padStart(9, '0');
+                    const parts = [];
+                    for (let i = 0; i < padded.length; i++) {
+                        parts.push({ type: 'digit', value: parseInt(padded[i]) });
+                        // Add comma after index 2 and 5 (for 9 digits: 012,345,678)
+                        if (i === 2 || i === 5) {
+                            parts.push({ type: 'comma', value: ',' });
+                        }
+                    }
+                    return parts;
+                };
+
+                const scoreReels = Vue.computed(() => formatToReels(stats.score));
+                const highScoreReels = Vue.computed(() => formatToReels(stats.high_score));
 
                 // State
                 const stats = reactive({
@@ -798,7 +902,9 @@
                     toggleAutoStart,
                     layouts,
                     selectedLayout,
-                    changeLayout
+                    changeLayout,
+                    scoreReels,
+                    highScoreReels
                 };
             }
         }).mount('#app');
