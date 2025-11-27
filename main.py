@@ -229,7 +229,13 @@ def main():
                             hw.release_left()
 
                         # Right Flipper
-                        if (action == constants.ACTION_FLIP_RIGHT or action == constants.ACTION_FLIP_BOTH) and zones['right']:
+                        should_flip_right = (action == constants.ACTION_FLIP_RIGHT or action == constants.ACTION_FLIP_BOTH)
+                        
+                        # Safety Override: If ball is in right zone and moving down, force flip
+                        if zones['right'] and vy > 100: # Pixel/sec threshold
+                            should_flip_right = True
+
+                        if should_flip_right and zones['right']:
                             if vision_wrapper.ai_enabled:
                                 hw.hold_right()
                             else:

@@ -52,6 +52,31 @@ class PinballEnv(gym.Env):
         allowed_action = self._enforce_zones(action)
 
         # 2. Execute Action
+        # Safety Override for Training/Execution:
+        # If ball is in right zone and moving down fast, force right flip
+        # This helps the agent "discover" the right flipper if it's stuck in a local optimum
+        if self.last_ball_pos is not None and hasattr(self.vision, 'zones'):
+             zones = self.vision.zones.get_zone_status(self.last_ball_pos[0], self.last_ball_pos[1])
+             # Calculate velocity if not available? We need vy.
+             # We can use the previous step's velocity or calculate it.
+             # Let's use a simple heuristic: if we are in the zone, we probably want to flip.
+             # But we need to know if it's moving down.
+             # We can't easily get vy here without passing it or recalculating.
+             # Let's rely on the fact that if it's in the zone, it's likely coming down.
+             
+             if zones['right']:
+                 # Check if we can get velocity from vision
+                 vx, vy = 0, 0
+                 if hasattr(self.vision, 'get_ball_status'):
+                     status = self.vision.get_ball_status()
+                     if status: _, (vx, vy) = status
+                 
+                 if vy > 50: # Moving down
+                     if allowed_action == constants.ACTION_NOOP:
+                         allowed_action = constants.ACTION_FLIP_RIGHT
+                     elif allowed_action == constants.ACTION_FLIP_LEFT:
+                         allowed_action = constants.ACTION_FLIP_BOTH
+
         self._execute_action(allowed_action)
             
         # 3. Wait for Latency/Physics
