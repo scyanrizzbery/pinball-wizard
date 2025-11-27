@@ -200,6 +200,8 @@ class SimulatedFrameCapture:
     FRICTION = 0.999
     RESTITUTION = 0.5
     
+    MAX_BALLS = 5
+
     def __init__(self, width=constants.DEFAULT_WIDTH, height=constants.DEFAULT_HEIGHT, headless=False):
         self.width = width
         self.height = height
@@ -261,7 +263,7 @@ class SimulatedFrameCapture:
         
         # Guide Lines (Funnel to flippers)
         # Initialized in _update_flipper_rects
-
+        
         # 3D Camera Settings
         self.cam_x = width / 2
         self.cam_y = height * 1.5  # Behind the flippers
@@ -525,6 +527,10 @@ class SimulatedFrameCapture:
 
 
     def add_ball(self):
+        if len(self.balls) >= self.MAX_BALLS:
+            logger.warning(f"Sim: Max balls ({self.MAX_BALLS}) reached, cannot add more.")
+            return
+
         new_ball = {
             'pos': np.array([self.width / 2 + np.random.uniform(-20, 20), self.height * 0.15], dtype=float),
             'vel': np.array([np.random.uniform(-2, 2), np.random.uniform(2, 5)], dtype=float),

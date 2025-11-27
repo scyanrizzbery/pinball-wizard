@@ -166,7 +166,6 @@ class PinballEnv(gym.Env):
                  
              if self.holding_steps > 90: # Approx 3 seconds at 30Hz
                  reward -= 0.5 # Significant penalty to force action
-                 # logger.info(f"Holding Penalty Applied: {self.holding_steps} steps")
                  
                  # STUCK BALL HEURISTIC: Force Nudge if stuck for too long
                  if self.holding_steps > 100:
@@ -175,7 +174,7 @@ class PinballEnv(gym.Env):
                      nudge_action = random.choice([4, 5])
                      allowed_action = nudge_action
                      logger.info(f"STUCK BALL DETECTED: Forcing Nudge Action {nudge_action}")
-                     # Reset holding steps to prevent rapid-fire nudging, give it a moment to settle
+                     # Reset holding steps to prevent rapid-fire nudging
                      self.holding_steps = 0
         else:
             self.holding_steps = 0

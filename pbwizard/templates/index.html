@@ -393,6 +393,16 @@
             }
         }
 
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            text-align: center;
+            margin: 0;
+            padding: 10px;
+            touch-action: manipulation;
+        }
+
         .shake-left {
             animation: shake-left 0.3s cubic-bezier(.36, .07, .19, .97) both;
         }
@@ -402,8 +412,13 @@
         }
 
         /* Responsive adjustments */
-        @media (max-width: 768px) {
+        @media (max-width: 690px) {
             #main-layout {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            #stats-container {
                 flex-direction: column;
                 align-items: center;
             }
@@ -412,30 +427,54 @@
                 width: 100%;
                 flex: auto;
                 position: static;
-                /* Remove sticky on mobile if it causes issues, or keep it. Let's keep it simple first. */
+                margin-bottom: 20px;
+                /* Spacing above sticky footer */
+            }
+
+            /* Sticky Footer for Controls */
+            #input-area {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                background: rgba(20, 20, 20, 0.95);
+                border-top: 1px solid #333;
+                padding: 10px 0;
+                z-index: 1000;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 10px;
+                backdrop-filter: blur(5px);
+            }
+
+            #controls-container {
+                margin-top: 0;
+                /* Remove top margin inside sticky footer */
+            }
+
+            #app {
+                padding-bottom: 160px;
+                /* Space for sticky footer */
+            }
+
+            /* Ensure scores fit */
+            .score-board {
+                transform-origin: center;
+                /* Scale down slightly if needed on very narrow screens */
+            }
+
+            @media (max-width: 400px) {
+                .score-board {
+                    transform: scale(0.85);
+                    /* Scale down for very small phones */
+                }
             }
         }
 
         @media (max-width: 600px) {
             .stat-box {
                 flex: 1 1 40%;
-            }
-
-            #controls-container {
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                width: 100%;
-                background: rgba(0, 0, 0, 0.9);
-                padding: 15px 0;
-                margin: 0;
-                z-index: 100;
-            }
-
-            .control-btn {
-                padding: 15px 0;
-                margin: 0 5px;
-                flex: 1;
             }
 
             #video-container {
@@ -515,40 +554,44 @@
                         style="width: 100%; max-width: 600px; height: auto; aspect-ratio: 3/4; object-fit: contain; background: #000;">
                 </div>
 
-                <div id="controls-container">
-                    <button class="control-btn" :class="{ active: activeKeys.has('KeyZ') }"
-                        @mousedown.prevent="handleInput('KeyZ', 'down')" @mouseup.prevent="handleInput('KeyZ', 'up')"
-                        @mouseleave.prevent="handleInput('KeyZ', 'up')"
-                        @touchstart.prevent="handleInput('KeyZ', 'down')"
-                        @touchend.prevent="handleInput('KeyZ', 'up')">LEFT (Z)</button>
+                <div id="input-area">
+                    <div id="controls-container">
+                        <button class="control-btn" :class="{ active: activeKeys.has('KeyZ') }"
+                            @mousedown.prevent="handleInput('KeyZ', 'down')"
+                            @mouseup.prevent="handleInput('KeyZ', 'up')" @mouseleave.prevent="handleInput('KeyZ', 'up')"
+                            @touchstart.prevent="handleInput('KeyZ', 'down')"
+                            @touchend.prevent="handleInput('KeyZ', 'up')">LEFT (Z)</button>
 
-                    <button id="btn-launch" class="control-btn" :class="{ active: activeKeys.has('Space') }"
-                        @mousedown.prevent="handleInput('Space', 'down')" @mouseup.prevent="handleInput('Space', 'up')"
-                        @mouseleave.prevent="handleInput('Space', 'up')"
-                        @touchstart.prevent="handleInput('Space', 'down')"
-                        @touchend.prevent="handleInput('Space', 'up')">LAUNCH</button>
+                        <button id="btn-launch" class="control-btn" :class="{ active: activeKeys.has('Space') }"
+                            @mousedown.prevent="handleInput('Space', 'down')"
+                            @mouseup.prevent="handleInput('Space', 'up')"
+                            @mouseleave.prevent="handleInput('Space', 'up')"
+                            @touchstart.prevent="handleInput('Space', 'down')"
+                            @touchend.prevent="handleInput('Space', 'up')">LAUNCH</button>
 
-                    <button class="control-btn" :class="{ active: activeKeys.has('Slash') }"
-                        @mousedown.prevent="handleInput('Slash', 'down')" @mouseup.prevent="handleInput('Slash', 'up')"
-                        @mouseleave.prevent="handleInput('Slash', 'up')"
-                        @touchstart.prevent="handleInput('Slash', 'down')"
-                        @touchend.prevent="handleInput('Slash', 'up')">RIGHT (/)</button>
-                </div>
+                        <button class="control-btn" :class="{ active: activeKeys.has('Slash') }"
+                            @mousedown.prevent="handleInput('Slash', 'down')"
+                            @mouseup.prevent="handleInput('Slash', 'up')"
+                            @mouseleave.prevent="handleInput('Slash', 'up')"
+                            @touchstart.prevent="handleInput('Slash', 'down')"
+                            @touchend.prevent="handleInput('Slash', 'up')">RIGHT (/)</button>
+                    </div>
 
-                <div id="nudge-controls">
-                    <button class="control-btn btn-nudge" :class="{ active: activeKeys.has('ShiftLeft') }"
-                        @mousedown.prevent="handleInput('ShiftLeft', 'down')"
-                        @mouseup.prevent="handleInput('ShiftLeft', 'up')"
-                        @mouseleave.prevent="handleInput('ShiftLeft', 'up')"
-                        @touchstart.prevent="handleInput('ShiftLeft', 'down')"
-                        @touchend.prevent="handleInput('ShiftLeft', 'up')">NUDGE L</button>
+                    <div id="nudge-controls">
+                        <button class="control-btn btn-nudge" :class="{ active: activeKeys.has('ShiftLeft') }"
+                            @mousedown.prevent="handleInput('ShiftLeft', 'down')"
+                            @mouseup.prevent="handleInput('ShiftLeft', 'up')"
+                            @mouseleave.prevent="handleInput('ShiftLeft', 'up')"
+                            @touchstart.prevent="handleInput('ShiftLeft', 'down')"
+                            @touchend.prevent="handleInput('ShiftLeft', 'up')">NUDGE L</button>
 
-                    <button class="control-btn btn-nudge" :class="{ active: activeKeys.has('ShiftRight') }"
-                        @mousedown.prevent="handleInput('ShiftRight', 'down')"
-                        @mouseup.prevent="handleInput('ShiftRight', 'up')"
-                        @mouseleave.prevent="handleInput('ShiftRight', 'up')"
-                        @touchstart.prevent="handleInput('ShiftRight', 'down')"
-                        @touchend.prevent="handleInput('ShiftRight', 'up')">NUDGE R</button>
+                        <button class="control-btn btn-nudge" :class="{ active: activeKeys.has('ShiftRight') }"
+                            @mousedown.prevent="handleInput('ShiftRight', 'down')"
+                            @mouseup.prevent="handleInput('ShiftRight', 'up')"
+                            @mouseleave.prevent="handleInput('ShiftRight', 'up')"
+                            @touchstart.prevent="handleInput('ShiftRight', 'down')"
+                            @touchend.prevent="handleInput('ShiftRight', 'up')">NUDGE R</button>
+                    </div>
                 </div>
             </div>
 
