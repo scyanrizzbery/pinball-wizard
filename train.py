@@ -175,7 +175,8 @@ def main():
     logger.info("Web Server started for training visualization.")
 
     # 5. Initialize Environment
-    env = PinballEnv(vision_wrapper, hw, score_reader, headless=headless_mode)
+    # Enable random layouts for better generalization
+    env = PinballEnv(vision_wrapper, hw, score_reader, headless=headless_mode, random_layouts=True)
 
     # 6. Initialize Agent
     model_path = "models/ppo_pinball_v1"

@@ -1,0 +1,36 @@
+{
+    "flippers": {
+        "left": {
+            "x_min": 0.25,
+            "x_max": 0.45,
+            "y_min": 0.8,
+            "y_max": 0.9
+        },
+        "right": {
+            "x_min": 0.55,
+            "x_max": 0.75,
+            "y_min": 0.8,
+            "y_max": 0.9
+        }
+    },
+    "bumpers": [
+        {
+            "x": 0.5,
+            "y": 0.2,
+            "radius_ratio": 0.03,
+            "value": 200
+        }
+    ],
+    "drop_targets": [
+        {
+            "x": 0.5,
+            "y": 0.1,
+            "width": 0.02,
+            "height": 0.01,
+            "value": 1000
+        }
+    ],
+    "guide_lines": {
+        "y": 0.7
+    }
+}

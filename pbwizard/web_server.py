@@ -166,6 +166,75 @@ def handle_reset_physics():
             logger.info("Physics config reset to defaults")
 
 
+@socketio.on('load_layout')
+def handle_load_layout(data):
+    if not vision_system:
+        return
+    
+    logger.info("Received load_layout request")
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    
+    if hasattr(capture, 'load_layout'):
+        try:
+            success = capture.load_layout(data)
+            if success:
+                logger.info("Layout loaded successfully")
+                socketio.emit('layout_loaded', {'status': 'success'})
+            else:
+                logger.error("Failed to load layout")
+                socketio.emit('layout_loaded', {'status': 'error', 'message': 'Failed to load layout'})
+        except Exception as e:
+            logger.error(f"Error loading layout: {e}")
+            socketio.emit('layout_loaded', {'status': 'error', 'message': str(e)})
+    else:
+        logger.warning("Vision system does not support layout loading")
+        socketio.emit('layout_loaded', {'status': 'error', 'message': 'Not supported'})
+
+
+        socketio.emit('layout_loaded', {'status': 'error', 'message': 'Not supported'})
+
+
+@socketio.on('get_layouts')
+def handle_get_layouts():
+    try:
+        layouts_dir = os.path.join(os.getcwd(), 'layouts')
+        if not os.path.exists(layouts_dir):
+            os.makedirs(layouts_dir)
+            
+        files = [f for f in os.listdir(layouts_dir) if f.endswith('.json')]
+        # Remove extension for display
+        layout_names = [os.path.splitext(f)[0] for f in files]
+        socketio.emit('layouts_list', layout_names)
+    except Exception as e:
+        logger.error(f"Error listing layouts: {e}")
+
+
+@socketio.on('load_layout_by_name')
+def handle_load_layout_by_name(data):
+    layout_name = data.get('name')
+    if not layout_name:
+        return
+
+    try:
+        filename = f"{layout_name}.json"
+        filepath = os.path.join(os.getcwd(), 'layouts', filename)
+        
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                import json
+                config = json.load(f)
+            
+            # Reuse the existing load_layout logic
+            handle_load_layout(config)
+        else:
+            logger.error(f"Layout file not found: {filepath}")
+            socketio.emit('layout_loaded', {'status': 'error', 'message': 'Layout not found'})
+            
+    except Exception as e:
+        logger.error(f"Error loading layout by name: {e}")
+        socketio.emit('layout_loaded', {'status': 'error', 'message': str(e)})
+
+
 @socketio.on('toggle_ai')
 def handle_toggle_ai(data):
     if not vision_system:

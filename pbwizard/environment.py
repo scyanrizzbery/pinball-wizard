@@ -16,13 +16,14 @@ class PinballEnv(gym.Env):
 
     metadata = {'render_modes': ['human', 'rgb_array'], 'render_fps': 30}
 
-    def __init__(self, vision_system, hardware_controller, score_reader, headless: bool = False):
+    def __init__(self, vision_system, hardware_controller, score_reader, headless: bool = False, random_layouts: bool = False):
         super(PinballEnv, self).__init__()
         
         self.vision = vision_system
         self.hw = hardware_controller
         self.score_reader = score_reader
         self.headless = headless
+        self.random_layouts = random_layouts
         
         # Action Space: 0: No-op, 1: Left Flip, 2: Right Flip, 3: Both Flip
         self.action_space = spaces.Discrete(4)
@@ -264,6 +265,14 @@ class PinballEnv(gym.Env):
         self.steps_without_ball = 0
         self.holding_steps = 0
         self.last_time = time.time()
+        
+        if self.random_layouts and hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'layout'):
+             # Only randomize if it's a simulated capture with a layout
+             if hasattr(self.vision.capture.layout, 'randomize'):
+                 self.vision.capture.layout.randomize()
+                 # Reload to apply changes
+                 self.vision.capture.load_layout(self.vision.capture.layout.to_dict())
+                 logger.info("Randomized layout for new episode")
         
         # Launch ball if in simulation and auto-start is enabled
         should_launch = True

@@ -49,8 +49,8 @@ class FrameCapture:
 
 
 class PinballLayout:
-    def __init__(self):
-        # Normalized coordinates (0.0 to 1.0)
+    def __init__(self, config=None, filepath=None):
+        # Default values
         self.left_flipper_x_min = 0.2
         self.left_flipper_x_max = 0.4
         self.left_flipper_y_min = 0.8
@@ -69,13 +69,123 @@ class PinballLayout:
         
         self.guide_lines_y = 0.65
         
-        # Drop Targets (3 in a row)
-        # Drop Targets (3 in a row)
         self.drop_targets = [
             {'x': 0.4, 'y': 0.1, 'width': 0.03, 'height': 0.01, 'value': 500},
             {'x': 0.5, 'y': 0.1, 'width': 0.03, 'height': 0.01, 'value': 500},
             {'x': 0.6, 'y': 0.1, 'width': 0.03, 'height': 0.01, 'value': 500}
         ]
+        
+        if filepath:
+            self.load_from_file(filepath)
+        elif config:
+            self.load(config)
+
+    def load_from_file(self, filepath):
+        try:
+            with open(filepath, 'r') as f:
+                config = json.load(f)
+            self.load(config)
+        except Exception as e:
+            logger.error(f"Failed to load layout from {filepath}: {e}")
+
+    def load(self, config):
+        if 'flippers' in config:
+            f = config['flippers']
+            if 'left' in f:
+                l = f['left']
+                self.left_flipper_x_min = l.get('x_min', self.left_flipper_x_min)
+                self.left_flipper_x_max = l.get('x_max', self.left_flipper_x_max)
+                self.left_flipper_y_min = l.get('y_min', self.left_flipper_y_min)
+                self.left_flipper_y_max = l.get('y_max', self.left_flipper_y_max)
+            if 'right' in f:
+                r = f['right']
+                self.right_flipper_x_min = r.get('x_min', self.right_flipper_x_min)
+                self.right_flipper_x_max = r.get('x_max', self.right_flipper_x_max)
+                self.right_flipper_y_min = r.get('y_min', self.right_flipper_y_min)
+                self.right_flipper_y_max = r.get('y_max', self.right_flipper_y_max)
+        
+        if 'bumpers' in config:
+            self.bumpers = config['bumpers']
+            
+        if 'drop_targets' in config:
+            self.drop_targets = config['drop_targets']
+            
+        if 'guide_lines' in config:
+            self.guide_lines_y = config['guide_lines'].get('y', self.guide_lines_y)
+            
+    def to_dict(self):
+        return {
+            "flippers": {
+                "left": {
+                    "x_min": self.left_flipper_x_min,
+                    "x_max": self.left_flipper_x_max,
+                    "y_min": self.left_flipper_y_min,
+                    "y_max": self.left_flipper_y_max
+                },
+                "right": {
+                    "x_min": self.right_flipper_x_min,
+                    "x_max": self.right_flipper_x_max,
+                    "y_min": self.right_flipper_y_min,
+                    "y_max": self.right_flipper_y_max
+                }
+            },
+            "bumpers": self.bumpers,
+            "drop_targets": self.drop_targets,
+            "guide_lines": {
+                "y": self.guide_lines_y
+            }
+        }
+
+    def randomize(self):
+        """Randomize layout parameters for training variety."""
+        # Randomize flipper gap (difficulty)
+        # Keep y positions relatively stable, just move x
+        gap_width = np.random.uniform(0.15, 0.25)
+        center = 0.5
+        
+        self.left_flipper_x_max = center - (gap_width / 2)
+        self.left_flipper_x_min = self.left_flipper_x_max - 0.2
+        
+        self.right_flipper_x_min = center + (gap_width / 2)
+        self.right_flipper_x_max = self.right_flipper_x_min + 0.2
+        
+        # Randomize bumpers
+        num_bumpers = np.random.randint(0, 8)
+        self.bumpers = []
+        for _ in range(num_bumpers):
+            # Avoid flipper area (bottom center)
+            while True:
+                x = np.random.uniform(0.1, 0.9)
+                y = np.random.uniform(0.1, 0.7)
+                
+                # Simple check to avoid center drain area
+                if y > 0.6 and 0.3 < x < 0.7:
+                    continue
+                
+                self.bumpers.append({
+                    'x': x,
+                    'y': y,
+                    'radius_ratio': np.random.uniform(0.03, 0.06),
+                    'value': int(np.random.choice([50, 100, 500]))
+                })
+                break
+        
+        # Randomize drop targets
+        num_targets = np.random.randint(0, 4)
+        self.drop_targets = []
+        if num_targets > 0:
+            y_pos = np.random.uniform(0.05, 0.2)
+            spacing = 0.05
+            start_x = 0.5 - ((num_targets - 1) * spacing) / 2
+            
+            for i in range(num_targets):
+                self.drop_targets.append({
+                    'x': start_x + i * spacing,
+                    'y': y_pos,
+                    'width': 0.03,
+                    'height': 0.01,
+                    'value': 500
+                })
 
 class SimulatedFrameCapture:
     # Physics Constants
@@ -371,6 +481,33 @@ class SimulatedFrameCapture:
             'flipper_stroke_angle': self.flipper_stroke_angle,
             'flipper_length': self.flipper_length
         }
+
+    def load_layout(self, layout_config):
+        """Load a new table layout from a dictionary."""
+        with self.lock:
+            self.layout.load(layout_config)
+            
+            # Re-initialize components dependent on layout
+            self.zone_manager = ZoneManager(self.width, self.height, self.layout)
+            self._update_flipper_rects()
+            
+            # Re-init bumpers
+            self.bumpers = []
+            for b in self.layout.bumpers:
+                self.bumpers.append({
+                    'pos': np.array([self.width * b['x'], self.height * b['y']]),
+                    'radius': int(self.width * b['radius_ratio']),
+                    'value': b['value']
+                })
+                
+            # Re-init drop targets
+            self.drop_target_states = [True] * len(self.layout.drop_targets)
+            
+            # Reset game state
+            self.score = 0
+            self.balls = []
+            logger.info("Layout loaded and simulation reset")
+            return True
 
     def launch_ball(self):
         with self.lock:

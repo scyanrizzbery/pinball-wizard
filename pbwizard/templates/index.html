@@ -403,6 +403,16 @@
 
                 <div class="slider-container">
                     <div class="slider-label">
+                        <span>Table Layout</span>
+                    </div>
+                    <select v-model="selectedLayout" @change="changeLayout"
+                        style="width: 100%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px;">
+                        <option v-for="layout in layouts" :key="layout" :value="layout">[[ layout ]]</option>
+                    </select>
+                </div>
+
+                <div class="slider-container">
+                    <div class="slider-label">
                         <span>Gravity</span>
                         <span>[[ physics.gravity ]]</span>
                     </div>
@@ -505,6 +515,9 @@
                     autoStart: true
                 });
 
+                const layouts = ref([]);
+                const selectedLayout = ref('default');
+
                 const logs = ref([]);
                 const activeKeys = reactive(new Set());
 
@@ -549,9 +562,7 @@
                 };
 
                 const resetConfig = () => {
-                    if (confirm('Are you sure you want to reset physics settings to defaults?')) {
-                        socket.emit('reset_physics');
-                    }
+                    socket.emit('reset_physics');
                 };
 
                 const toggleAI = () => {
@@ -562,6 +573,11 @@
                 const toggleAutoStart = () => {
                     console.log("Toggling Auto-Start:", toggles.autoStart);
                     socket.emit('toggle_auto_start', { enabled: toggles.autoStart });
+                };
+
+                const changeLayout = () => {
+                    addLog(`Loading layout: ${selectedLayout.value}`);
+                    socket.emit('load_layout_by_name', { name: selectedLayout.value });
                 };
 
                 // Keyboard Listeners
@@ -621,6 +637,24 @@
                         addLog(`Auto-Start: ${data.enabled}`);
                     });
 
+                    socket.on('layouts_list', (data) => {
+                        layouts.value = data;
+                        if (!layouts.value.includes(selectedLayout.value) && layouts.value.length > 0) {
+                            selectedLayout.value = 'default'; // Default fallback
+                        }
+                    });
+
+                    socket.on('layout_loaded', (data) => {
+                        if (data.status === 'success') {
+                            addLog('Layout loaded successfully');
+                        } else {
+                            addLog(`Error loading layout: ${data.message}`);
+                        }
+                    });
+
+                    // Request layouts on connect
+                    socket.emit('get_layouts');
+
                     socket.on('log_message', (data) => {
                         addLog(data.message);
                     });
@@ -651,7 +685,10 @@
                     updatePhysics,
                     resetConfig,
                     toggleAI,
-                    toggleAutoStart
+                    toggleAutoStart,
+                    layouts,
+                    selectedLayout,
+                    changeLayout
                 };
             }
         }).mount('#app');
