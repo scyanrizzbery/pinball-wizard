@@ -1,0 +1,13 @@
+opencv-python
+numpy
+gpiozero
+gymnasium
+stable-baselines3
+torch==2.4.1
+pytesseract
+flask
+flask-socketio
+eventlet
+python-dotenv
+pytest
+progressbar2

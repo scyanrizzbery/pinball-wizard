@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pinball Bot Vision</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            text-align: center;
+            margin: 0;
+            padding: 10px;
+            touch-action: manipulation;
+        }
+
+        /* Layout Containers */
+        #app {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        #main-layout {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        #game-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1 1 auto;
+            max-width: 800px;
+        }
+
+        #video-container {
+            margin-top: 0;
+            border: 2px solid #444;
+            display: inline-block;
+            max-width: 100%;
+            background: #000;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+
+        img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        /* Stats */
+        #stats-container {
+            margin-top: 10px;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 1em;
+        }
+
+        .stat-box {
+            background: #2d2d2d;
+            padding: 8px 15px;
+            border-radius: 8px;
+            border: 1px solid #3d3d3d;
+            min-width: 80px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .label {
+            font-size: 0.7em;
+            color: #aaa;
+            display: block;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .value {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .text-green {
+            color: #4CAF50;
+        }
+
+        .text-yellow {
+            color: #FFC107;
+        }
+
+        .text-blue {
+            color: #2196F3;
+        }
+
+        /* Controls */
+        #controls-container {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            padding-bottom: 20px;
+        }
+
+        .control-btn {
+            background-color: #3d3d3d;
+            color: white;
+            border: none;
+            padding: 20px;
+            font-size: 1.2em;
+            border-radius: 10px;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            min-width: 100px;
+            transition: all 0.1s;
+            box-shadow: 0 4px 0 #222;
+        }
+
+        .control-btn:active,
+        .control-btn.active {
+            background-color: #555;
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #222;
+        }
+
+        #btn-launch {
+            background-color: #d32f2f;
+        }
+
+        #btn-launch:active,
+        #btn-launch.active {
+            background-color: #b71c1c;
+        }
+
+        /* Physics Panel */
+        #physics-controls {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #3d3d3d;
+            width: 100%;
+            /* max-width: 350px; Removed per user request */
+            box-sizing: border-box;
+        }
+
+        h3 {
+            margin-top: 0;
+            color: #ccc;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+        }
+
+        .slider-container {
+            margin-bottom: 15px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9em;
+            color: #ccc;
+            margin-bottom: 5px;
+        }
+
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: #2196F3;
+        }
+
+        /* Toggles */
+        .toggle-container {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            background: #222;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 28px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: #2196F3;
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(22px);
+        }
+
+        /* Logs */
+        #game-log {
+            margin-top: 15px;
+            background: #000;
+            border: 1px solid #444;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Consolas', monospace;
+            font-size: 0.8em;
+            color: #0f0;
+            padding: 8px;
+            text-align: left;
+            white-space: pre-wrap;
+            border-radius: 4px;
+        }
+
+        .log-entry {
+            margin-bottom: 2px;
+        }
+
+        /* Connection Status */
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-connected {
+            background-color: #4CAF50;
+            box-shadow: 0 0 5px #4CAF50;
+        }
+
+        .status-disconnected {
+            background-color: #f44336;
+        }
+
+        /* Responsive */
+        @media (min-width: 1000px) {
+            #main-layout {
+                flex-wrap: nowrap;
+            }
+
+            #physics-controls {
+                position: sticky;
+                top: 20px;
+                height: fit-content;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .stat-box {
+                flex: 1 1 40%;
+            }
+
+            #controls-container {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                background: rgba(0, 0, 0, 0.9);
+                padding: 15px 0;
+                margin: 0;
+                z-index: 100;
+            }
+
+            .control-btn {
+                padding: 15px 0;
+                margin: 0 5px;
+                flex: 1;
+            }
+
+            #video-container {
+                margin-bottom: 80px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h1>Pinball Bot Vision</h1>
+            <div style="font-size: 0.8em; color: #888;">
+                <span class="status-dot" :class="connected ? 'status-connected' : 'status-disconnected'"></span>
+                [[ connected ? 'Connected' : 'Disconnected' ]]
+            </div>
+        </div>
+
+        <div id="stats-container">
+            <div class="stat-box">
+                <span class="label">SCORE</span>
+                <span class="value text-green">[[ formatNumber(stats.score, 0) ]]</span>
+            </div>
+            <div class="stat-box">
+                <span class="label">HIGH SCORE</span>
+                <span class="value text-yellow">[[ formatNumber(stats.high_score, 0) ]]</span>
+            </div>
+            <div class="stat-box">
+                <span class="label">BALLS</span>
+                <span class="value">[[ stats.balls ]]</span>
+            </div>
+            <div class="stat-box">
+                <span class="label">GAMES</span>
+                <span class="value">[[ stats.games_played ]]</span>
+            </div>
+            <div class="stat-box">
+                <span class="label">STEPS</span>
+                <span class="value">[[ stats.timesteps ]]</span>
+            </div>
+            <div class="stat-box">
+                <span class="label">LAST REWARD</span>
+                <span class="value text-blue">[[ formatNumber(stats.mean_reward) ]]</span>
+            </div>
+        </div>
+
+        <div id="main-layout">
+            <div id="game-area">
+                <div id="video-container">
+                    <img :src="videoSrc" alt="Waiting for stream..."
+                        style="width: 600px; height: 800px; object-fit: contain; background: #000;">
+                </div>
+
+                <div id="controls-container">
+                    <button class="control-btn" :class="{ active: activeKeys.has('KeyZ') }"
+                        @mousedown.prevent="handleInput('KeyZ', 'down')" @mouseup.prevent="handleInput('KeyZ', 'up')"
+                        @mouseleave.prevent="handleInput('KeyZ', 'up')"
+                        @touchstart.prevent="handleInput('KeyZ', 'down')"
+                        @touchend.prevent="handleInput('KeyZ', 'up')">LEFT (Z)</button>
+
+                    <button id="btn-launch" class="control-btn" :class="{ active: activeKeys.has('Space') }"
+                        @mousedown.prevent="handleInput('Space', 'down')" @mouseup.prevent="handleInput('Space', 'up')"
+                        @mouseleave.prevent="handleInput('Space', 'up')"
+                        @touchstart.prevent="handleInput('Space', 'down')"
+                        @touchend.prevent="handleInput('Space', 'up')">LAUNCH</button>
+
+                    <button class="control-btn" :class="{ active: activeKeys.has('Slash') }"
+                        @mousedown.prevent="handleInput('Slash', 'down')" @mouseup.prevent="handleInput('Slash', 'up')"
+                        @mouseleave.prevent="handleInput('Slash', 'up')"
+                        @touchstart.prevent="handleInput('Slash', 'down')"
+                        @touchend.prevent="handleInput('Slash', 'up')">RIGHT (/)</button>
+                </div>
+            </div>
+
+            <div id="physics-controls">
+                <h3>Settings</h3>
+
+                <div class="toggle-container">
+                    <div style="display: flex; flex-direction: column; align-items: center;">
+                        <span class="label">AI ENABLED</span>
+                        <label class="switch">
+                            <input type="checkbox" v-model="toggles.ai" @change="toggleAI">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div style="display: flex; flex-direction: column; align-items: center;">
+                        <span class="label">AUTO-START</span>
+                        <label class="switch">
+                            <input type="checkbox" v-model="toggles.autoStart" @change="toggleAutoStart">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>Gravity</span>
+                        <span>[[ physics.gravity ]]</span>
+                    </div>
+                    <input type="range" v-model.number="physics.gravity" min="0.0" max="1.0" step="0.01"
+                        @input="updatePhysics('gravity')">
+                </div>
+
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>Friction</span>
+                        <span>[[ physics.friction ]]</span>
+                    </div>
+                    <input type="range" v-model.number="physics.friction" min="0.900" max="1.000" step="0.001"
+                        @input="updatePhysics('friction')">
+                </div>
+
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>Restitution</span>
+                        <span>[[ physics.restitution ]]</span>
+                    </div>
+                    <input type="range" v-model.number="physics.restitution" min="0.0" max="1.0" step="0.05"
+                        @input="updatePhysics('restitution')">
+                </div>
+
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>Flipper Speed</span>
+                        <span>[[ physics.flipper_speed ]]</span>
+                    </div>
+                    <input type="range" v-model.number="physics.flipper_speed" min="1.0" max="100.0" step="1.0"
+                        @input="updatePhysics('flipper_speed')">
+                </div>
+
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>Flipper Resting Angle</span>
+                        <span>[[ physics.flipper_resting_angle ]]</span>
+                    </div>
+                    <input type="range" v-model.number="physics.flipper_resting_angle" min="-60" max="0" step="1"
+                        @input="updatePhysics('flipper_resting_angle')">
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button class="control-btn"
+                        style="padding: 10px; font-size: 0.9em; flex: 1; background-color: #2196F3;"
+                        @click="saveConfig">Save</button>
+                    <button class="control-btn"
+                        style="padding: 10px; font-size: 0.9em; flex: 1; background-color: #FF9800;"
+                        @click="loadConfig">Load</button>
+                </div>
+
+                <div id="game-log" ref="logContainer">
+                    <div v-for="(log, index) in logs" :key="index" class="log-entry">[[ log ]]</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, onMounted, watch, nextTick } = Vue;
+
+        createApp({
+            delimiters: ['[[', ']]'], // Avoid conflict with Flask Jinja2
+            setup() {
+                const socket = io();
+                const connected = ref(false);
+                const videoSrc = ref('');
+                const logContainer = ref(null);
+
+                // State
+                const stats = reactive({
+                    score: 0,
+                    high_score: 0,
+                    balls: 0,
+                    games_played: 0,
+                    timesteps: 0,
+                    mean_reward: 0
+                });
+
+                const physics = reactive({
+                    gravity: 0.1,
+                    friction: 0.999,
+                    restitution: 0.5,
+                    flipper_speed: 10.0,
+                    flipper_resting_angle: -30,
+                    flipper_stroke_angle: 50
+                });
+
+                const toggles = reactive({
+                    ai: true,
+                    autoStart: true
+                });
+
+                const logs = ref([]);
+                const activeKeys = reactive(new Set());
+
+                // Methods
+                const formatNumber = (num, decimals = 2) => {
+                    if (num === undefined) return '0';
+                    return Number(num).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+                };
+
+                const addLog = (msg) => {
+                    logs.value.push(msg);
+                    if (logs.value.length > 100) logs.value.shift();
+                    nextTick(() => {
+                        if (logContainer.value) {
+                            logContainer.value.scrollTop = logContainer.value.scrollHeight;
+                        }
+                    });
+                };
+
+                const handleInput = (key, type) => {
+                    if (type === 'down') {
+                        if (!activeKeys.has(key)) {
+                            activeKeys.add(key);
+                            socket.emit('input_event', { key, type: 'down' });
+                        }
+                    } else {
+                        if (activeKeys.has(key)) {
+                            activeKeys.delete(key);
+                            socket.emit('input_event', { key, type: 'up' });
+                        }
+                    }
+                };
+
+                const debounceTimers = {};
+                const updatePhysics = (param) => {
+                    if (debounceTimers[param]) clearTimeout(debounceTimers[param]);
+                    debounceTimers[param] = setTimeout(() => {
+                        socket.emit('update_physics', { [param]: physics[param] });
+                        delete debounceTimers[param];
+                    }, 300);
+                };
+
+                const saveConfig = () => {
+                    socket.emit('save_physics');
+                    alert('Configuration Saved!');
+                };
+
+                const loadConfig = () => {
+                    socket.emit('load_physics');
+                };
+
+                const toggleAI = () => {
+                    console.log("Toggling AI:", toggles.ai);
+                    socket.emit('toggle_ai', { enabled: toggles.ai });
+                };
+
+                const toggleAutoStart = () => {
+                    console.log("Toggling Auto-Start:", toggles.autoStart);
+                    socket.emit('toggle_auto_start', { enabled: toggles.autoStart });
+                };
+
+                // Keyboard Listeners
+                const handleKeydown = (e) => {
+                    if (e.repeat) return;
+                    if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space') {
+                        e.preventDefault();
+                        handleInput(e.code, 'down');
+                    }
+                };
+
+                const handleKeyup = (e) => {
+                    if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space') {
+                        handleInput(e.code, 'up');
+                    }
+                };
+
+                onMounted(() => {
+                    // Socket Events
+                    socket.on('connect', () => {
+                        connected.value = true;
+                        addLog('Connected to server');
+                    });
+
+                    socket.on('disconnect', () => {
+                        connected.value = false;
+                        addLog('Disconnected from server');
+                    });
+
+                    socket.on('video_frame', (data) => {
+                        videoSrc.value = 'data:image/jpeg;base64,' + data.image;
+                    });
+
+                    socket.on('stats', (data) => {
+                        console.log("Received stats:", data);
+                        Object.assign(stats, data);
+                    });
+
+                    socket.on('physics_config_loaded', (config) => {
+                        addLog('Physics config loaded');
+                        if (config.gravity !== undefined) physics.gravity = config.gravity;
+                        if (config.friction !== undefined) physics.friction = config.friction;
+                        if (config.restitution !== undefined) physics.restitution = config.restitution;
+                        if (config.flipper_speed !== undefined) physics.flipper_speed = config.flipper_speed;
+                        if (config.flipper_resting_angle !== undefined) physics.flipper_resting_angle = config.flipper_resting_angle;
+                        if (config.flipper_stroke_angle !== undefined) physics.flipper_stroke_angle = config.flipper_stroke_angle;
+                    });
+
+                    socket.on('ai_status', (data) => {
+                        toggles.ai = data.enabled;
+                        addLog(`AI Enabled: ${data.enabled}`);
+                    });
+
+                    socket.on('auto_start_status', (data) => {
+                        toggles.autoStart = data.enabled;
+                        addLog(`Auto-Start: ${data.enabled}`);
+                    });
+
+                    socket.on('log_message', (data) => {
+                        addLog(data.message);
+                    });
+
+                    // Global Event Listeners
+                    window.addEventListener('keydown', handleKeydown);
+                    window.addEventListener('keyup', handleKeyup);
+                    window.addEventListener('blur', () => {
+                        activeKeys.clear();
+                        // Release all keys
+                        socket.emit('input_event', { key: 'KeyZ', type: 'up' });
+                        socket.emit('input_event', { key: 'Slash', type: 'up' });
+                        socket.emit('input_event', { key: 'Space', type: 'up' });
+                    });
+                });
+
+                return {
+                    connected,
+                    videoSrc,
+                    stats,
+                    physics,
+                    toggles,
+                    logs,
+                    activeKeys,
+                    logContainer,
+                    formatNumber,
+                    handleInput,
+                    updatePhysics,
+                    saveConfig,
+                    loadConfig,
+                    toggleAI,
+                    toggleAutoStart
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+
+</html>
