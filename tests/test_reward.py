@@ -34,8 +34,8 @@ class TestRewardShaping(unittest.TestCase):
         # Step
         _, reward, terminated, _, _ = self.env.step(0)
         
-        # Expect 0.01 survival reward
-        self.assertAlmostEqual(reward, 0.01)
+        # Expect 0.2 survival reward (from environment.py)
+        self.assertAlmostEqual(reward, 0.2)
         self.assertFalse(terminated)
         
     def test_score_scaling(self):
@@ -52,25 +52,33 @@ class TestRewardShaping(unittest.TestCase):
         # Step
         _, reward, _, _, _ = self.env.step(0)
         
-        # Expect (500/100) + 0.01 = 5.01
-        self.assertAlmostEqual(reward, 5.01)
+        # Expect (500/100) + 0.2 = 5.2
+        self.assertAlmostEqual(reward, 5.2)
         
     def test_loss_penalty(self):
         # Mock ball lost (y > height * 0.98)
         frame = np.zeros((800, 450, 3), dtype=np.uint8)
+        height = 800
         self.vision.get_frame.return_value = frame
         self.vision.get_raw_frame.return_value = frame
-        self.vision.process_frame.return_value = ((225, 790), np.zeros((800, 450, 3))) # Near bottom
+        # Ball at 790 (height is 800, 0.98 * 800 = 784). So 790 is lost.
+        self.vision.process_frame.return_value = ((225, 790), np.zeros((800, 450, 3))) 
+        # Also mock get_ball_status because headless=True skips process_frame result usage for ball_pos
+        self.vision.get_ball_status.return_value = ((225, 790), (0, 0))
+        
         self.vision.get_score.return_value = 0
         self.env.current_score = 0
         self.env.last_score = 0
         
+        # Ensure vision.ball_lost is False initially, but env checks position
+        self.vision.ball_lost = False
+        
         # Step
         _, reward, terminated, _, _ = self.env.step(0)
         
-        # Expect -5.0 + 0.01 = -4.99
+        # Expect -5.0 + 0.2 (survival) + 0.00125 (height reward: (1 - 790/800)*0.1) = -4.79875
         self.assertTrue(terminated)
-        self.assertAlmostEqual(reward, -4.99)
+        self.assertAlmostEqual(reward, -4.79875)
 
 if __name__ == '__main__':
     unittest.main()

@@ -11,3 +11,12 @@ services:
     env_file:
       - .env
     privileged: true
+
+  test:
+    profiles: [ "test" ]
+    build: .
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    command: python -m unittest discover tests

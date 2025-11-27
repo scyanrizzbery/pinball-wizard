@@ -80,6 +80,7 @@ class PinballLayout:
 class SimulatedFrameCapture:
     # Physics Constants
     FLIPPER_SPEED = 15.0  # Degrees per frame
+    FLIPPER_LENGTH = 0.2  # Normalized width
     LEFT_DOWN_ANGLE = -30
     LEFT_UP_ANGLE = 20
     RIGHT_DOWN_ANGLE = 210
@@ -101,6 +102,7 @@ class SimulatedFrameCapture:
         self.friction = self.FRICTION
         self.restitution = self.RESTITUTION
         self.flipper_speed = self.FLIPPER_SPEED
+        self.flipper_length = self.FLIPPER_LENGTH
         
         # Flipper Angles (Symmetric Control)
         self.flipper_resting_angle = -30.0
@@ -130,18 +132,12 @@ class SimulatedFrameCapture:
         self.current_right_angle = 180.0 - self.flipper_resting_angle
         
         # Flipper zones (calculated from layout)
-        self.left_flipper_rect = (
-            int(width * self.layout.left_flipper_x_min), 
-            int(height * self.layout.left_flipper_y_min), 
-            int(width * self.layout.left_flipper_x_max), 
-            int(height * self.layout.left_flipper_y_max)
-        )
-        self.right_flipper_rect = (
-            int(width * self.layout.right_flipper_x_min), 
-            int(height * self.layout.right_flipper_y_min), 
-            int(width * self.layout.right_flipper_x_max), 
-            int(height * self.layout.right_flipper_y_max)
-        )
+        # Flipper zones (calculated from layout)
+        self.left_flipper_rect = None
+        self.right_flipper_rect = None
+        self.guide_lines = []
+        
+        self._update_flipper_rects()
         
         # Score and Bumpers
         self.score = 0
@@ -154,13 +150,7 @@ class SimulatedFrameCapture:
             })
         
         # Guide Lines (Funnel to flippers)
-        l_pivot = (self.left_flipper_rect[0], self.left_flipper_rect[3])
-        r_pivot = (self.right_flipper_rect[2], self.right_flipper_rect[3])
-        
-        self.guide_lines = [
-            (np.array([0, height * self.layout.guide_lines_y]), np.array(l_pivot)),
-            (np.array([width, height * self.layout.guide_lines_y]), np.array(r_pivot))
-        ]
+        # Initialized in _update_flipper_rects
 
         # 3D Camera Settings
         self.cam_x = width / 2
@@ -178,6 +168,41 @@ class SimulatedFrameCapture:
         # We want to rotate such that the new Y component is 0
         # y' = y*cos(p) - z*sin(p) = 0  => tan(p) = y/z
         self.pitch = np.arctan2(dy, dz)
+
+    def _update_flipper_rects(self):
+        # Update flipper rectangles based on current flipper_length
+        # Left Flipper: Pivot at x_min, length extends to right
+        l_x_min = self.layout.left_flipper_x_min
+        l_x_max = l_x_min + self.flipper_length
+        
+        self.left_flipper_rect = (
+            int(self.width * l_x_min),
+            int(self.height * self.layout.left_flipper_y_min),
+            int(self.width * l_x_max),
+            int(self.height * self.layout.left_flipper_y_max)
+        )
+
+        # Right Flipper: Pivot at x_max, length extends to left
+        r_x_max = self.layout.right_flipper_x_max
+        r_x_min = r_x_max - self.flipper_length
+        
+        self.right_flipper_rect = (
+            int(self.width * r_x_min),
+            int(self.height * self.layout.right_flipper_y_min),
+            int(self.width * r_x_max),
+            int(self.height * self.layout.right_flipper_y_max)
+        )
+        
+        # Update Guide Lines (Funnel to flippers)
+        # Left pivot is bottom-left of rect (x_min, y_max)
+        l_pivot = (self.left_flipper_rect[0], self.left_flipper_rect[3])
+        # Right pivot is bottom-right of rect (x_max, y_max)
+        r_pivot = (self.right_flipper_rect[2], self.right_flipper_rect[3])
+        
+        self.guide_lines = [
+            (np.array([0, self.height * self.layout.guide_lines_y]), np.array(l_pivot)),
+            (np.array([self.width, self.height * self.layout.guide_lines_y]), np.array(r_pivot))
+        ]
 
     def _load_assets(self):
         asset_dir = os.path.join(os.path.dirname(__file__), 'assets')
@@ -278,6 +303,13 @@ class SimulatedFrameCapture:
         if 'flipper_stroke_angle' in params:
             self.flipper_stroke_angle = float(params['flipper_stroke_angle'])
             
+        if 'flipper_length' in params:
+            val = float(params['flipper_length'])
+            if val != self.flipper_length:
+                self.flipper_length = val
+                self._update_flipper_rects()
+                changes.append(f"Flipper Length: {val}")
+            
         if changes:
             logger.info(f"Physics updated: {', '.join(changes)}")
 
@@ -288,7 +320,8 @@ class SimulatedFrameCapture:
             'restitution': self.restitution,
             'flipper_speed': self.flipper_speed,
             'flipper_resting_angle': self.flipper_resting_angle,
-            'flipper_stroke_angle': self.flipper_stroke_angle
+            'flipper_stroke_angle': self.flipper_stroke_angle,
+            'flipper_length': self.flipper_length
         }
         try:
             with open(filepath, 'w') as f:

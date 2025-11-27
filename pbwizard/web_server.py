@@ -149,6 +149,7 @@ def handle_load_physics():
     if hasattr(capture, 'load_config'):
         config = capture.load_config()
         if config:
+            logger.info(f"Loaded config from file: {config}")
             socketio.emit('physics_config_loaded', config)
             logger.info("Physics config loaded via web request")
 @socketio.on('toggle_ai')

@@ -446,6 +446,15 @@
                         @input="updatePhysics('flipper_resting_angle')">
                 </div>
 
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>Flipper Length</span>
+                        <span>[[ physics.flipper_length ]]</span>
+                    </div>
+                    <input type="range" v-model.number="physics.flipper_length" min="0.1" max="0.4" step="0.01"
+                        @input="updatePhysics('flipper_length')">
+                </div>
+
                 <div style="display: flex; gap: 10px; margin-top: 15px;">
                     <button class="control-btn"
                         style="padding: 10px; font-size: 0.9em; flex: 1; background-color: #2196F3;"
@@ -490,7 +499,8 @@
                     restitution: 0.5,
                     flipper_speed: 10.0,
                     flipper_resting_angle: -30,
-                    flipper_stroke_angle: 50
+                    flipper_stroke_angle: 50,
+                    flipper_length: 0.2
                 });
 
                 const toggles = reactive({
@@ -603,6 +613,7 @@
                         if (config.flipper_speed !== undefined) physics.flipper_speed = config.flipper_speed;
                         if (config.flipper_resting_angle !== undefined) physics.flipper_resting_angle = config.flipper_resting_angle;
                         if (config.flipper_stroke_angle !== undefined) physics.flipper_stroke_angle = config.flipper_stroke_angle;
+                        if (config.flipper_length !== undefined) physics.flipper_length = config.flipper_length;
                     });
 
                     socket.on('ai_status', (data) => {
