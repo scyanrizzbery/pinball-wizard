@@ -549,7 +549,10 @@
 
         <div id="main-layout">
             <div id="game-area">
-                <div id="video-container">
+                <!-- Tilted Overlay -->
+                <div id="tilted-overlay" v-if="stats.isTilted">TILTED!</div>
+
+                <div id="video-container" :class="{ shake: stats.isShaking }">
                     <img id="video-stream" :src="videoSrc" alt="Waiting for stream..."
                         style="width: 100%; max-width: 600px; height: auto; aspect-ratio: 3/4; object-fit: contain; background: #000;">
                 </div>
@@ -591,6 +594,15 @@
                             @mouseleave.prevent="handleInput('ShiftRight', 'up')"
                             @touchstart.prevent="handleInput('ShiftRight', 'down')"
                             @touchend.prevent="handleInput('ShiftRight', 'up')">NUDGE R</button>
+                    </div>
+
+                    <!-- Tilt Meter -->
+                    <div id="tilt-container">
+                        <div class="tilt-label">TILT DANGER</div>
+                        <div class="tilt-bar-bg">
+                            <div class="tilt-bar-fill"
+                                :style="{ width: (tiltValue * 10) + '%', backgroundColor: tiltColor }"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -734,9 +746,18 @@
                     return parts;
                 };
 
-                const scoreReels = Vue.computed(() => formatToReels(stats.score, 6));
-                const highScoreReels = Vue.computed(() => formatToReels(stats.high_score, 6));
-                const ballReels = Vue.computed(() => formatToReels(stats.balls, 1));
+                // Computed properties
+                const scoreReels = computed(() => formatToReels(stats.score, 6));
+                const highScoreReels = computed(() => formatToReels(stats.high_score, 6));
+                const ballReels = computed(() => formatToReels(stats.balls, 1));
+                const tiltValue = computed(() => stats.tilt_value || 0);
+                const isTilted = computed(() => stats.is_tilted || false);
+                const tiltColor = computed(() => {
+                    const val = tiltValue.value;
+                    if (val > 8) return '#ff0000';
+                    if (val > 5) return '#ff9800';
+                    return '#4caf50';
+                });
 
                 // State
                 const stats = reactive({
@@ -746,7 +767,10 @@
                     games_played: 0,
                     timesteps: 0,
                     mean_reward: 0,
-                    is_training: false
+                    is_training: false,
+                    nudge: null,
+                    tilt_value: 0,
+                    is_tilted: false
                 });
 
                 const physics = reactive({

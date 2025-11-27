@@ -201,6 +201,11 @@ class SimulatedFrameCapture:
     RESTITUTION = 0.5
     
     MAX_BALLS = 5
+    
+    # Tilt Settings
+    TILT_THRESHOLD = 10.0
+    NUDGE_COST = 3.5
+    TILT_DECAY = 0.05
 
     def __init__(self, width=constants.DEFAULT_WIDTH, height=constants.DEFAULT_HEIGHT, headless=False):
         self.width = width
@@ -233,6 +238,10 @@ class SimulatedFrameCapture:
         # Ball State (List of balls)
         self.balls = [] # List of dicts: {'pos': np.array, 'vel': np.array, 'lost': bool}
         self.ball_radius = int(width * 0.025) # Scale ball with width
+        
+        # Tilt State
+        self.tilt_value = 0.0
+        self.is_tilted = False
         
         # Drop Target States (True = Active/Up, False = Inactive/Down)
         self.drop_target_states = [True] * len(self.layout.drop_targets) 
@@ -508,6 +517,8 @@ class SimulatedFrameCapture:
             # Reset game state
             self.score = 0
             self.balls = []
+            self.tilt_value = 0.0
+            self.is_tilted = False
             logger.info("Layout loaded and simulation reset")
             return True
 
@@ -515,6 +526,8 @@ class SimulatedFrameCapture:
         with self.lock:
             if len(self.balls) == 0:
                 self.score = 0
+                self.tilt_value = 0.0
+                self.is_tilted = False
                 logger.info("Sim: Score Reset (New Game)")
             self.add_ball()
             self.flipper_speed = self.FLIPPER_SPEED
@@ -564,6 +577,16 @@ class SimulatedFrameCapture:
     def nudge(self, dx, dy):
         """Apply a sudden velocity change to all balls (simulate tilt)."""
         with self.lock:
+            if self.is_tilted:
+                return
+
+            # Accumulate Tilt
+            self.tilt_value += self.NUDGE_COST
+            if self.tilt_value > self.TILT_THRESHOLD:
+                self.is_tilted = True
+                logger.info("TILT! Game Over for this ball.")
+                # Could also drain ball immediately, but let's just kill flippers
+            
             for ball in self.balls:
                 if not ball['lost']:
                     ball['vel'][0] += dx
@@ -737,6 +760,10 @@ class SimulatedFrameCapture:
                 # Remove lost balls
                 self.balls = [b for b in self.balls if not b['lost']]
                 
+                # Decay Tilt
+                if self.tilt_value > 0:
+                    self.tilt_value = max(0, self.tilt_value - self.TILT_DECAY)
+                
                 if not self.balls:
                     # Auto-start logic
                     if self.auto_start_enabled:
@@ -785,29 +812,25 @@ class SimulatedFrameCapture:
         l_up = self.flipper_resting_angle + self.flipper_stroke_angle
         
         # Right: Mirrored around 90 (vertical) or just 180 - angle?
-        # If left resting is -30 (pointing down-right), right resting should be 210 (pointing down-left)?
-        # Wait, standard angles: 0 is right, 90 is down, 180 is left, 270 is up?
-        # Let's stick to the previous values to deduce the logic.
-        # Old Left Down: -30. Old Right Down: 210. Sum = 180.
-        # Old Left Up: 20. Old Right Up: 160. Sum = 180.
-        # So Right = 180 - Left.
-        
         r_down = 180.0 - l_down
         r_up = 180.0 - l_up
 
         # Left Flipper
-        target_left = l_up if self.left_flipper_active else l_down
+        # If tilted, force down
+        target_left = l_down
+        if not self.is_tilted and self.left_flipper_active:
+            target_left = l_up
+            
         if self.current_left_angle < target_left:
             self.current_left_angle = min(self.current_left_angle + self.flipper_speed * dt, target_left)
         elif self.current_left_angle > target_left:
             self.current_left_angle = max(self.current_left_angle - self.flipper_speed * dt, target_left)
             
         # Right Flipper
-        target_right = r_up if self.right_flipper_active else r_down
-        
-        # Right moves opposite to Left in terms of value increase/decrease?
-        # Left: -30 -> 20 (Increase)
-        # Right: 210 -> 160 (Decrease)
+        # If tilted, force down
+        target_right = r_down
+        if not self.is_tilted and self.right_flipper_active:
+            target_right = r_up
         
         if self.current_right_angle > target_right:
             self.current_right_angle = max(self.current_right_angle - self.flipper_speed * dt, target_right)

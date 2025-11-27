@@ -136,13 +136,22 @@ def main():
             if hasattr(self.capture, 'last_nudge'):
                 nudge_data = self.capture.last_nudge
             
+            tilt_value = 0.0
+            is_tilted = False
+            if hasattr(self.capture, 'tilt_value'):
+                tilt_value = self.capture.tilt_value
+            if hasattr(self.capture, 'is_tilted'):
+                is_tilted = self.capture.is_tilted
+
             return {
                 'score': current_score,
                 'high_score': self.high_score,
                 'balls': current_balls,
                 'games_played': self.games_played,
                 'is_training': False,
-                'nudge': nudge_data
+                'nudge': nudge_data,
+                'tilt_value': tilt_value,
+                'is_tilted': is_tilted
             }
 
         @property
