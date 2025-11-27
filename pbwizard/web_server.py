@@ -119,6 +119,12 @@ def handle_input(data):
     elif key == 'Space' and event_type == 'down':
         logger.info("Input: Launch Ball Triggered")
         capture.launch_ball()
+    elif key == 'ShiftLeft' and event_type == 'down':
+        if hasattr(capture, 'nudge_left'):
+            capture.nudge_left()
+    elif key == 'ShiftRight' and event_type == 'down':
+        if hasattr(capture, 'nudge_right'):
+            capture.nudge_right()
 
 
 @socketio.on('update_physics')

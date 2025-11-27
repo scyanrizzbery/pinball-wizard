@@ -132,12 +132,17 @@ def main():
                 
             self.last_ball_count = current_balls
                 
+            nudge_data = None
+            if hasattr(self.capture, 'last_nudge'):
+                nudge_data = self.capture.last_nudge
+            
             return {
                 'score': current_score,
                 'high_score': self.high_score,
                 'balls': current_balls,
                 'games_played': self.games_played,
-                'is_training': False
+                'is_training': False,
+                'nudge': nudge_data
             }
 
         @property

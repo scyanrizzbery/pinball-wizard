@@ -121,11 +121,16 @@ def main():
             with self.lock:
                 stats = self.training_stats.copy()
                 
+            nudge_data = None
+            if hasattr(self.capture, 'last_nudge'):
+                nudge_data = self.capture.last_nudge
+
             stats.update({
                 'score': current_score,
                 'high_score': self.high_score,
                 'balls': balls,
-                'is_training': True
+                'is_training': True,
+                'nudge': nudge_data
             })
             return stats
 

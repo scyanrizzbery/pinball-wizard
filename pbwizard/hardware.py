@@ -70,6 +70,12 @@ class FlipperController:
         else:
             logger.debug(f"[HARDWARE] Release Right (Pin {self.right_pin})")
 
+    def nudge_left(self):
+        logger.debug("[HARDWARE] Nudge Left (Not implemented for real hardware)")
+
+    def nudge_right(self):
+        logger.debug("[HARDWARE] Nudge Right (Not implemented for real hardware)")
+
 
 class MockController(FlipperController):
     def __init__(self, vision_system=None):
@@ -140,3 +146,13 @@ class MockController(FlipperController):
             self.right_held = False
             if self.vision_system and hasattr(self.vision_system, 'release_right'):
                 self.vision_system.release_right()
+
+    def nudge_left(self):
+        logger.debug("[HARDWARE] Mock Nudge Left")
+        if self.vision_system and hasattr(self.vision_system, 'nudge_left'):
+            self.vision_system.nudge_left()
+
+    def nudge_right(self):
+        logger.debug("[HARDWARE] Mock Nudge Right")
+        if self.vision_system and hasattr(self.vision_system, 'nudge_right'):
+            self.vision_system.nudge_right()

@@ -555,6 +555,34 @@ class SimulatedFrameCapture:
         if self._right_flipper_inputs > 0:
             self._right_flipper_inputs -= 1
 
+    def nudge(self, dx, dy):
+        """Apply a sudden velocity change to all balls (simulate tilt)."""
+        with self.lock:
+            for ball in self.balls:
+                if not ball['lost']:
+                    ball['vel'][0] += dx
+                    ball['vel'][1] += dy
+                    # Add some randomness
+                    ball['vel'][0] += np.random.uniform(-0.5, 0.5)
+                    ball['vel'][1] += np.random.uniform(-0.5, 0.5)
+            
+            # Record nudge for UI visualization
+            self.last_nudge = {
+                'time': time.time(),
+                'direction': 'left' if dx < 0 else 'right'
+            }
+            logger.debug(f"Sim: Nudge applied ({dx}, {dy})")
+
+    def nudge_left(self):
+        # Nudge table to the left (ball moves right relative to table? No, table moves left under ball)
+        # If table moves left, ball appears to move right.
+        # But usually "Nudge Left" means pushing the table from the right side towards the left.
+        # This imparts a force to the left.
+        self.nudge(-5.0, -2.0) # Push left and slightly up
+
+    def nudge_right(self):
+        self.nudge(5.0, -2.0) # Push right and slightly up
+
     def _get_flipper_line_from_angle(self, rect, angle, side):
         # Calculate flipper line segment from a specific angle
         if side == 'left':

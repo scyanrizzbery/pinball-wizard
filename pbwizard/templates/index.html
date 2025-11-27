@@ -145,14 +145,29 @@
             background-color: #b71c1c;
         }
 
+        #nudge-controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .btn-nudge {
+            padding: 10px 20px;
+            font-size: 0.9em;
+            min-width: 80px;
+            background-color: #444;
+        }
+
         /* Physics Panel */
         #physics-controls {
             background: #2d2d2d;
             padding: 20px;
             border-radius: 10px;
             border: 1px solid #3d3d3d;
-            width: 100%;
-            /* max-width: 350px; Removed per user request */
+            flex: 0 0 350px;
+            /* Fixed width on large screens */
+            max-width: 100%;
             box-sizing: border-box;
         }
 
@@ -274,16 +289,70 @@
             background-color: #f44336;
         }
 
-        /* Responsive */
-        @media (min-width: 1000px) {
+        @keyframes shake-left {
+            0% {
+                transform: translateX(0) rotate(0deg);
+            }
+
+            25% {
+                transform: translateX(-10px) rotate(-1deg);
+            }
+
+            50% {
+                transform: translateX(0) rotate(0deg);
+            }
+
+            75% {
+                transform: translateX(5px) rotate(0.5deg);
+            }
+
+            100% {
+                transform: translateX(0) rotate(0deg);
+            }
+        }
+
+        @keyframes shake-right {
+            0% {
+                transform: translateX(0) rotate(0deg);
+            }
+
+            25% {
+                transform: translateX(10px) rotate(1deg);
+            }
+
+            50% {
+                transform: translateX(0) rotate(0deg);
+            }
+
+            75% {
+                transform: translateX(-5px) rotate(-0.5deg);
+            }
+
+            100% {
+                transform: translateX(0) rotate(0deg);
+            }
+        }
+
+        .shake-left {
+            animation: shake-left 0.3s cubic-bezier(.36, .07, .19, .97) both;
+        }
+
+        .shake-right {
+            animation: shake-right 0.3s cubic-bezier(.36, .07, .19, .97) both;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
             #main-layout {
-                flex-wrap: nowrap;
+                flex-direction: column;
+                align-items: center;
             }
 
             #physics-controls {
-                position: sticky;
-                top: 20px;
-                height: fit-content;
+                width: 100%;
+                flex: auto;
+                position: static;
+                /* Remove sticky on mobile if it causes issues, or keep it. Let's keep it simple first. */
             }
         }
 
@@ -356,8 +425,8 @@
         <div id="main-layout">
             <div id="game-area">
                 <div id="video-container">
-                    <img :src="videoSrc" alt="Waiting for stream..."
-                        style="width: 600px; height: 800px; object-fit: contain; background: #000;">
+                    <img id="video-stream" :src="videoSrc" alt="Waiting for stream..."
+                        style="width: 100%; max-width: 600px; height: auto; aspect-ratio: 3/4; object-fit: contain; background: #000;">
                 </div>
 
                 <div id="controls-container">
@@ -378,6 +447,22 @@
                         @mouseleave.prevent="handleInput('Slash', 'up')"
                         @touchstart.prevent="handleInput('Slash', 'down')"
                         @touchend.prevent="handleInput('Slash', 'up')">RIGHT (/)</button>
+                </div>
+
+                <div id="nudge-controls">
+                    <button class="control-btn btn-nudge" :class="{ active: activeKeys.has('ShiftLeft') }"
+                        @mousedown.prevent="handleInput('ShiftLeft', 'down')"
+                        @mouseup.prevent="handleInput('ShiftLeft', 'up')"
+                        @mouseleave.prevent="handleInput('ShiftLeft', 'up')"
+                        @touchstart.prevent="handleInput('ShiftLeft', 'down')"
+                        @touchend.prevent="handleInput('ShiftLeft', 'up')">NUDGE L</button>
+
+                    <button class="control-btn btn-nudge" :class="{ active: activeKeys.has('ShiftRight') }"
+                        @mousedown.prevent="handleInput('ShiftRight', 'down')"
+                        @mouseup.prevent="handleInput('ShiftRight', 'up')"
+                        @mouseleave.prevent="handleInput('ShiftRight', 'up')"
+                        @touchstart.prevent="handleInput('ShiftRight', 'down')"
+                        @touchend.prevent="handleInput('ShiftRight', 'up')">NUDGE R</button>
                 </div>
             </div>
 
@@ -488,6 +573,7 @@
                 const connected = ref(false);
                 const videoSrc = ref('');
                 const logContainer = ref(null);
+                const lastNudgeTime = ref(0);
 
                 // State
                 const stats = reactive({
@@ -583,14 +669,14 @@
                 // Keyboard Listeners
                 const handleKeydown = (e) => {
                     if (e.repeat) return;
-                    if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space') {
+                    if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
                         e.preventDefault();
                         handleInput(e.code, 'down');
                     }
                 };
 
                 const handleKeyup = (e) => {
-                    if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space') {
+                    if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
                         handleInput(e.code, 'up');
                     }
                 };
@@ -612,8 +698,30 @@
                     });
 
                     socket.on('stats', (data) => {
-                        console.log("Received stats:", data);
+                        // console.log("Received stats:", data);
                         Object.assign(stats, data);
+
+                        // Handle Nudge Animation
+                        if (data.nudge && data.nudge.time > lastNudgeTime.value) {
+                            lastNudgeTime.value = data.nudge.time;
+                            const element = document.getElementById('video-stream');
+                            if (element) {
+                                // Remove classes to restart animation if needed
+                                element.classList.remove('shake-left', 'shake-right');
+                                void element.offsetWidth; // Trigger reflow
+
+                                if (data.nudge.direction === 'left') {
+                                    element.classList.add('shake-left');
+                                } else {
+                                    element.classList.add('shake-right');
+                                }
+
+                                // Clean up class after animation
+                                setTimeout(() => {
+                                    element.classList.remove('shake-left', 'shake-right');
+                                }, 300);
+                            }
+                        }
                     });
 
                     socket.on('physics_config_loaded', (config) => {
@@ -668,6 +776,8 @@
                         socket.emit('input_event', { key: 'KeyZ', type: 'up' });
                         socket.emit('input_event', { key: 'Slash', type: 'up' });
                         socket.emit('input_event', { key: 'Space', type: 'up' });
+                        socket.emit('input_event', { key: 'ShiftLeft', type: 'up' });
+                        socket.emit('input_event', { key: 'ShiftRight', type: 'up' });
                     });
                 });
 
