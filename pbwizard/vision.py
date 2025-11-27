@@ -251,25 +251,35 @@ class SimulatedFrameCapture:
         logger.info("Simulated camera started")
 
     def update_physics_params(self, params):
+        changes = []
         if 'gravity' in params:
-            self.gravity = float(params['gravity'])
-            logger.info(f"Updated Gravity: {self.gravity}")
+            val = float(params['gravity'])
+            if val != self.gravity:
+                self.gravity = val
+                changes.append(f"Gravity: {val}")
         if 'friction' in params:
-            self.friction = float(params['friction'])
-            logger.info(f"Updated Friction: {self.friction}")
+            val = float(params['friction'])
+            if val != self.friction:
+                self.friction = val
+                changes.append(f"Friction: {val}")
         if 'restitution' in params:
-            self.restitution = float(params['restitution'])
-            logger.info(f"Updated Restitution: {self.restitution}")
+            val = float(params['restitution'])
+            if val != self.restitution:
+                self.restitution = val
+                changes.append(f"Restitution: {val}")
         if 'flipper_speed' in params:
-            self.flipper_speed = float(params['flipper_speed'])
-            logger.info(f"Updated Flipper Speed: {self.flipper_speed}")
+            val = float(params['flipper_speed'])
+            if val != self.flipper_speed:
+                self.flipper_speed = val
+                changes.append(f"Flipper Speed: {val}")
             
         if 'flipper_resting_angle' in params:
             self.flipper_resting_angle = float(params['flipper_resting_angle'])
         if 'flipper_stroke_angle' in params:
             self.flipper_stroke_angle = float(params['flipper_stroke_angle'])
             
-        logger.info(f"Physics updated: {params}")
+        if changes:
+            logger.info(f"Physics updated: {', '.join(changes)}")
 
     def save_config(self, filepath="physics_config.json"):
         config = {
@@ -298,7 +308,6 @@ class SimulatedFrameCapture:
                 config = json.load(f)
             
             self.update_physics_params(config)
-            logger.info(f"Physics config loaded from {filepath}")
             return config
         except Exception as e:
             logger.error(f"Failed to load config: {e}")

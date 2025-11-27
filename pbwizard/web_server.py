@@ -2,6 +2,7 @@ import base64
 import threading
 import time
 import logging
+import os
 
 import cv2
 import eventlet
@@ -192,7 +193,7 @@ def start_server(vision_sys, port=5000):
     
     # Attach SocketIO logger
     handler = SocketIOLogHandler()
-    handler.setLevel(logging.INFO)
+    handler.setLevel(os.getenv('LOG_LEVEL', 'INFO'))
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     

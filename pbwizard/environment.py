@@ -55,8 +55,8 @@ class PinballEnv(gym.Env):
         # Safety Override for Training/Execution:
         # If ball is in right zone and moving down fast, force right flip
         # This helps the agent "discover" the right flipper if it's stuck in a local optimum
-        if self.last_ball_pos is not None and hasattr(self.vision, 'zones'):
-             zones = self.vision.zones.get_zone_status(self.last_ball_pos[0], self.last_ball_pos[1])
+        if self.last_ball_pos is not None and hasattr(self.vision, 'zone_manager'):
+             zones = self.vision.zone_manager.get_zone_status(self.last_ball_pos[0], self.last_ball_pos[1])
              # Calculate velocity if not available? We need vy.
              # We can use the previous step's velocity or calculate it.
              # Let's use a simple heuristic: if we are in the zone, we probably want to flip.
@@ -64,18 +64,25 @@ class PinballEnv(gym.Env):
              # We can't easily get vy here without passing it or recalculating.
              # Let's rely on the fact that if it's in the zone, it's likely coming down.
              
-             if zones['right']:
-                 # Check if we can get velocity from vision
-                 vx, vy = 0, 0
-                 if hasattr(self.vision, 'get_ball_status'):
-                     status = self.vision.get_ball_status()
-                     if status: _, (vx, vy) = status
-                 
-                 if vy > 50: # Moving down
-                     if allowed_action == constants.ACTION_NOOP:
-                         allowed_action = constants.ACTION_FLIP_RIGHT
-                     elif allowed_action == constants.ACTION_FLIP_LEFT:
-                         allowed_action = constants.ACTION_FLIP_BOTH
+             # Get velocity
+             vx, vy = 0, 0
+             if hasattr(self.vision, 'get_ball_status'):
+                 status = self.vision.get_ball_status()
+                 if status: _, (vx, vy) = status
+
+             # Left Safety
+             if zones['left'] and vy > 50:
+                 if allowed_action == constants.ACTION_NOOP:
+                     allowed_action = constants.ACTION_FLIP_LEFT
+                 elif allowed_action == constants.ACTION_FLIP_RIGHT:
+                     allowed_action = constants.ACTION_FLIP_BOTH
+
+             # Right Safety
+             if zones['right'] and vy > 50:
+                 if allowed_action == constants.ACTION_NOOP:
+                     allowed_action = constants.ACTION_FLIP_RIGHT
+                 elif allowed_action == constants.ACTION_FLIP_LEFT:
+                     allowed_action = constants.ACTION_FLIP_BOTH
 
         self._execute_action(allowed_action)
             
@@ -171,10 +178,10 @@ class PinballEnv(gym.Env):
         return obs, reward, terminated, truncated, {}
 
     def _enforce_zones(self, action: int) -> int:
-        if self.last_ball_pos is None or not hasattr(self.vision, 'zones'):
+        if self.last_ball_pos is None or not hasattr(self.vision, 'zone_manager'):
             return action
             
-        zones = self.vision.zones.get_zone_status(self.last_ball_pos[0], self.last_ball_pos[1])
+        zones = self.vision.zone_manager.get_zone_status(self.last_ball_pos[0], self.last_ball_pos[1])
         allowed_action = action
         
         # Check Left

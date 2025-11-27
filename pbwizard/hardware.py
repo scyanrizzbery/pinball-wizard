@@ -33,7 +33,7 @@ class FlipperController:
                 time.sleep(duration)
                 self.left_flipper.off()
             else:
-                logger.info(f"[HARDWARE] Flip Left (Pin {self.left_pin})")
+                logger.debug(f"[HARDWARE] Flip Left (Pin {self.left_pin})")
         threading.Thread(target=_flip).start()
 
     def flip_right(self, duration=0.1):
@@ -43,32 +43,32 @@ class FlipperController:
                 time.sleep(duration)
                 self.right_flipper.off()
             else:
-                logger.info(f"[HARDWARE] Flip Right (Pin {self.right_pin})")
+                logger.debug(f"[HARDWARE] Flip Right (Pin {self.right_pin})")
         threading.Thread(target=_flip).start()
 
     def hold_left(self):
         if self.left_flipper:
             self.left_flipper.on()
         else:
-            logger.info(f"[HARDWARE] Hold Left (Pin {self.left_pin})")
+            logger.debug(f"[HARDWARE] Hold Left (Pin {self.left_pin})")
 
     def release_left(self):
         if self.left_flipper:
             self.left_flipper.off()
         else:
-            logger.info(f"[HARDWARE] Release Left (Pin {self.left_pin})")
+            logger.debug(f"[HARDWARE] Release Left (Pin {self.left_pin})")
 
     def hold_right(self):
         if self.right_flipper:
             self.right_flipper.on()
         else:
-            logger.info(f"[HARDWARE] Hold Right (Pin {self.right_pin})")
+            logger.debug(f"[HARDWARE] Hold Right (Pin {self.right_pin})")
 
     def release_right(self):
         if self.right_flipper:
             self.right_flipper.off()
         else:
-            logger.info(f"[HARDWARE] Release Right (Pin {self.right_pin})")
+            logger.debug(f"[HARDWARE] Release Right (Pin {self.right_pin})")
 
 
 class MockController(FlipperController):
@@ -85,9 +85,9 @@ class MockController(FlipperController):
 
     def flip_left(self, duration=0.1):
         def _flip():
-            logger.info(f"[HARDWARE] Flip Left (Pin {self.left_pin})")
+            logger.debug(f"[HARDWARE] Flip Left (Pin {self.left_pin})")
             if self.vision_system:
-                logger.info("[HARDWARE] Triggering Vision System Left")
+                logger.debug("[HARDWARE] Triggering Vision System Left")
                 if hasattr(self.vision_system, 'trigger_left'):
                     self.vision_system.trigger_left()
                     time.sleep(duration)
@@ -100,9 +100,9 @@ class MockController(FlipperController):
 
     def flip_right(self, duration=0.1):
         def _flip():
-            logger.info(f"[HARDWARE] Flip Right (Pin {self.right_pin})")
+            logger.debug(f"[HARDWARE] Flip Right (Pin {self.right_pin})")
             if self.vision_system:
-                logger.info("[HARDWARE] Triggering Vision System Right")
+                logger.debug("[HARDWARE] Triggering Vision System Right")
                 if hasattr(self.vision_system, 'trigger_right'):
                     self.vision_system.trigger_right()
                     time.sleep(duration)
@@ -115,28 +115,28 @@ class MockController(FlipperController):
 
     def hold_left(self):
         if not self.left_held:
-            logger.info(f"[HARDWARE] Hold Left (Pin {self.left_pin})")
+            logger.debug(f"[HARDWARE] Hold Left (Pin {self.left_pin})")
             self.left_held = True
             if self.vision_system and hasattr(self.vision_system, 'trigger_left'):
                 self.vision_system.trigger_left()
 
     def release_left(self):
         if self.left_held:
-            logger.info(f"[HARDWARE] Release Left (Pin {self.left_pin})")
+            logger.debug(f"[HARDWARE] Release Left (Pin {self.left_pin})")
             self.left_held = False
             if self.vision_system and hasattr(self.vision_system, 'release_left'):
                 self.vision_system.release_left()
 
     def hold_right(self):
         if not self.right_held:
-            logger.info(f"[HARDWARE] Hold Right (Pin {self.right_pin})")
+            logger.debug(f"[HARDWARE] Hold Right (Pin {self.right_pin})")
             self.right_held = True
             if self.vision_system and hasattr(self.vision_system, 'trigger_right'):
                 self.vision_system.trigger_right()
 
     def release_right(self):
         if self.right_held:
-            logger.info(f"[HARDWARE] Release Right (Pin {self.right_pin})")
+            logger.debug(f"[HARDWARE] Release Right (Pin {self.right_pin})")
             self.right_held = False
             if self.vision_system and hasattr(self.vision_system, 'release_right'):
                 self.vision_system.release_right()

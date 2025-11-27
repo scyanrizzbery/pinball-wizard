@@ -6,13 +6,13 @@ import eventlet
 
 eventlet.monkey_patch()
 
+load_dotenv()
+
 logging.basicConfig(
     level=os.getenv('LOG_LEVEL', 'INFO'),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-load_dotenv()
 
 import threading
 from pbwizard.vision import FrameCapture, SimulatedFrameCapture, BallTracker, ScoreReader, ZoneManager
