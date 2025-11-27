@@ -117,13 +117,13 @@
         }
 
         .score-reel {
-            width: 40px;
-            height: 60px;
+            width: 24px;
+            height: 36px;
             background: #151515;
             border-radius: 4px;
             overflow: hidden;
             position: relative;
-            box-shadow: inset 0 0 10px rgba(0, 0, 0, 1);
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 1);
             border: 1px solid #222;
         }
 
@@ -137,31 +137,31 @@
         }
 
         .reel-number {
-            height: 60px;
+            height: 36px;
             width: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-family: 'Courier New', Courier, monospace;
-            font-size: 2.5em;
+            font-size: 1.5em;
             font-weight: bold;
             color: #e0e0e0;
-            text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+            text-shadow: 0 0 3px rgba(255, 255, 255, 0.5);
             background: linear-gradient(to bottom, #111, #222 50%, #111);
         }
 
         .score-comma {
-            height: 60px;
-            width: 15px;
+            height: 36px;
+            width: 10px;
             display: flex;
             align-items: flex-end;
             justify-content: center;
             font-family: 'Courier New', Courier, monospace;
-            font-size: 2.5em;
+            font-size: 1.5em;
             font-weight: bold;
             color: #e0e0e0;
-            padding-bottom: 5px;
-            text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+            padding-bottom: 3px;
+            text-shadow: 0 0 3px rgba(255, 255, 255, 0.5);
         }
 
         /* Controls */
@@ -225,8 +225,8 @@
             padding: 20px;
             border-radius: 10px;
             border: 1px solid #3d3d3d;
-            flex: 0 0 350px;
-            /* Fixed width on large screens */
+            flex: 1 1 300px;
+            /* Flexible width on large screens */
             max-width: 100%;
             box-sizing: border-box;
         }
@@ -461,7 +461,7 @@
                 <div class="score-board">
                     <template v-for="(item, index) in scoreReels" :key="index">
                         <div class="score-reel" v-if="item.type === 'digit'">
-                            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 60}px)` }">
+                            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 36}px)` }">
                                 <div class="reel-number" v-for="n in 10" :key="n">[[ n - 1 ]]</div>
                             </div>
                         </div>
@@ -474,7 +474,7 @@
                 <div class="score-board">
                     <template v-for="(item, index) in highScoreReels" :key="index">
                         <div class="score-reel" v-if="item.type === 'digit'">
-                            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 60}px)` }">
+                            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 36}px)` }">
                                 <div class="reel-number" v-for="n in 10" :key="n">[[ n - 1 ]]</div>
                             </div>
                         </div>
@@ -482,9 +482,17 @@
                     </template>
                 </div>
             </div>
-            <div class="stat-box">
-                <span class="label">BALLS</span>
-                <span class="value">[[ stats.balls ]]</span>
+            <div class="stat-box" style="background: transparent; border: none; box-shadow: none; padding: 0;">
+                <span class="label" style="margin-bottom: 5px;">BALLS</span>
+                <div class="score-board">
+                    <template v-for="(item, index) in ballReels" :key="index">
+                        <div class="score-reel" v-if="item.type === 'digit'">
+                            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 36}px)` }">
+                                <div class="reel-number" v-for="n in 10" :key="n">[[ n - 1 ]]</div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
             </div>
             <div class="stat-box" v-if="stats.is_training">
                 <span class="label">GAMES</span>
@@ -654,30 +662,38 @@
                 const lastNudgeTime = ref(0);
 
                 // Computed
-                const formatToReels = (num) => {
-                    // Pad to 9 digits (allows for 100,000,000 range comfortably)
-                    // Format with commas: "000,000,000"
-                    let str = Math.round(num).toString().padStart(9, '0');
+                const formatToReels = (num, length = 6) => {
+                    // Pad to 'length' digits
+                    let str = Math.round(num).toString().padStart(length, '0');
+                    // If number exceeds length, it will just be longer, which is fine, or we can slice it.
+                    // Let's slice to keep fixed width if strictly desired, but usually showing full score is better.
+                    // But user asked for "up to 999,999", implying a fixed 6-digit display.
+                    if (str.length > length) str = str.slice(-length); // Keep last N digits (rollover style) or clamp?
+                    // Rollover is more pinball-like.
 
-                    // Insert commas manually to ensure fixed positions if we want fixed width,
-                    // OR just use toLocaleString and padStart.
-                    // Let's stick to a fixed pattern: "XXX,XXX,XXX" (11 chars)
-
-                    // Better approach: Pad raw string to 9 digits, then insert commas
-                    const padded = Math.round(num).toString().padStart(9, '0');
                     const parts = [];
-                    for (let i = 0; i < padded.length; i++) {
-                        parts.push({ type: 'digit', value: parseInt(padded[i]) });
-                        // Add comma after index 2 and 5 (for 9 digits: 012,345,678)
-                        if (i === 2 || i === 5) {
+                    // Iterate backwards to insert commas correctly? Or just use logic.
+                    // Length is fixed (e.g. 6). Indices 0,1,2,3,4,5.
+                    // Commas needed after index 2 (if length 6): 012,345
+                    // General logic: insert comma if (length - 1 - i) % 3 == 0 and i != length - 1
+
+                    for (let i = 0; i < str.length; i++) {
+                        parts.push({ type: 'digit', value: parseInt(str[i]) });
+
+                        // Check if we need a comma after this digit
+                        // Distance from end: str.length - 1 - i
+                        // If distance is 3, 6, 9... we need a comma.
+                        const dist = str.length - 1 - i;
+                        if (dist > 0 && dist % 3 === 0) {
                             parts.push({ type: 'comma', value: ',' });
                         }
                     }
                     return parts;
                 };
 
-                const scoreReels = Vue.computed(() => formatToReels(stats.score));
-                const highScoreReels = Vue.computed(() => formatToReels(stats.high_score));
+                const scoreReels = Vue.computed(() => formatToReels(stats.score, 6));
+                const highScoreReels = Vue.computed(() => formatToReels(stats.high_score, 6));
+                const ballReels = Vue.computed(() => formatToReels(stats.balls, 1));
 
                 // State
                 const stats = reactive({
@@ -904,7 +920,8 @@
                     selectedLayout,
                     changeLayout,
                     scoreReels,
-                    highScoreReels
+                    highScoreReels,
+                    ballReels
                 };
             }
         }).mount('#app');

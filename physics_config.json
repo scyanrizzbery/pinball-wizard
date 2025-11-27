@@ -1,6 +1,6 @@
 {
-    "gravity": 0.1,
-    "friction": 0.905,
+    "gravity": 0.44,
+    "friction": 0.998,
     "restitution": 0.5,
     "flipper_speed": 10.0,
     "flipper_resting_angle": -30.0,
