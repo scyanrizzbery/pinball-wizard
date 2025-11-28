@@ -9,5 +9,5 @@
     "tilt_threshold": 8.0,
     "nudge_cost": 4.0,
     "tilt_decay": 0.05,
-    "last_model": "ppo_pinball_v1.zip"
+    "last_model": "short_and_dumb_v1.zip"
 }

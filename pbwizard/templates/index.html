@@ -445,7 +445,7 @@
         /* Responsive adjustments */
         @media (max-width: 690px) {
             #main-layout {
-                flex-direction: column;
+                flex-direction: row;
                 align-items: center;
             }
 
@@ -510,7 +510,7 @@
             }
 
             #app {
-                padding-bottom: 160px;
+                margin-bottom: 100px;
                 /* Space for sticky footer */
             }
 
@@ -553,8 +553,12 @@
 
         @media (max-width: 690px) {
             .app-header {
-                flex-direction: column;
+                flex-direction: row;
                 gap: 10px;
+            }
+
+            .header-text {
+                order: -2;
             }
 
             .app-header h1 {
@@ -563,6 +567,7 @@
             }
 
             .connection-status {
+                order: -1;
                 font-size: 0.7em;
                 margin-top: 5px;
             }
@@ -573,7 +578,9 @@
 <body>
     <div id="app">
         <div class="app-header">
-            <h1>Pinball Wizard 🧙‍♂️</h1>
+            <div class="header-text">
+                <h1>Pinball Wizard 🧙‍♂️</h1>
+            </div>
 
             <div id="stats-container">
                 <div class="stat-box" style="background: transparent; border: none; box-shadow: none; padding: 0;">
