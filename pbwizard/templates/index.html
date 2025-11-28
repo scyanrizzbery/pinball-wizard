@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pinball Bot Vision</title>
+    <title>Pinball Wizard 🧙‍♂️</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <style>
@@ -174,26 +174,28 @@
         }
 
         .control-btn {
-            background-color: #3d3d3d;
-            color: white;
+            background-color: #4CAF50;
             border: none;
-            padding: 20px;
-            font-size: 1.2em;
-            border-radius: 10px;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
             cursor: pointer;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+            touch-action: none;
+            /* Prevent scroll on buttons */
             user-select: none;
             -webkit-user-select: none;
-            touch-action: manipulation;
-            min-width: 100px;
-            transition: all 0.1s;
-            box-shadow: 0 4px 0 #222;
         }
 
         .control-btn:active,
         .control-btn.active {
-            background-color: #555;
-            transform: translateY(4px);
-            box-shadow: 0 0 0 #222;
+            background-color: #45a049;
+            transform: translateY(2px);
         }
 
         #btn-launch {
@@ -205,11 +207,8 @@
             background-color: #b71c1c;
         }
 
-        #nudge-controls {
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-            margin-bottom: 20px;
+        gap: 20px;
+        margin-bottom: 20px;
         }
 
         .btn-nudge {
@@ -487,7 +486,7 @@
 <body>
     <div id="app">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <h1>Pinball Bot Vision</h1>
+            <h1>Pinball Wizard 🧙‍♂️</h1>
             <div style="font-size: 0.8em; color: #888;">
                 <span class="status-dot" :class="connected ? 'status-connected' : 'status-disconnected'"></span>
                 [[ connected ? 'Connected' : 'Disconnected' ]]
@@ -597,12 +596,12 @@
                     </div>
 
                     <!-- Tilt Meter -->
-                    <div id="tilt-container">
-                        <div class="tilt-label">TILT DANGER</div>
+                    <div id="tilt-container" v-if="tiltValue > 0">
                         <div class="tilt-bar-bg">
                             <div class="tilt-bar-fill"
                                 :style="{ width: (tiltValue * 10) + '%', backgroundColor: tiltColor }"></div>
                         </div>
+                        <div class="tilt-label">TILT DANGER</div>
                     </div>
                 </div>
             </div>
@@ -664,31 +663,51 @@
                         @input="updatePhysics('restitution')">
                 </div>
 
+                <!-- Flipper Group -->
+                <div class="group-header">Flippers</div>
                 <div class="slider-container">
-                    <div class="slider-label">
-                        <span>Flipper Speed</span>
-                        <span>[[ physics.flipper_speed ]]</span>
+                    <div class="setting-group">
+                        <label>Speed: [[ physics.flipper_speed ]]</label>
+                        <input type="range" v-model.number="physics.flipper_speed" min="1.0" max="100.0" step="1.0"
+                            @input="updatePhysics('flipper_speed')">
                     </div>
-                    <input type="range" v-model.number="physics.flipper_speed" min="1.0" max="100.0" step="1.0"
-                        @input="updatePhysics('flipper_speed')">
+                    <div class="setting-group">
+                        <label>Resting Angle: [[ physics.flipper_resting_angle ]]</label>
+                        <input type="range" v-model.number="physics.flipper_resting_angle" min="-60" max="0" step="1"
+                            @input="updatePhysics('flipper_resting_angle')">
+                    </div>
+                    <div class="setting-group">
+                        <label>Stroke Angle: [[ physics.flipper_stroke_angle ]]</label>
+                        <input type="range" v-model.number="physics.flipper_stroke_angle" min="10" max="90" step="1"
+                            @input="updatePhysics('flipper_stroke_angle')">
+                    </div>
+                    <div class="setting-group">
+                        <label>Length: [[ formatNumber(physics.flipper_length, 2) ]]</label>
+                        <input type="range" min="0.1" max="0.3" step="0.01" v-model.number="physics.flipper_length"
+                            @input="updatePhysics('flipper_length')">
+                    </div>
                 </div>
 
+                <!-- Tilt Group -->
+                <div class="group-header">Tilt</div>
                 <div class="slider-container">
-                    <div class="slider-label">
-                        <span>Flipper Resting Angle</span>
-                        <span>[[ physics.flipper_resting_angle ]]</span>
+                    <div class="setting-group">
+                        <label>Threshold: [[ formatNumber(physics.tilt_threshold, 1) ]]</label>
+                        <input type="range" min="1" max="20" step="0.5" v-model.number="physics.tilt_threshold"
+                            @input="updatePhysics('tilt_threshold')">
                     </div>
-                    <input type="range" v-model.number="physics.flipper_resting_angle" min="-60" max="0" step="1"
-                        @input="updatePhysics('flipper_resting_angle')">
-                </div>
 
-                <div class="slider-container">
-                    <div class="slider-label">
-                        <span>Flipper Length</span>
-                        <span>[[ physics.flipper_length ]]</span>
+                    <div class="setting-group">
+                        <label>Nudge Cost: [[ formatNumber(physics.nudge_cost, 1) ]]</label>
+                        <input type="range" min="0.1" max="10" step="0.1" v-model.number="physics.nudge_cost"
+                            @input="updatePhysics('nudge_cost')">
                     </div>
-                    <input type="range" v-model.number="physics.flipper_length" min="0.1" max="0.4" step="0.01"
-                        @input="updatePhysics('flipper_length')">
+
+                    <div class="setting-group">
+                        <label>Decay: [[ formatNumber(physics.tilt_decay, 3) ]]</label>
+                        <input type="range" min="0.001" max="0.2" step="0.001" v-model.number="physics.tilt_decay"
+                            @input="updatePhysics('tilt_decay')">
+                    </div>
                 </div>
 
                 <div style="display: flex; gap: 10px; margin-top: 15px;">
@@ -705,7 +724,7 @@
     </div>
 
     <script>
-        const { createApp, ref, reactive, onMounted, watch, nextTick } = Vue;
+        const { createApp, ref, reactive, computed, onMounted, watch, nextTick } = Vue;
 
         createApp({
             delimiters: ['[[', ']]'], // Avoid conflict with Flask Jinja2
@@ -780,7 +799,10 @@
                     flipper_speed: 10.0,
                     flipper_resting_angle: -30,
                     flipper_stroke_angle: 50,
-                    flipper_length: 0.2
+                    flipper_length: 0.2,
+                    tilt_threshold: 8.0,
+                    nudge_cost: 4.0,
+                    tilt_decay: 0.05
                 });
 
                 const toggles = reactive({
@@ -920,6 +942,9 @@
                         if (config.flipper_resting_angle !== undefined) physics.flipper_resting_angle = config.flipper_resting_angle;
                         if (config.flipper_stroke_angle !== undefined) physics.flipper_stroke_angle = config.flipper_stroke_angle;
                         if (config.flipper_length !== undefined) physics.flipper_length = config.flipper_length;
+                        if (config.tilt_threshold !== undefined) physics.tilt_threshold = config.tilt_threshold;
+                        if (config.nudge_cost !== undefined) physics.nudge_cost = config.nudge_cost;
+                        if (config.tilt_decay !== undefined) physics.tilt_decay = config.tilt_decay;
                     });
 
                     socket.on('ai_status', (data) => {

@@ -203,8 +203,8 @@ class SimulatedFrameCapture:
     MAX_BALLS = 5
     
     # Tilt Settings
-    TILT_THRESHOLD = 10.0
-    NUDGE_COST = 3.5
+    TILT_THRESHOLD = 8.0
+    NUDGE_COST = 4.0
     TILT_DECAY = 0.05
 
     def __init__(self, width=constants.DEFAULT_WIDTH, height=constants.DEFAULT_HEIGHT, headless=False):
@@ -220,6 +220,11 @@ class SimulatedFrameCapture:
         self.restitution = self.RESTITUTION
         self.flipper_speed = self.FLIPPER_SPEED
         self.flipper_length = self.FLIPPER_LENGTH
+        
+        # Tilt Parameters
+        self.tilt_threshold = self.TILT_THRESHOLD
+        self.nudge_cost = self.NUDGE_COST
+        self.tilt_decay = self.TILT_DECAY
         
         # Flipper Angles (Symmetric Control)
         self.flipper_resting_angle = -30.0
@@ -430,11 +435,27 @@ class SimulatedFrameCapture:
                 self.flipper_length = val
                 self._update_flipper_rects()
                 changes.append(f"Flipper Length: {val}")
+                
+        if 'tilt_threshold' in params:
+            val = float(params['tilt_threshold'])
+            if val != self.tilt_threshold:
+                self.tilt_threshold = val
+                changes.append(f"Tilt Threshold: {val}")
+        if 'nudge_cost' in params:
+            val = float(params['nudge_cost'])
+            if val != self.nudge_cost:
+                self.nudge_cost = val
+                changes.append(f"Nudge Cost: {val}")
+        if 'tilt_decay' in params:
+            val = float(params['tilt_decay'])
+            if val != self.tilt_decay:
+                self.tilt_decay = val
+                changes.append(f"Tilt Decay: {val}")
             
         if changes:
             logger.info(f"Physics updated: {', '.join(changes)}")
 
-    def save_config(self, filepath="physics_config.json"):
+    def save_config(self, filepath="config.json"):
         config = {
             'gravity': self.gravity,
             'friction': self.friction,
@@ -442,7 +463,10 @@ class SimulatedFrameCapture:
             'flipper_speed': self.flipper_speed,
             'flipper_resting_angle': self.flipper_resting_angle,
             'flipper_stroke_angle': self.flipper_stroke_angle,
-            'flipper_length': self.flipper_length
+            'flipper_length': self.flipper_length,
+            'tilt_threshold': self.tilt_threshold,
+            'nudge_cost': self.nudge_cost,
+            'tilt_decay': self.tilt_decay
         }
         try:
             with open(filepath, 'w') as f:
@@ -453,7 +477,7 @@ class SimulatedFrameCapture:
             logger.error(f"Failed to save config: {e}")
             return False
 
-    def load_config(self, filepath="physics_config.json"):
+    def load_config(self, filepath="config.json"):
         if not os.path.exists(filepath):
             return False
         
@@ -477,6 +501,10 @@ class SimulatedFrameCapture:
         self.flipper_resting_angle = self.LEFT_DOWN_ANGLE
         self.flipper_stroke_angle = self.LEFT_UP_ANGLE - self.LEFT_DOWN_ANGLE # 20 - (-30) = 50
         
+        self.tilt_threshold = self.TILT_THRESHOLD
+        self.nudge_cost = self.NUDGE_COST
+        self.tilt_decay = self.TILT_DECAY
+        
         self._update_flipper_rects()
         logger.info("Physics parameters reset to defaults")
         
@@ -490,7 +518,10 @@ class SimulatedFrameCapture:
             'flipper_speed': self.flipper_speed,
             'flipper_resting_angle': self.flipper_resting_angle,
             'flipper_stroke_angle': self.flipper_stroke_angle,
-            'flipper_length': self.flipper_length
+            'flipper_length': self.flipper_length,
+            'tilt_threshold': self.tilt_threshold,
+            'nudge_cost': self.nudge_cost,
+            'tilt_decay': self.tilt_decay
         }
 
     def load_layout(self, layout_config):
@@ -581,8 +612,8 @@ class SimulatedFrameCapture:
                 return
 
             # Accumulate Tilt
-            self.tilt_value += self.NUDGE_COST
-            if self.tilt_value > self.TILT_THRESHOLD:
+            self.tilt_value += self.nudge_cost
+            if self.tilt_value > self.tilt_threshold:
                 self.is_tilted = True
                 logger.info("TILT! Game Over for this ball.")
                 # Could also drain ball immediately, but let's just kill flippers
@@ -762,7 +793,7 @@ class SimulatedFrameCapture:
                 
                 # Decay Tilt
                 if self.tilt_value > 0:
-                    self.tilt_value = max(0, self.tilt_value - self.TILT_DECAY)
+                    self.tilt_value = max(0, self.tilt_value - self.tilt_decay)
                 
                 if not self.balls:
                     # Auto-start logic

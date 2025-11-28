@@ -173,7 +173,7 @@ class PinballEnv(gym.Env):
                      # Force Nudge Left (4) or Right (5)
                      nudge_action = random.choice([4, 5])
                      allowed_action = nudge_action
-                     logger.info(f"STUCK BALL DETECTED: Forcing Nudge Action {nudge_action}")
+                     logger.debug(f"STUCK BALL DETECTED: Forcing Nudge Action {nudge_action}")
                      # Reset holding steps to prevent rapid-fire nudging
                      self.holding_steps = 0
         else:
