@@ -418,8 +418,33 @@
             }
 
             #stats-container {
-                flex-direction: column;
-                align-items: center;
+                flex-direction: row;
+                flex-wrap: nowrap;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 2px;
+                width: 100%;
+                padding: 0 2px;
+                box-sizing: border-box;
+            }
+
+            .stat-box {
+                flex: 0 1 auto;
+                min-width: 0;
+                /* Allow shrinking */
+            }
+
+            /* Scale down score boards to fit */
+            .score-board {
+                transform-origin: top left;
+                transform: scale(0.6);
+                margin-bottom: -15px;
+                /* Compensate for scale space */
+            }
+
+            /* Hide labels or make them smaller if needed */
+            .label {
+                font-size: 0.6em;
             }
 
             #physics-controls {
@@ -458,24 +483,26 @@
             }
 
             /* Ensure scores fit */
-            .score-board {
+            /* .score-board {
                 transform-origin: center;
-                /* Scale down slightly if needed on very narrow screens */
-            }
+            } */
 
             @media (max-width: 400px) {
                 .score-board {
-                    transform: scale(0.85);
-                    /* Scale down for very small phones */
+                    transform: scale(0.45);
+                }
+
+                .stat-box:nth-child(3) .score-board {
+                    transform: scale(0.45);
+                }
+
+                #stats-container {
+                    gap: 2px;
                 }
             }
         }
 
         @media (max-width: 600px) {
-            .stat-box {
-                flex: 1 1 40%;
-            }
-
             #video-container {
                 margin-bottom: 80px;
             }
