@@ -233,6 +233,16 @@
             padding-bottom: 10px;
         }
 
+        .group-header {
+            margin-top: 20px;
+            margin-bottom: 10px;
+            color: #ccc;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+            font-weight: bold;
+            text-align: left;
+        }
+
         .slider-container {
             margin-bottom: 15px;
         }
@@ -561,6 +571,10 @@
                 font-size: 0.7em;
                 margin-top: 5px;
             }
+
+            .setting-group {
+                margin-bottom: 10px;
+            }
         }
     </style>
 </head>
@@ -757,28 +771,64 @@
                     <div class="group-header">Flippers</div>
                     <div class="slider-container">
                         <div class="slider-label">
-                            <span>Flipper Speed</span>
+                            <span>Speed</span>
                             <span>[[ physics.flipper_speed ]]</span>
                         </div>
                         <input type="range" min="5" max="10" step=".1" v-model="physics.flipper_speed"
                             @input="updatePhysics('flipper_speed')">
                     </div>
                     <div class="slider-container">
-                        <div class="setting-group">
-                            <label>Resting Angle: [[ physics.flipper_resting_angle ]]</label>
-                            <input type="range" v-model.number="physics.flipper_resting_angle" min="-60" max="0"
-                                step="1" @input="updatePhysics('flipper_resting_angle')">
+                        <div class="slider-label">
+                            <span>Resting Angle</span>
+                            <span>[[ physics.flipper_resting_angle ]]</span>
                         </div>
-                        <div class="setting-group">
-                            <label>Stroke Angle: [[ physics.flipper_stroke_angle ]]</label>
-                            <input type="range" v-model.number="physics.flipper_stroke_angle" min="10" max="90" step="1"
-                                @input="updatePhysics('flipper_stroke_angle')">
+                        <input type="range" v-model.number="physics.flipper_resting_angle" min="-60" max="0" step="1"
+                            @input="updatePhysics('flipper_resting_angle')">
+                    </div>
+                    <div class="slider-container">
+                        <div class="slider-label">
+                            <span>Stroke Angle</span>
+                            <span>[[ physics.flipper_stroke_angle ]]</span>
                         </div>
-                        <div class="setting-group">
-                            <label>Length: [[ formatNumber(physics.flipper_length, 2) ]]</label>
-                            <input type="range" min="0.1" max="0.3" step="0.01" v-model.number="physics.flipper_length"
-                                @input="updatePhysics('flipper_length')">
+                        <input type="range" v-model.number="physics.flipper_stroke_angle" min="10" max="90" step="1"
+                            @input="updatePhysics('flipper_stroke_angle')">
+                    </div>
+                    <div class="slider-container">
+                        <div class="slider-label">
+                            <span>Length</span>
+                            <span>[[ formatNumber(physics.flipper_length, 2) ]]</span>
                         </div>
+                        <input type="range" min="0.1" max="0.3" step="0.01" v-model.number="physics.flipper_length"
+                            @input="updatePhysics('flipper_length')">
+                    </div>
+
+                    <!-- Tilt Group -->
+                    <div class="group-header">Tilt Mechanics</div>
+                    <div class="slider-container">
+                        <div class="slider-label">
+                            <span>Sensitivity (Threshold)</span>
+                            <span>[[ formatNumber(physics.tilt_threshold, 1) ]]</span>
+                        </div>
+                        <input type="range" min="1" max="20" step="0.5" v-model.number="physics.tilt_threshold"
+                            @input="updatePhysics('tilt_threshold')">
+                    </div>
+
+                    <div class="slider-container">
+                        <div class="slider-label">
+                            <span>Nudge Cost</span>
+                            <span>[[ formatNumber(physics.nudge_cost, 1) ]]</span>
+                        </div>
+                        <input type="range" min="0.1" max="10" step="0.1" v-model.number="physics.nudge_cost"
+                            @input="updatePhysics('nudge_cost')">
+                    </div>
+
+                    <div class="slider-container">
+                        <div class="slider-label">
+                            <span>Recovery (Decay)</span>
+                            <span>[[ formatNumber(physics.tilt_decay, 3) ]]</span>
+                        </div>
+                        <input type="range" min="0.001" max="0.2" step="0.001" v-model.number="physics.tilt_decay"
+                            @input="updatePhysics('tilt_decay')">
                     </div>
                 </div>
 
@@ -824,52 +874,12 @@
                 </div>
             </div>
 
-            <!-- Tilt Group -->
-            <div class="tilt-card">
-                <div class="tilt-header">
-                    <span>⚠️</span> Tilt Mechanics
-                </div>
 
-                <div class="tilt-grid">
-                    <!-- Threshold -->
-                    <div class="tilt-setting">
-                        <label>
-                            <span>Sensitivity</span>
-                            <span class="value">[[ formatNumber(physics.tilt_threshold, 1) ]]</span>
-                        </label>
-                        <input type="range" class="tilt-range" min="1" max="20" step="0.5"
-                            v-model.number="physics.tilt_threshold" @input="updatePhysics('tilt_threshold')">
-                        <div class="description">Lower = Easier to Tilt</div>
-                    </div>
 
-                    <!-- Nudge Cost -->
-                    <div class="tilt-setting">
-                        <label>
-                            <span>Nudge Cost</span>
-                            <span class="value">[[ formatNumber(physics.nudge_cost, 1) ]]</span>
-                        </label>
-                        <input type="range" class="tilt-range" min="0.1" max="10" step="0.1"
-                            v-model.number="physics.nudge_cost" @input="updatePhysics('nudge_cost')">
-                        <div class="description">Tilt added per nudge</div>
-                    </div>
+        </div>
 
-                    <!-- Decay -->
-                    <div class="tilt-setting">
-                        <label>
-                            <span>Recovery</span>
-                            <span class="value">[[ formatNumber(physics.tilt_decay, 3) ]]</span>
-                        </label>
-                        <input type="range" class="tilt-range" min="0.001" max="0.2" step="0.001"
-                            v-model.number="physics.tilt_decay" @input="updatePhysics('tilt_decay')">
-                        <div class="description">How fast tilt warnings fade</div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="game-log" ref="logContainer">
-                <div v-for="(log, index) in logs" :key="index" class="log-entry">[[ log ]]</div>
-            </div>
-
+        <div id="game-log" ref="logContainer">
+            <div v-for="(log, index) in logs" :key="index" class="log-entry">[[ log ]]</div>
         </div>
 
         <div style="display: flex; justify-content: center; gap: 10px; margin-top: 15px;">
