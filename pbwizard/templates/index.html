@@ -531,7 +531,7 @@
 
             @media (max-width: 400px) {
                 .score-board {
-                    transform: scale(0.6);
+                    transform: scale(0.5);
                 }
 
                 #stats-container {
@@ -675,7 +675,6 @@
                     </div>
 
                     <div id="nudge-controls">
-                        <div>Nudge</div>
                         <button class="control-btn btn-nudge" :class="{ active: activeKeys.has('ShiftLeft') }"
                             @mousedown.prevent="handleInput('ShiftLeft', 'down')"
                             @mouseup.prevent="handleInput('ShiftLeft', 'up')"
@@ -689,6 +688,7 @@
                             @mouseleave.prevent="handleInput('ShiftRight', 'up')"
                             @touchstart.prevent="handleInput('ShiftRight', 'down')"
                             @touchend.prevent="handleInput('ShiftRight', 'up')">RIGHT</button>
+                        <div>Nudge</div>
                     </div>
 
                     <!-- Tilt Meter -->
