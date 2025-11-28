@@ -469,7 +469,7 @@
             /* Scale down score boards to fit */
             .score-board {
                 transform-origin: top left;
-                transform: scale(0.5);
+                transform: scale(0.7);
                 margin-bottom: -15px;
                 /* Compensate for scale space */
             }
@@ -521,22 +521,12 @@
 
             @media (max-width: 400px) {
                 .score-board {
-                    transform: scale(0.45);
-                }
-
-                .stat-box:nth-child(3) .score-board {
-                    transform: scale(0.45);
+                    transform: scale(0.6);
                 }
 
                 #stats-container {
                     gap: 2px;
                 }
-            }
-        }
-
-        @media (max-width: 600px) {
-            #video-container {
-                margin-bottom: 80px;
             }
         }
     </style>
@@ -835,36 +825,59 @@
             </div>
 
             <!-- Tilt Group -->
-            <div class="group-header">Tilt</div>
-            <div class="slider-container">
-                <div class="setting-group">
-                    <label>Threshold: [[ formatNumber(physics.tilt_threshold, 1) ]]</label>
-                    <input type="range" min="1" max="20" step="0.5" v-model.number="physics.tilt_threshold"
-                        @input="updatePhysics('tilt_threshold')">
+            <div class="tilt-card">
+                <div class="tilt-header">
+                    <span>⚠️</span> Tilt Mechanics
                 </div>
 
-                <div class="setting-group">
-                    <label>Nudge Cost: [[ formatNumber(physics.nudge_cost, 1) ]]</label>
-                    <input type="range" min="0.1" max="10" step="0.1" v-model.number="physics.nudge_cost"
-                        @input="updatePhysics('nudge_cost')">
-                </div>
+                <div class="tilt-grid">
+                    <!-- Threshold -->
+                    <div class="tilt-setting">
+                        <label>
+                            <span>Sensitivity</span>
+                            <span class="value">[[ formatNumber(physics.tilt_threshold, 1) ]]</span>
+                        </label>
+                        <input type="range" class="tilt-range" min="1" max="20" step="0.5"
+                            v-model.number="physics.tilt_threshold" @input="updatePhysics('tilt_threshold')">
+                        <div class="description">Lower = Easier to Tilt</div>
+                    </div>
 
-                <div class="setting-group">
-                    <label>Decay: [[ formatNumber(physics.tilt_decay, 3) ]]</label>
-                    <input type="range" min="0.001" max="0.2" step="0.001" v-model.number="physics.tilt_decay"
-                        @input="updatePhysics('tilt_decay')">
-                </div>
-            </div>
+                    <!-- Nudge Cost -->
+                    <div class="tilt-setting">
+                        <label>
+                            <span>Nudge Cost</span>
+                            <span class="value">[[ formatNumber(physics.nudge_cost, 1) ]]</span>
+                        </label>
+                        <input type="range" class="tilt-range" min="0.1" max="10" step="0.1"
+                            v-model.number="physics.nudge_cost" @input="updatePhysics('nudge_cost')">
+                        <div class="description">Tilt added per nudge</div>
+                    </div>
 
-            <div style="display: flex; gap: 10px; margin-top: 15px;">
-                <button class="control-btn" style="padding: 10px; font-size: 0.9em; flex: 1; background-color: #f44336;"
-                    @click="resetConfig">Reset to Defaults</button>
+                    <!-- Decay -->
+                    <div class="tilt-setting">
+                        <label>
+                            <span>Recovery</span>
+                            <span class="value">[[ formatNumber(physics.tilt_decay, 3) ]]</span>
+                        </label>
+                        <input type="range" class="tilt-range" min="0.001" max="0.2" step="0.001"
+                            v-model.number="physics.tilt_decay" @input="updatePhysics('tilt_decay')">
+                        <div class="description">How fast tilt warnings fade</div>
+                    </div>
+                </div>
             </div>
 
             <div id="game-log" ref="logContainer">
                 <div v-for="(log, index) in logs" :key="index" class="log-entry">[[ log ]]</div>
             </div>
+
         </div>
+
+        <div style="display: flex; justify-content: center; gap: 10px; margin-top: 15px;">
+            <button class="control-btn"
+                style="padding: 10px; font-size: 0.9em; flex: 1; background-color: #f44336; max-width: 150px;"
+                @click="resetConfig">Reset to Defaults</button>
+        </div>
+
     </div>
     </div>
 
