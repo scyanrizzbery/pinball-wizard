@@ -7,10 +7,11 @@
     <title>Pinball Wizard 🧙‍♂️</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://code.highcharts.com/highcharts.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #1a1a1a;
+            background-color: #121212;
             color: #e0e0e0;
             text-align: center;
             margin: 0;
@@ -20,26 +21,28 @@
 
         /* Layout Containers */
         #app {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
             padding: 0 20px 90px;
         }
 
         #main-layout {
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
+            display: grid;
+            grid-template-columns: minmax(400px, 1fr) 240px minmax(320px, 1fr);
+            grid-template-areas:
+                "game history settings"
+                "controls controls logs";
             gap: 20px;
-            flex-wrap: wrap;
-            margin-top: 20px;
+            margin: 20px 0;
+            align-items: start;
         }
 
         #game-area {
+            grid-area: game;
             display: flex;
             flex-direction: column;
             align-items: center;
-            flex: 1 1 auto;
-            max-width: 800px;
+            width: 100%;
         }
 
         #video-container {
@@ -69,7 +72,7 @@
         }
 
         .stat-box {
-            background: #2d2d2d;
+            background: #1e1e1e;
             padding: 8px 15px;
             border-radius: 8px;
             border: 1px solid #3d3d3d;
@@ -92,155 +95,276 @@
             color: #fff;
         }
 
-        .text-green {
-            color: #4CAF50;
-        }
-
-        .text-yellow {
-            color: #FFC107;
-        }
-
-        .text-blue {
-            color: #2196F3;
-        }
-
         /* Score Board */
         .score-board {
             background: #000;
             border: 4px solid #333;
-            border-radius: 10px;
-            padding: 10px 20px;
+            border-radius: 8px;
+            padding: 8px 12px;
             display: inline-flex;
-            gap: 5px;
-            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8), 0 5px 15px rgba(0, 0, 0, 0.5);
-            margin-bottom: 10px;
+            gap: 4px;
+            align-items: center;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
         }
 
         .score-reel {
-            width: 24px;
+            width: 28px;
             height: 36px;
-            background: #151515;
-            border-radius: 4px;
             overflow: hidden;
+            background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+            border: 1px solid #444;
+            border-radius: 4px;
             position: relative;
-            box-shadow: inset 0 0 5px rgba(0, 0, 0, 1);
-            border: 1px solid #222;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
         }
 
         .score-strip {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            transition: transform 0.5s cubic-bezier(0.1, 0.7, 0.1, 1);
-            /* Will contain numbers 0-9 vertically */
+            transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+            will-change: transform;
         }
 
         .reel-number {
             height: 36px;
-            width: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 1.5em;
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
             font-weight: bold;
-            color: #e0e0e0;
-            text-shadow: 0 0 3px rgba(255, 255, 255, 0.5);
-            background: linear-gradient(to bottom, #111, #222 50%, #111);
+            color: #ff6b35;
+            text-shadow: 0 0 8px rgba(255, 107, 53, 0.6);
         }
 
         .score-comma {
-            height: 36px;
-            width: 10px;
-            display: flex;
-            align-items: flex-end;
-            justify-content: center;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 1.5em;
+            font-size: 24px;
             font-weight: bold;
-            color: #e0e0e0;
-            padding-bottom: 3px;
-            text-shadow: 0 0 3px rgba(255, 255, 255, 0.5);
+            color: #666;
+            margin: 0 2px;
+        }
+
+        /* Tilted Overlay */
+        #tilted-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-15deg);
+            font-size: 120px;
+            font-weight: bold;
+            color: rgba(255, 0, 0, 0.8);
+            text-shadow: 4px 4px 8px rgba(0, 0, 0, 0.9);
+            pointer-events: none;
+            z-index: 1000;
+            animation: pulse 0.5s ease-in-out infinite alternate;
+        }
+
+        @keyframes pulse {
+            from {
+                transform: translate(-50%, -50%) rotate(-15deg) scale(1);
+            }
+
+            to {
+                transform: translate(-50%, -50%) rotate(-15deg) scale(1.1);
+            }
+        }
+
+        /* Shake Animation */
+        @keyframes shake-left {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            25% {
+                transform: translateX(-8px);
+            }
+
+            75% {
+                transform: translateX(4px);
+            }
+        }
+
+        @keyframes shake-right {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            25% {
+                transform: translateX(8px);
+            }
+
+            75% {
+                transform: translateX(-4px);
+            }
+        }
+
+        .shake-left {
+            animation: shake-left 0.3s ease-in-out;
+        }
+
+        .shake-right {
+            animation: shake-right 0.3s ease-in-out;
         }
 
         /* Controls */
         #controls-container {
-            margin-top: 20px;
+            grid-area: controls;
+            background: #1e1e1e;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #3d3d3d;
+        }
+
+        .control-group {
             display: flex;
-            justify-content: center;
-            gap: 20px;
-            padding-bottom: 20px;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
         }
 
         .control-btn {
-            background-color: #4CAF50;
+            flex: 1;
+            padding: 10px 15px;
+            background-color: #333;
+            color: #fff;
             border: none;
-            color: white;
-            padding: 15px 32px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            font-size: 16px;
-            margin: 4px 2px;
+            border-radius: 5px;
             cursor: pointer;
-            border-radius: 4px;
-            transition: background-color 0.3s;
-            touch-action: none;
-            /* Prevent scroll on buttons */
-            user-select: none;
-            -webkit-user-select: none;
+            font-size: 14px;
+            transition: background-color 0.2s;
+            min-width: 100px;
         }
 
-        .control-btn:active,
-        .control-btn.active {
-            background-color: #45a049;
-            transform: translateY(2px);
-        }
-
-        #btn-launch {
-            background-color: #d32f2f;
-        }
-
-        #btn-launch:active,
-        #btn-launch.active {
-            background-color: #b71c1c;
-        }
-
-        .btn-nudge {
-            padding: 10px 20px;
-            font-size: 0.9em;
-            min-width: 80px;
+        .control-btn:hover {
             background-color: #444;
         }
 
-        /* Physics Panel */
-        #physics-controls {
-            background: #2d2d2d;
-            padding: 20px;
-            border-radius: 10px;
+        .control-btn:active {
+            background-color: #555;
+        }
+
+        .control-btn.active {
+            background-color: #4caf50;
+        }
+
+        .control-btn:disabled {
+            background-color: #222;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        /* History */
+        #history-container {
+            grid-area: history;
+            background: #1e1e1e;
+            padding: 15px;
+            border-radius: 8px;
             border: 1px solid #3d3d3d;
-            flex: 1 1 300px;
-            /* Flexible width on large screens */
-            max-width: 100%;
-            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            height: 100%;
+            min-height: 600px;
+            /* Minimum height for vertical chart */
+            max-height: 850px;
+            /* Prevent it from getting too tall */
+            overflow: hidden;
+            /* Ensure content doesn't spill */
         }
 
-        h3 {
-            margin-top: 0;
-            color: #ccc;
-            border-bottom: 1px solid #444;
-            padding-bottom: 10px;
+        #history-container h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.1em;
+            color: #4caf50;
         }
 
-        .group-header {
-            margin-top: 20px;
-            margin-bottom: 10px;
-            color: #ccc;
-            border-bottom: 1px solid #444;
-            padding-bottom: 5px;
-            font-weight: bold;
+        .sparkline-container {
+            flex: 1;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 10px;
+            position: relative;
+            height: 100%;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sparkline-svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .game-log-container {
+            flex: 0 0 auto;
+            max-height: 150px;
+            overflow-y: auto;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
             text-align: left;
+        }
+
+        .log-entry {
+            padding: 2px 0;
+            color: #4caf50;
+        }
+
+        /* Physics Controls */
+        #physics-controls {
+            grid-area: settings;
+            background: #1e1e1e;
+            border-radius: 8px;
+            border: 1px solid #3d3d3d;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 32px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #333;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            background: #2a2a2a;
+            border: none;
+            border-radius: 5px 5px 0 0;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            background: #333;
+            color: #4caf50;
+            border-bottom: 2px solid #4caf50;
+        }
+
+        .tab:hover {
+            background: #333;
+        }
+
+        .group-header,
+        label {
+            font-size: 0.9em;
+            color: #4caf50;
+            margin: 15px 0 10px 0;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #333;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .slider-container {
@@ -250,215 +374,114 @@
         .slider-label {
             display: flex;
             justify-content: space-between;
+            margin-bottom: 5px;
             font-size: 0.9em;
             color: #ccc;
-            margin-bottom: 5px;
         }
 
-        input[type=range] {
+        input[type="range"] {
             width: 100%;
-            cursor: pointer;
-            accent-color: #2196F3;
+            height: 6px;
+            border-radius: 3px;
+            background: #333;
+            outline: none;
+            -webkit-appearance: none;
         }
 
-        /* Toggles */
-        .toggle-container {
-            display: flex;
-            justify-content: space-around;
-            margin-bottom: 20px;
-            background: #222;
-            padding: 10px;
-            border-radius: 8px;
-        }
-
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 50px;
-            height: 28px;
-        }
-
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #ccc;
-            transition: .4s;
-            border-radius: 34px;
-        }
-
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 20px;
-            width: 20px;
-            left: 4px;
-            bottom: 4px;
-            background-color: white;
-            transition: .4s;
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
             border-radius: 50%;
-        }
-
-        input:checked+.slider {
-            background-color: #2196F3;
-        }
-
-        input:checked+.slider:before {
-            transform: translateX(22px);
-        }
-
-        input:checked+.slider:before {
-            transform: translateX(22px);
-        }
-
-        /* Tabs */
-        .tabs {
-            display: flex;
-            margin-bottom: 20px;
-            background: #222;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .tab-btn {
-            flex: 1;
-            padding: 12px;
-            background: none;
-            border: none;
-            color: #888;
+            background: #4caf50;
             cursor: pointer;
-            font-size: 1em;
-            transition: all 0.3s;
+            box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
         }
 
-        .tab-btn:hover {
-            background: #2a2a2a;
-            color: #aaa;
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #4caf50;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
         }
 
-        .tab-btn.active {
-            background: #4CAF50;
-            color: white;
-            font-weight: bold;
+        .setting-group {
+            margin-bottom: 15px;
         }
 
-        /* Logs */
-        #game-log {
-            margin-top: 15px;
-            background: #000;
-            border: 1px solid #444;
-            height: 200px;
-            overflow-y: auto;
-            font-family: 'Consolas', monospace;
-            font-size: 0.8em;
-            color: #0f0;
-            padding: 8px;
-            text-align: left;
-            white-space: pre-wrap;
-            border-radius: 4px;
-            flex-grow: 1;
-        }
-
-        .log-entry {
-            margin-bottom: 2px;
+        .setting-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9em;
         }
 
         /* Connection Status */
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
         .status-dot {
-            display: inline-block;
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            margin-right: 5px;
+            display: inline-block;
         }
 
         .status-connected {
-            background-color: #4CAF50;
-            box-shadow: 0 0 5px #4CAF50;
+            background-color: #4caf50;
+            box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
         }
 
         .status-disconnected {
             background-color: #f44336;
+            box-shadow: 0 0 8px rgba(244, 67, 54, 0.6);
         }
 
-        @keyframes shake-left {
-            0% {
-                transform: translateX(0) rotate(0deg);
-            }
-
-            25% {
-                transform: translateX(-10px) rotate(-1deg);
-            }
-
-            50% {
-                transform: translateX(0) rotate(0deg);
-            }
-
-            75% {
-                transform: translateX(5px) rotate(0.5deg);
-            }
-
-            100% {
-                transform: translateX(0) rotate(0deg);
-            }
-        }
-
-        @keyframes shake-right {
-            0% {
-                transform: translateX(0) rotate(0deg);
-            }
-
-            25% {
-                transform: translateX(10px) rotate(1deg);
-            }
-
-            50% {
-                transform: translateX(0) rotate(0deg);
-            }
-
-            75% {
-                transform: translateX(-5px) rotate(-0.5deg);
-            }
-
-            100% {
-                transform: translateX(0) rotate(0deg);
-            }
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #1a1a1a;
-            color: #e0e0e0;
-            text-align: center;
-            margin: 0;
-            padding: 10px;
-            touch-action: manipulation;
-        }
-
-        .shake-left {
-            animation: shake-left 0.3s cubic-bezier(.36, .07, .19, .97) both;
-        }
-
-        .shake-right {
-            animation: shake-right 0.3s cubic-bezier(.36, .07, .19, .97) both;
-        }
-
-        /* Responsive adjustments */
-        @media (max-width: 690px) {
+        /* Responsive Design */
+        @media (max-width: 1200px) {
             #main-layout {
-                flex-direction: row;
-                align-items: center;
+                grid-template-columns: 1fr 350px;
+                grid-template-areas:
+                    "game settings"
+                    "controls settings"
+                    "history history"
+                    "logs logs";
             }
 
+            #history-container {
+                height: auto;
+                min-height: 250px;
+                max-height: 300px;
+                /* Cap height on mobile */
+            }
+
+            .game-log-container {
+                flex-direction: row;
+            }
+        }
+
+        @media (max-width: 900px) {
+            #main-layout {
+                grid-template-columns: 1fr;
+                grid-template-areas:
+                    "game"
+                    "controls"
+                    "history"
+                    "settings";
+            }
+
+            #physics-controls {
+                position: static;
+            }
+        }
+
+        @media (max-width: 690px) {
             #stats-container {
                 flex-direction: row;
                 flex-wrap: nowrap;
@@ -473,31 +496,22 @@
             .stat-box {
                 flex: 0 1 auto;
                 min-width: 0;
-                /* Allow shrinking */
             }
 
-            /* Scale down score boards to fit */
             .score-board {
                 transform-origin: top left;
                 transform: scale(0.7);
                 margin-bottom: -15px;
-                /* Compensate for scale space */
             }
 
-            /* Hide labels or make them smaller if needed */
             .label {
                 font-size: 0.6em;
             }
 
             #physics-controls {
-                width: 100%;
-                flex: auto;
-                position: static;
-                margin-bottom: 20px;
-                /* Spacing above sticky footer */
+                margin: 20px 0;
             }
 
-            /* Sticky Footer for Controls */
             #input-area {
                 position: fixed;
                 bottom: 0;
@@ -516,32 +530,21 @@
 
             #controls-container {
                 margin-top: 0;
-                /* Remove top margin inside sticky footer */
             }
 
             #app {
-                margin-bottom: 100px;
-                /* Space for sticky footer */
+                padding-bottom: 180px;
+                /* Ensure enough space for fixed input area */
+                margin-bottom: 0;
             }
 
-            /* Ensure scores fit */
-            /* .score-board {
-                transform-origin: center;
-            } */
-
-            @media (max-width: 400px) {
-                .score-board {
-                    transform: scale(0.5);
-                }
-
-                #stats-container {
-                    gap: 2px;
-                }
+            #history-container {
+                min-height: 200px;
+                /* Allow it to be smaller on very small screens */
+                max-height: 300px;
             }
         }
-    </style>
 
-    <style>
         /* Header specific styles */
         .app-header {
             display: flex;
@@ -549,6 +552,62 @@
             align-items: center;
             margin-bottom: 10px;
             flex-wrap: wrap;
+        }
+
+        .chart-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid #4caf50;
+            padding: 5px 10px;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 10;
+            white-space: nowrap;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .tooltip-score {
+            color: #fff;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .tooltip-time {
+            color: #aaa;
+            font-size: 0.8em;
+        }
+
+        .axis-label {
+            position: absolute;
+            font-size: 0.7em;
+            color: #666;
+            pointer-events: none;
+            font-family: 'Courier New', monospace;
+        }
+
+        /* Horizontal (Default) - Score on Y */
+        .max-score {
+            top: 5px;
+            left: 5px;
+        }
+
+        .min-score {
+            bottom: 5px;
+            left: 5px;
+        }
+
+        /* Vertical - Score on X */
+        .max-score.vertical {
+            top: auto;
+            bottom: -15px;
+            right: 0;
+            left: auto;
+        }
+
+        .min-score.vertical {
+            bottom: -15px;
+            left: 0;
+            top: auto;
         }
 
         @media (max-width: 690px) {
@@ -570,10 +629,6 @@
                 order: -1;
                 font-size: 0.7em;
                 margin-top: 5px;
-            }
-
-            .setting-group {
-                margin-bottom: 10px;
             }
         }
     </style>
@@ -635,146 +690,94 @@
         <div id="main-layout">
             <div id="game-area">
                 <!-- Tilted Overlay -->
-                <div id="tilted-overlay" v-if="stats.isTilted">TILTED!</div>
+                <div id="tilted-overlay" v-if="isTilted">TILTED!</div>
 
-                <div id="video-container" :class="{ shake: stats.isShaking }">
-                    <div v-if="stats.is_training"
-                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; color: #fff; z-index: 10;">
-                        <div style="font-size: 1.5em; font-weight: bold; margin-bottom: 10px;">TRAINING IN PROGRESS
-                        </div>
-                        <div style="font-size: 1em; color: #aaa;">Headless Mode Active</div>
-                        <div style="margin-top: 20px; font-size: 2em;">[[ stats.progress_percent ]]%</div>
-                        <div style="font-size: 0.8em; color: #888;">Step: [[ formatNumber(stats.current_step, 0) ]] / [[
-                            formatNumber(stats.total_steps, 0) ]]</div>
-                    </div>
-                    <img id="video-stream" :src="videoSrc" alt="Waiting for stream..."
-                        style="width: 100%; max-width: 600px; height: auto; aspect-ratio: 3/4; object-fit: contain; background: #000;">
+                <div id="video-container">
+                    <img id="video-stream" :src="videoSrc" alt="Pinball Game">
                 </div>
+            </div>
 
-                <div id="input-area">
-                    <div id="controls-container">
-                        <button class="control-btn" :class="{ active: activeKeys.has('KeyZ') }"
-                            @mousedown.prevent="handleInput('KeyZ', 'down')"
-                            @mouseup.prevent="handleInput('KeyZ', 'up')" @mouseleave.prevent="handleInput('KeyZ', 'up')"
-                            @touchstart.prevent="handleInput('KeyZ', 'down')"
-                            @touchend.prevent="handleInput('KeyZ', 'up')">LEFT (Z)</button>
+            <div id="controls-container">
+                <div class="control-group">
+                    <button class="control-btn" :class="{ active: toggles.ai }" @click="toggleAI">
+                        AI: [[ toggles.ai ? 'ON' : 'OFF' ]]
+                    </button>
+                    <button class="control-btn" :class="{ active: toggles.autoStart }" @click="toggleAutoStart">
+                        Auto-Start: [[ toggles.autoStart ? 'ON' : 'OFF' ]]
+                    </button>
+                </div>
+                <div class="control-group">
+                    <button class="control-btn" @click="resetConfig">Reset Physics</button>
+                    <button class="control-btn" @click="changeLayout">Change Layout</button>
+                </div>
+                <div class="control-group">
+                    <select v-model="selectedLayout"
+                        style="padding: 5px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px;">
+                        <option v-for="layout in layouts" :key="layout" :value="layout">[[ layout ]]</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <select v-model="selectedModel"
+                        style="padding: 5px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px;">
+                        <option v-for="model in models" :key="model.filename" :value="model.filename">[[ model.filename
+                            ]] ([[ model.created_at ]])</option>
+                    </select>
+                    <button class="control-btn" @click="loadModel">Load Model</button>
+                </div>
+            </div>
 
-                        <button id="btn-launch" class="control-btn" :class="{ active: activeKeys.has('Space') }"
-                            @mousedown.prevent="handleInput('Space', 'down')"
-                            @mouseup.prevent="handleInput('Space', 'up')"
-                            @mouseleave.prevent="handleInput('Space', 'up')"
-                            @touchstart.prevent="handleInput('Space', 'down')"
-                            @touchend.prevent="handleInput('Space', 'up')">LAUNCH</button>
-
-                        <button class="control-btn" :class="{ active: activeKeys.has('Slash') }"
-                            @mousedown.prevent="handleInput('Slash', 'down')"
-                            @mouseup.prevent="handleInput('Slash', 'up')"
-                            @mouseleave.prevent="handleInput('Slash', 'up')"
-                            @touchstart.prevent="handleInput('Slash', 'down')"
-                            @touchend.prevent="handleInput('Slash', 'up')">RIGHT (/)</button>
-                    </div>
-
-                    <div id="nudge-controls">
-                        <button class="control-btn btn-nudge" :class="{ active: activeKeys.has('ShiftLeft') }"
-                            @mousedown.prevent="handleInput('ShiftLeft', 'down')"
-                            @mouseup.prevent="handleInput('ShiftLeft', 'up')"
-                            @mouseleave.prevent="handleInput('ShiftLeft', 'up')"
-                            @touchstart.prevent="handleInput('ShiftLeft', 'down')"
-                            @touchend.prevent="handleInput('ShiftLeft', 'up')">LEFT</button>
-
-                        <button class="control-btn btn-nudge" :class="{ active: activeKeys.has('ShiftRight') }"
-                            @mousedown.prevent="handleInput('ShiftRight', 'down')"
-                            @mouseup.prevent="handleInput('ShiftRight', 'up')"
-                            @mouseleave.prevent="handleInput('ShiftRight', 'up')"
-                            @touchstart.prevent="handleInput('ShiftRight', 'down')"
-                            @touchend.prevent="handleInput('ShiftRight', 'up')">RIGHT</button>
-                        <div>Nudge</div>
-                    </div>
-
-                    <!-- Tilt Meter -->
-                    <div id="tilt-container" v-if="tiltValue > 0">
-                        <div class="tilt-bar-bg">
-                            <div class="tilt-bar-fill"
-                                :style="{ width: (tiltValue * 10) + '%', backgroundColor: tiltColor }"></div>
-                        </div>
-                        <div class="tilt-label">TILT DANGER</div>
-                    </div>
+            <div id="history-container">
+                <h3>Game History</h3>
+                <div class="sparkline-container">
+                    <div id="game-history-chart" style="width:100%; flex: 1;"></div>
                 </div>
             </div>
 
             <div id="physics-controls">
                 <div class="tabs">
-                    <button class="tab-btn" :class="{ active: activeTab === 'settings' }"
+                    <button class="tab" :class="{ active: activeTab === 'settings' }"
                         @click="activeTab = 'settings'">Settings</button>
-                    <button class="tab-btn" :class="{ active: activeTab === 'training' }"
+                    <button class="tab" :class="{ active: activeTab === 'training' }"
                         @click="activeTab = 'training'">Training</button>
                 </div>
 
                 <!-- Settings Tab -->
-                <div v-show="activeTab === 'settings'">
-                    <div class="toggle-container">
-                        <div style="display: flex; flex-direction: column; align-items: center;">
-                            <span style="font-size: 0.8em; margin-bottom: 5px; color: #aaa;">AI Agent</span>
-                            <label class="switch">
-                                <input type="checkbox" v-model="toggles.ai" @change="toggleAI">
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                        <div style="display: flex; flex-direction: column; align-items: center;">
-                            <span style="font-size: 0.8em; margin-bottom: 5px; color: #aaa;">Auto-Start</span>
-                            <label class="switch">
-                                <input type="checkbox" v-model="toggles.autoStart" @change="toggleAutoStart">
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div style="display: flex; gap: 5px; margin-bottom: 20px;">
-                        <select v-model="selectedModel"
-                            style="width: 100%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px;">
-                            <option v-for="model in models" :key="model.filename" :value="model.filename">
-                                [[ model.filename ]] ([[ model.hash ]])
-                            </option>
-                        </select>
-                        <button class="control-btn" style="padding: 8px 15px; font-size: 0.9em; margin: 0;"
-                            @click="loadModel">Load</button>
-                    </div>
-
+                <div v-show="activeTab === 'settings'" style="padding: 10px; overflow: hidden;">
+                    <!-- Ball Physics Group -->
+                    <div class="group-header">Ball Physics</div>
                     <div class="slider-container">
                         <div class="slider-label">
                             <span>Gravity</span>
-                            <span>[[ physics.gravity ]]</span>
+                            <span>[[ formatNumber(physics.gravity, 1) ]]</span>
                         </div>
-                        <input type="range" min="0" max="1" step="0.01" v-model="physics.gravity"
+                        <input type="range" min="500" max="2000" step="50" v-model.number="physics.gravity"
                             @input="updatePhysics('gravity')">
                     </div>
-
                     <div class="slider-container">
                         <div class="slider-label">
                             <span>Friction</span>
-                            <span>[[ physics.friction ]]</span>
+                            <span>[[ formatNumber(physics.friction, 3) ]]</span>
                         </div>
-                        <input type="range" min="0.9" max="1.0" step="0.001" v-model="physics.friction"
+                        <input type="range" min="0.990" max="1.000" step="0.001" v-model.number="physics.friction"
                             @input="updatePhysics('friction')">
                     </div>
-
                     <div class="slider-container">
                         <div class="slider-label">
                             <span>Restitution (Bounce)</span>
-                            <span>[[ physics.restitution ]]</span>
+                            <span>[[ formatNumber(physics.restitution, 2) ]]</span>
                         </div>
-                        <input type="range" min="0" max="1.0" step="0.05" v-model="physics.restitution"
+                        <input type="range" min="0.1" max="1.0" step="0.05" v-model.number="physics.restitution"
                             @input="updatePhysics('restitution')">
                     </div>
 
                     <!-- Flipper Group -->
-                    <div class="group-header">Flippers</div>
+                    <div class="group-header">Flipper Mechanics</div>
                     <div class="slider-container">
                         <div class="slider-label">
                             <span>Speed</span>
-                            <span>[[ physics.flipper_speed ]]</span>
+                            <span>[[ formatNumber(physics.flipper_speed, 1) ]]</span>
                         </div>
-                        <input type="range" min="5" max="10" step=".1" v-model="physics.flipper_speed"
+                        <input type="range" min="500" max="3000" step="100" v-model.number="physics.flipper_speed"
                             @input="updatePhysics('flipper_speed')">
                     </div>
                     <div class="slider-container">
@@ -841,92 +844,79 @@
                     </div>
                     <div class="setting-group">
                         <label>Timesteps</label>
-                        <input type="number" v-model.number="trainingConfig.timesteps"
+                        <input type="number" v-model="trainingConfig.timesteps"
                             style="width: 100%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
                     </div>
                     <div class="setting-group">
                         <label>Learning Rate</label>
-                        <input type="number" v-model.number="trainingConfig.learningRate" step="0.0001"
+                        <input type="number" v-model="trainingConfig.learningRate" step="0.0001"
                             style="width: 100%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
                     </div>
 
-                    <div style="margin-top: 20px; display: flex; gap: 10px;">
-                        <button class="control-btn" style="flex: 1; background-color: #2196F3;" @click="startTraining"
-                            :disabled="stats.is_training">Start Training</button>
-                        <button class="control-btn" style="flex: 1; background-color: #f44336;" @click="stopTraining"
-                            :disabled="!stats.is_training">Stop</button>
-                    </div>
-
-                    <div v-if="stats.is_training" style="margin-top: 20px;">
-                        <div style="margin-bottom: 5px; display: flex; justify-content: space-between;">
+                    <div v-if="stats.is_training" style="margin-top: 15px;">
+                        <div
+                            style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9em; color: #ccc;">
                             <span>Progress</span>
-                            <span>[[ stats.progress_percent ]]%</span>
+                            <span>[[ Math.round(stats.training_progress * 100) ]]%</span>
                         </div>
                         <div style="width: 100%; height: 10px; background: #333; border-radius: 5px; overflow: hidden;">
                             <div
-                                :style="{ width: stats.progress_percent + '%', background: '#4CAF50', height: '100%' }">
+                                :style="{ width: (stats.training_progress * 100) + '%', height: '100%', background: '#4caf50', transition: 'width 0.3s' }">
                             </div>
                         </div>
-                        <div style="margin-top: 10px; font-size: 0.9em; color: #aaa;">
-                            Step: [[ formatNumber(stats.current_step, 0) ]] / [[ formatNumber(stats.total_steps, 0) ]]
-                        </div>
+                    </div>
+
+                    <div style="margin: 20px; display: flex; gap: 10px;">
+                        <button class="control-btn" style="flex: 1; background-color: #4caf50;" @click="startTraining"
+                            :disabled="stats.is_training">Start Training</button>
+                        <button class="control-btn" style="flex: 1; background-color: #e74c3c;" @click="stopTraining"
+                            :disabled="!stats.is_training">Stop</button>
                     </div>
                 </div>
             </div>
-
-
-
         </div>
-
-        <div id="game-log" ref="logContainer">
-            <div v-for="(log, index) in logs" :key="index" class="log-entry">[[ log ]]</div>
+        <div class="console">
+            <div class="game-log-container" ref="logContainer">
+                <div v-for="(log, index) in logs" :key="index" class="log-entry">[[ log ]]</div>
+            </div>
         </div>
-
-        <div style="display: flex; justify-content: center; gap: 10px; margin-top: 15px;">
-            <button class="control-btn"
-                style="padding: 10px; font-size: 0.9em; flex: 1; background-color: #f44336; max-width: 150px;"
-                @click="resetConfig">Reset to Defaults</button>
-        </div>
-
-    </div>
     </div>
 
     <script>
-        const { createApp, ref, reactive, computed, onMounted, watch, nextTick } = Vue;
+        const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick } = Vue;
 
         createApp({
-            delimiters: ['[[', ']]'], // Avoid conflict with Flask Jinja2
+            delimiters: ['[[', ']]'],
             setup() {
                 const socket = io();
                 const connected = ref(false);
                 const videoSrc = ref('');
                 const logContainer = ref(null);
+                const logs = ref([]);
+                const activeKeys = reactive(new Set());
                 const lastNudgeTime = ref(0);
                 const models = ref([]);
                 const selectedModel = ref('');
+                const debounceTimers = {};
 
-                // Computed
+                const addLog = (message) => {
+                    const timestamp = new Date().toLocaleTimeString();
+                    logs.value.push(`[${timestamp}] ${message}`);
+                    if (logs.value.length > 100) logs.value.shift();
+                    nextTick(() => {
+                        if (logContainer.value) {
+                            logContainer.value.scrollTop = logContainer.value.scrollHeight;
+                        }
+                    });
+                };
+
                 const formatToReels = (num, length = 6) => {
-                    // Pad to 'length' digits
                     let str = Math.round(num).toString().padStart(length, '0');
-                    // If number exceeds length, it will just be longer, which is fine, or we can slice it.
-                    // Let's slice to keep fixed width if strictly desired, but usually showing full score is better.
-                    // But user asked for "up to 999,999", implying a fixed 6-digit display.
-                    if (str.length > length) str = str.slice(-length); // Keep last N digits (rollover style) or clamp?
-                    // Rollover is more pinball-like.
+                    if (str.length > length) str = str.slice(-length);
 
                     const parts = [];
-                    // Iterate backwards to insert commas correctly? Or just use logic.
-                    // Length is fixed (e.g. 6). Indices 0,1,2,3,4,5.
-                    // Commas needed after index 2 (if length 6): 012,345
-                    // General logic: insert comma if (length - 1 - i) % 3 == 0 and i != length - 1
-
                     for (let i = 0; i < str.length; i++) {
                         parts.push({ type: 'digit', value: parseInt(str[i]) });
-
-                        // Check if we need a comma after this digit
-                        // Distance from end: str.length - 1 - i
-                        // If distance is 3, 6, 9... we need a comma.
                         const dist = str.length - 1 - i;
                         if (dist > 0 && dist % 3 === 0) {
                             parts.push({ type: 'comma', value: ',' });
@@ -935,7 +925,6 @@
                     return parts;
                 };
 
-                // Computed properties
                 const scoreReels = computed(() => formatToReels(stats.score, 6));
                 const highScoreReels = computed(() => formatToReels(stats.high_score, 6));
                 const ballReels = computed(() => formatToReels(stats.balls, 1));
@@ -948,7 +937,6 @@
                     return '#4caf50';
                 });
 
-                // State
                 const stats = reactive({
                     score: 0,
                     high_score: 0,
@@ -959,7 +947,8 @@
                     is_training: false,
                     nudge: null,
                     tilt_value: 0,
-                    is_tilted: false
+                    is_tilted: false,
+                    training_progress: 0,
                 });
 
                 const physics = reactive({
@@ -990,24 +979,155 @@
                     learningRate: 0.0003
                 });
 
-                const logs = ref([]);
-                const activeKeys = reactive(new Set());
+                const gameHistory = ref([]);
+                const isVertical = ref(window.innerWidth >= 1200);
 
-                // Methods
-                const formatNumber = (num, decimals = 2) => {
-                    if (num === undefined) return '0';
-                    return Number(num).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+                const updateOrientation = () => {
+                    isVertical.value = window.innerWidth >= 1200;
                 };
 
-                const addLog = (msg) => {
-                    logs.value.push(msg);
-                    if (logs.value.length > 100) logs.value.shift();
-                    nextTick(() => {
-                        if (logContainer.value) {
-                            logContainer.value.scrollTop = logContainer.value.scrollHeight;
+                const formatNumber = (num, decimals = 0) => {
+                    if (num === undefined || num === null) return '0';
+                    return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+                };
+
+                const formatTime = (timestamp) => {
+                    if (!timestamp) return '';
+                    const date = new Date(timestamp * 1000);
+                    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                };
+
+                const reversedHistory = computed(() => {
+                    return [...gameHistory.value].reverse();
+                });
+
+                const { watch } = Vue;
+                let chart = null;
+
+                const initChart = () => {
+                    if (chart) chart.destroy();
+
+                    const options = {
+                        chart: {
+                            type: 'area',
+                            backgroundColor: 'transparent',
+                            margin: [10, 10, 30, 40],
+                            inverted: isVertical.value,
+                            height: null, // Let container determine height
+                            reflow: true,
+                            events: {
+                                load: function () {
+                                    this.reflow();
+                                }
+                            }
+                        },
+                        title: { text: null },
+                        credits: { enabled: false },
+                        xAxis: {
+                            visible: true,
+                            minPadding: 0,
+                            maxPadding: 0,
+                            labels: {
+                                style: { color: '#aaa' }
+                            },
+                            gridLineColor: '#333'
+                        },
+                        yAxis: {
+                            title: { text: null },
+                            gridLineColor: '#333',
+                            labels: {
+                                style: { color: '#aaa' }
+                            }
+                        },
+                        plotOptions: {
+                            area: {
+                                fillColor: {
+                                    linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
+                                    stops: [
+                                        [0, 'rgba(76, 175, 80, 0.5)'],
+                                        [1, 'rgba(76, 175, 80, 0.1)']
+                                    ]
+                                },
+                                lineColor: '#4caf50',
+                                lineWidth: 2,
+                                marker: {
+                                    enabled: false,
+                                    radius: 3,
+                                    states: {
+                                        hover: { enabled: true }
+                                    }
+                                },
+                                threshold: null
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                            style: { color: '#fff' },
+                            headerFormat: '',
+                            pointFormatter: function () {
+                                return `<b>Score: ${this.y.toLocaleString()}</b><br/>Time: ${new Date(this.timestamp * 1000).toLocaleTimeString()}`;
+                            }
+                        },
+                        series: [{
+                            name: 'Score',
+                            data: []
+                        }]
+                    };
+
+                    chart = Highcharts.chart('game-history-chart', options);
+                    updateChartData();
+                };
+
+                const updateChartData = () => {
+                    if (!chart) return;
+
+                    const seriesData = [];
+                    const plotLines = [];
+
+                    gameHistory.value.forEach((g, i) => {
+                        if (g.type === 'game') {
+                            seriesData.push({
+                                x: i,
+                                y: g.score,
+                                timestamp: g.timestamp,
+                                marker: {
+                                    enabled: g.is_high_score,
+                                    fillColor: '#ffeb3b',
+                                    radius: 4
+                                }
+                            });
+                        } else if (g.type === 'model_change') {
+                            plotLines.push({
+                                color: '#ff9800',
+                                width: 2,
+                                value: i,
+                                zIndex: 5,
+                                label: {
+                                    text: `<span style="font-size: 8px;">${g.model}</span>`,
+                                    rotation: isVertical.value ? 0 : 90,
+                                    align: isVertical.value ? 'right' : 'left',
+                                    x: isVertical.value ? -5 : 10,
+                                    y: isVertical.value ? 10 : 0,
+                                    style: {
+                                        color: '#ffffff',
+                                        fontWeight: 'bold'
+                                    }
+                                }
+                            });
                         }
                     });
+
+                    chart.series[0].setData(seriesData, true, false, false);
+                    chart.xAxis[0].update({ plotLines: plotLines });
                 };
+
+                watch(gameHistory, () => {
+                    updateChartData();
+                }, { deep: true });
+
+                watch(isVertical, () => {
+                    initChart();
+                });
 
                 const handleInput = (key, type) => {
                     if (type === 'down') {
@@ -1023,12 +1143,11 @@
                     }
                 };
 
-                const debounceTimers = {};
                 const updatePhysics = (param) => {
                     if (debounceTimers[param]) clearTimeout(debounceTimers[param]);
                     debounceTimers[param] = setTimeout(() => {
                         socket.emit('update_physics_v2', { [param]: physics[param] });
-                        socket.emit('save_physics'); // Auto-save
+                        socket.emit('save_physics');
                         delete debounceTimers[param];
                     }, 300);
                 };
@@ -1037,22 +1156,6 @@
                     socket.emit('reset_physics');
                 };
 
-                socket.on('models_list', (data) => {
-                    models.value = data;
-                    if (data.length > 0 && !selectedModel.value) {
-                        selectedModel.value = data[0].filename;
-                    }
-                });
-
-                socket.on('model_loaded', (data) => {
-                    if (data.status === 'success') {
-                        logs.value.push(`Model loaded: ${data.model}`);
-                    } else {
-                        logs.value.push(`Error loading model: ${data.message}`);
-                    }
-                    scrollToBottom();
-                });
-
                 const loadModel = () => {
                     if (selectedModel.value) {
                         socket.emit('load_model', { model: selectedModel.value });
@@ -1060,13 +1163,11 @@
                 };
 
                 const toggleAI = () => {
-                    console.log("Toggling AI:", toggles.ai);
-                    socket.emit('toggle_ai', { enabled: toggles.ai });
+                    socket.emit('toggle_ai', { enabled: !toggles.ai });
                 };
 
                 const toggleAutoStart = () => {
-                    console.log("Toggling Auto-Start:", toggles.autoStart);
-                    socket.emit('toggle_auto_start', { enabled: toggles.autoStart });
+                    socket.emit('toggle_auto_start', { enabled: !toggles.autoStart });
                 };
 
                 const changeLayout = () => {
@@ -1076,8 +1177,6 @@
 
                 const startTraining = () => {
                     try {
-                        console.log("startTraining called");
-                        console.log("Config:", trainingConfig);
                         addLog(`Starting training: ${trainingConfig.modelName}`);
                         if (!socket.connected) {
                             addLog("Error: Socket not connected");
@@ -1088,25 +1187,20 @@
                             total_timesteps: trainingConfig.timesteps,
                             learning_rate: trainingConfig.learningRate
                         });
-                        console.log("start_training event emitted");
                     } catch (e) {
-                        console.error("Error in startTraining:", e);
                         addLog(`Error starting training: ${e.message}`);
                     }
                 };
 
                 const stopTraining = () => {
                     try {
-                        console.log("stopTraining called");
                         addLog('Stopping training...');
                         socket.emit('stop_training');
                     } catch (e) {
-                        console.error("Error in stopTraining:", e);
                         addLog(`Error stopping training: ${e.message}`);
                     }
                 };
 
-                // Keyboard Listeners
                 const handleKeydown = (e) => {
                     if (e.repeat) return;
                     if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
@@ -1122,7 +1216,11 @@
                 };
 
                 onMounted(() => {
-                    // Socket Events
+                    // ... existing socket setup ...
+
+                    // Initialize chart after a short delay to ensure container is ready
+                    setTimeout(initChart, 100);
+
                     socket.on('connect', () => {
                         connected.value = true;
                         addLog('Connected to server');
@@ -1138,17 +1236,17 @@
                     });
 
                     socket.on('stats', (data) => {
-                        // console.log("Received stats:", data);
                         Object.assign(stats, data);
+                        if (data.game_history) {
+                            gameHistory.value = data.game_history;
+                        }
 
-                        // Handle Nudge Animation
                         if (data.nudge && data.nudge.time > lastNudgeTime.value) {
                             lastNudgeTime.value = data.nudge.time;
                             const element = document.getElementById('video-stream');
                             if (element) {
-                                // Remove classes to restart animation if needed
                                 element.classList.remove('shake-left', 'shake-right');
-                                void element.offsetWidth; // Trigger reflow
+                                void element.offsetWidth;
 
                                 if (data.nudge.direction === 'left') {
                                     element.classList.add('shake-left');
@@ -1156,7 +1254,6 @@
                                     element.classList.add('shake-right');
                                 }
 
-                                // Clean up class after animation
                                 setTimeout(() => {
                                     element.classList.remove('shake-left', 'shake-right');
                                 }, 300);
@@ -1196,7 +1293,7 @@
                     socket.on('layouts_list', (data) => {
                         layouts.value = data;
                         if (!layouts.value.includes(selectedLayout.value) && layouts.value.length > 0) {
-                            selectedLayout.value = 'default'; // Default fallback
+                            selectedLayout.value = 'default';
                         }
                     });
 
@@ -1208,7 +1305,6 @@
                         }
                     });
 
-                    // Request layouts on connect
                     socket.emit('get_layouts');
                     socket.emit('get_models');
 
@@ -1216,18 +1312,40 @@
                         addLog(data.message);
                     });
 
-                    // Global Event Listeners
+                    socket.on('models_list', (data) => {
+                        models.value = data;
+                        if (data.length > 0 && !selectedModel.value) {
+                            selectedModel.value = data[0].filename;
+                        }
+                    });
+
+                    socket.on('model_loaded', (data) => {
+                        if (data.status === 'success') {
+                            addLog(`Model loaded: ${data.model}`);
+                        } else {
+                            addLog(`Error loading model: ${data.message}`);
+                        }
+                    });
+
                     window.addEventListener('keydown', handleKeydown);
                     window.addEventListener('keyup', handleKeyup);
+                    window.addEventListener('resize', updateOrientation);
+
                     window.addEventListener('blur', () => {
                         activeKeys.clear();
-                        // Release all keys
                         socket.emit('input_event', { key: 'KeyZ', type: 'up' });
                         socket.emit('input_event', { key: 'Slash', type: 'up' });
                         socket.emit('input_event', { key: 'Space', type: 'up' });
                         socket.emit('input_event', { key: 'ShiftLeft', type: 'up' });
                         socket.emit('input_event', { key: 'ShiftRight', type: 'up' });
                     });
+                });
+
+                onUnmounted(() => {
+                    if (chart) chart.destroy();
+                    window.removeEventListener('keydown', handleKeydown);
+                    window.removeEventListener('keyup', handleKeyup);
+                    window.removeEventListener('resize', updateOrientation);
                 });
 
                 return {
@@ -1260,7 +1378,11 @@
                     activeTab,
                     trainingConfig,
                     startTraining,
-                    stopTraining
+                    stopTraining,
+                    formatTime,
+                    gameHistory,
+                    reversedHistory,
+                    isVertical
                 };
             }
         }).mount('#app');

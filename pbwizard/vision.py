@@ -804,9 +804,19 @@ class SimulatedFrameCapture:
                 if not self.balls:
                     # Auto-start logic
                     if self.auto_start_enabled:
-                        # Small delay before restart?
-                        self.launch_ball()
+                        current_time = time.time()
+                        if not hasattr(self, 'game_over_time') or self.game_over_time is None:
+                            self.game_over_time = current_time
+                        
+                        # Wait 1 second before restart
+                        if current_time - self.game_over_time > 1.0:
+                            self.launch_ball()
+                            self.game_over_time = None
+                    else:
+                        self.game_over_time = None
                     pass
+                else:
+                    self.game_over_time = None
 
                 for _ in range(self.SUB_STEPS):
                     # Update Flipper Angles

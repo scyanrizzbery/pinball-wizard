@@ -82,6 +82,10 @@ Environment variables can be set in `.env`:
 4.  **Action**: The `FlipperController` triggers the hardware (or simulated physics).
 5.  **Learning**: The agent receives rewards for keeping the ball alive and scoring points, gradually improving its policy.
 
+## 🤖 Acknowledgments
+
+Majority of the development for this project was done in **Google Antigravity** with Google Gemini 3 Pro.
+
 ## 📝 License
 
 MIT

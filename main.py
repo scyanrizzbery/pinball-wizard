@@ -112,11 +112,31 @@ def main():
             self.high_score = 0
             self.games_played = 0
             self.last_ball_count = 0
+            self.high_score = 0
+            self.games_played = 0
+            self.current_ball_count = 0
+            self.last_ball_count = 0
+            self.game_history = [] # List of {type, score, timestamp, ...}
             self.training_stats = {
                 'timesteps': 0,
                 'mean_reward': 0.0,
                 'is_training': False
             }
+
+        def add_history_event(self, event_type, data=None):
+            """Add a non-game event to history"""
+            event = {
+                'type': event_type,
+                'timestamp': time.time()
+            }
+            if data:
+                event.update(data)
+            
+            with self.lock:
+                self.game_history.append(event)
+                # Keep last 50 entries (increased from 20 to allow for events)
+                if len(self.game_history) > 50:
+                    self.game_history.pop(0)
 
         def update_training_stats(self, stats):
             with self.lock:
@@ -134,12 +154,18 @@ def main():
                         # Draw debug info on frame if needed
                         with self.lock:
                             self.latest_processed_frame = raw_frame
+                            self.current_ball_count = len(self.capture.balls) if hasattr(self.capture, 'balls') else 0
                     return ball_pos
 
             # Fallback to CV tracking
             raw_frame = self.capture.get_frame()
             if raw_frame is not None:
                 ball_pos, processed_frame = self.tracker.process_frame(raw_frame)
+                
+                # Update ball count based on detection
+                with self.lock:
+                    self.current_ball_count = 1 if ball_pos is not None else 0
+
                 if processed_frame is not None:
                     # processed_frame = self.zones.draw_zones(processed_frame) # Removed to avoid 2D overlay on 3D sim
                     with self.lock:
@@ -159,10 +185,33 @@ def main():
             if current_score > self.high_score:
                 self.high_score = current_score
                 
-            current_balls = len(self.capture.balls) if hasattr(self.capture, 'balls') else 0
+            if current_score > self.high_score:
+                self.high_score = current_score
+                
+            current_balls = self.current_ball_count
             
             if self.last_ball_count > 0 and current_balls == 0:
                 self.games_played += 1
+                
+                is_high_score = False
+                if current_score > self.high_score: # Check against previous high score? 
+                    # Actually self.high_score is already updated above.
+                    # We need to know if it WAS a high score.
+                    # Let's just check if it equals the current high score (which we just updated)
+                    # AND it's > 0.
+                    if current_score == self.high_score and current_score > 0:
+                        is_high_score = True
+
+                # Add to history
+                self.game_history.append({
+                    'type': 'game',
+                    'score': current_score,
+                    'timestamp': time.time(),
+                    'is_high_score': is_high_score
+                })
+                # Keep last 50 entries
+                if len(self.game_history) > 50:
+                    self.game_history.pop(0)
                 
             self.last_ball_count = current_balls
                 
@@ -184,7 +233,8 @@ def main():
                 'games_played': self.games_played,
                 'nudge': nudge_data,
                 'tilt_value': tilt_value,
-                'is_tilted': is_tilted
+                'is_tilted': is_tilted,
+                'game_history': self.game_history
             }
             
             # Merge training stats

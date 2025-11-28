@@ -14,7 +14,13 @@ class TestMultiball(unittest.TestCase):
         print("Initializing Simulation...")
         self.sim = SimulatedFrameCapture(width=450, height=800, headless=True)
         self.sim.start()
-        # self.sim.launch_ball() # Removed: start() triggers auto-start which launches a ball
+        
+        # Wait for auto-start (due to 1s delay)
+        start_time = time.time()
+        while len(self.sim.balls) == 0:
+            if time.time() - start_time > 2.0:
+                break
+            time.sleep(0.1)
 
     def tearDown(self):
         self.sim.stop()

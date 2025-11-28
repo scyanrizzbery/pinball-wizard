@@ -32,8 +32,10 @@ class VisionWrapper:
         self.ball_lost = True
         self.high_score = 0
         self.games_played = 0
+        self.current_ball_count = 0
         self.last_ball_count = 0
         self.ai_enabled = True
+        self.game_history = [] # List of {score, timestamp}
         # self.auto_start_enabled = True # Delegated to capture
 
     def get_stats(self):
@@ -44,14 +46,22 @@ class VisionWrapper:
         if current_score > self.high_score:
             self.high_score = current_score
             
-        current_balls = len(self.capture.balls) if hasattr(self.capture, 'balls') else 0
+        if current_score > self.high_score:
+            self.high_score = current_score
+            
+        current_balls = self.current_ball_count
         
         # Detect Game Over (Balls dropped to 0 from > 0)
-        # Note: In simulation, balls might be 0 at start, so we need to be careful.
-        # But usually we launch a ball.
-        # A simple heuristic: if we had balls and now we don't, game over.
         if self.last_ball_count > 0 and current_balls == 0:
             self.games_played += 1
+            # Add to history
+            self.game_history.append({
+                'score': current_score,
+                'timestamp': time.time()
+            })
+            # Keep last 20 games
+            if len(self.game_history) > 20:
+                self.game_history.pop(0)
             
         self.last_ball_count = current_balls
             
@@ -59,7 +69,8 @@ class VisionWrapper:
             'score': current_score,
             'high_score': self.high_score,
             'balls': current_balls,
-            'games_played': self.games_played
+            'games_played': self.games_played,
+            'game_history': self.game_history
         }
 
     def get_frame(self):
@@ -71,6 +82,12 @@ class VisionWrapper:
         # Process frame (track ball)
         ball_pos, frame = self.tracker.process_frame(frame)
         self.ball_lost = (ball_pos is None)
+        
+        # Update ball count
+        if hasattr(self.capture, 'balls'):
+             self.current_ball_count = len(self.capture.balls)
+        else:
+             self.current_ball_count = 1 if ball_pos is not None else 0
         
         # Draw Zones
         frame = self.zones.draw_zones(frame)

@@ -14,6 +14,7 @@ from pbwizard import constants
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Global reference to the vision system (set by main.py)
@@ -245,7 +246,9 @@ def handle_load_layout_by_name(data):
 
 @socketio.on('toggle_ai')
 def handle_toggle_ai(data):
+    logger.info(f"DEBUG: handle_toggle_ai called with {data}")
     if not vision_system:
+        logger.error("Vision system is None in handle_toggle_ai")
         return
     
     enabled = data.get('enabled', True)
@@ -321,6 +324,10 @@ def handle_load_model(data):
                     vision_system.capture.last_model = model_name
                     vision_system.capture.save_config()
                 
+                # Add to history
+                if hasattr(vision_system, 'add_history_event'):
+                    vision_system.add_history_event('model_change', {'model': model_name})
+
                 socketio.emit('model_loaded', {'status': 'success', 'model': model_name})
             else:
                 socketio.emit('model_loaded', {'status': 'error', 'message': 'Agent not initialized or does not support loading'})
