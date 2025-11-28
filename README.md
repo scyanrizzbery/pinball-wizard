@@ -1,6 +1,12 @@
+# Pinball Wizard 🧙‍♂️
+
+A reinforcement learning agent for playing pinball.
+
 - **Web Visualization**: Live web interface to watch the agent "think" and play in real-time.
 - **Manual Play Mode**: Test the physics and controls yourself via the web interface.
 - **Dynamic Physics Config**: Adjust gravity, friction, and flipper angles on the fly from the UI.
+
+![Pinball Wizard](assets/desktop_view.png)
 
 ## 🛠️ Installation
 
