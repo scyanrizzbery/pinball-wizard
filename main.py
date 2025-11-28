@@ -3,6 +3,12 @@ eventlet.monkey_patch()
 
 import os
 import threading
+import multiprocessing
+try:
+    multiprocessing.set_start_method('spawn', force=True)
+except RuntimeError:
+    pass
+
 import time
 import logging
 import numpy as np
@@ -18,7 +24,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 from pbwizard import vision, hardware, agent, web_server, constants
-
+import train # Import train module
 
 def main():
     logger.info("Starting Pinball Bot...")
@@ -61,7 +67,10 @@ def main():
     logger.info(f"Camera Resolution: {width}x{height}")
 
     tracker = vision.BallTracker()
-    zone_manager = vision.ZoneManager(width, height)
+    if hasattr(cap, 'zone_manager'):
+        zone_manager = cap.zone_manager
+    else:
+        zone_manager = vision.ZoneManager(width, height)
     score_reader = vision.ScoreReader()
 
     # 3. Initialize Agent
@@ -69,6 +78,22 @@ def main():
     if use_rl:
         logger.info("Using RL Agent (PPO)")
         model_path = "models/ppo_pinball_v1.zip"
+        
+        # Try to load last used model from config
+        try:
+            import json
+            if os.path.exists("config.json"):
+                with open("config.json", 'r') as f:
+                    config = json.load(f)
+                    if 'last_model' in config:
+                        last_model = config['last_model']
+                        last_model_path = os.path.join("models", last_model)
+                        if os.path.exists(last_model_path):
+                            model_path = last_model_path
+                            logger.info(f"Loading last used model: {last_model}")
+        except Exception as e:
+            logger.error(f"Error loading config for model: {e}")
+            
         agnt = agent.RLAgent(model_path=model_path)
     else:
         logger.info("Using Reflex Agent")
@@ -87,6 +112,15 @@ def main():
             self.high_score = 0
             self.games_played = 0
             self.last_ball_count = 0
+            self.training_stats = {
+                'timesteps': 0,
+                'mean_reward': 0.0,
+                'is_training': False
+            }
+
+        def update_training_stats(self, stats):
+            with self.lock:
+                self.training_stats.update(stats)
 
         def update(self):
             # Try to get ground truth from simulation first
@@ -143,16 +177,21 @@ def main():
             if hasattr(self.capture, 'is_tilted'):
                 is_tilted = self.capture.is_tilted
 
-            return {
+            stats = {
                 'score': current_score,
                 'high_score': self.high_score,
                 'balls': current_balls,
                 'games_played': self.games_played,
-                'is_training': False,
                 'nudge': nudge_data,
                 'tilt_value': tilt_value,
                 'is_tilted': is_tilted
             }
+            
+            # Merge training stats
+            with self.lock:
+                stats.update(self.training_stats)
+                
+            return stats
 
         @property
         def auto_start_enabled(self):
@@ -169,7 +208,74 @@ def main():
             return getattr(self.capture, name)
 
     vision_wrapper = VisionWrapper(cap, tracker, zone_manager)
+    if use_rl:
+        vision_wrapper.agent = agnt
     
+    # 5. Bot Controller (Manages Play/Train modes)
+    class BotController:
+        def __init__(self):
+            self.mode = 'PLAY' # 'PLAY' or 'TRAIN'
+            self.training_config = {}
+            self.stop_training_flag = False
+            self.lock = threading.Lock()
+            
+            # Multiprocessing queues
+            self.state_queue = multiprocessing.Queue(maxsize=10)
+            self.command_queue = multiprocessing.Queue()
+            self.status_queue = multiprocessing.Queue()
+            self.training_process = None
+
+        def start_training(self, config):
+            with self.lock:
+                if self.mode == 'TRAIN':
+                    logger.warning("Already in training mode")
+                    return
+                
+                self.mode = 'TRAIN'
+                self.training_config = config
+                self.stop_training_flag = False
+                
+                # Clear queues
+                while not self.state_queue.empty(): self.state_queue.get()
+                while not self.command_queue.empty(): self.command_queue.get()
+                while not self.status_queue.empty(): self.status_queue.get()
+                
+                logger.info(f"Switching to TRAINING mode with config: {config}")
+                
+                # Start Training Process
+                self.training_process = multiprocessing.Process(
+                    target=train.train_worker,
+                    args=(config, self.state_queue, self.command_queue, self.status_queue)
+                )
+                self.training_process.start()
+
+        def stop_training(self):
+            with self.lock:
+                self.stop_training_flag = True
+                logger.info("Stop training requested...")
+                self.command_queue.put('STOP')
+
+        def switch_to_play(self):
+            with self.lock:
+                self.mode = 'PLAY'
+                self.stop_training_flag = False
+                logger.info("Switching to PLAY mode")
+                
+                if self.training_process and self.training_process.is_alive():
+                    self.command_queue.put('STOP')
+                    self.training_process.join(timeout=5)
+                    if self.training_process.is_alive():
+                        self.training_process.terminate()
+                    self.training_process = None
+                
+                # Reset stats
+                vision_wrapper.update_training_stats({'is_training': False})
+
+    controller = BotController()
+
+    # Attach controller to vision wrapper so web server can access it
+    vision_wrapper.controller = controller
+
     web_thread = threading.Thread(target=web_server.start_server, args=(vision_wrapper, int(os.getenv('FLASK_PORT', 5000))))
     web_thread.daemon = True
     web_thread.start()
@@ -182,97 +288,152 @@ def main():
 
     try:
         while True:
-            # Main Control Loop
-            ball_pos = vision_wrapper.update()
-            current_time = time.time()
-            dt = current_time - last_time
-            last_time = current_time
+            # Check Mode
+            current_mode = 'PLAY'
+            with controller.lock:
+                current_mode = controller.mode
             
-            if ball_pos is not None:
-                if use_rl:
-                    # Calculate velocity
-                    vx, vy = 0, 0
-                    if last_ball_pos is not None:
-                        vx = (ball_pos[0] - last_ball_pos[0]) / dt
-                        vy = (ball_pos[1] - last_ball_pos[1]) / dt
+            if current_mode == 'TRAIN':
+                # In Training Mode, we listen for state updates from the worker
+                # and update our local vision wrapper for visualization
+                
+                # 1. Check Status Queue
+                try:
+                    while not controller.status_queue.empty():
+                        msg_type, msg_data = controller.status_queue.get_nowait()
+                        if msg_type == 'stats':
+                            # logger.info(f"Main received stats: {msg_data}") # Verbose
+                            vision_wrapper.update_training_stats(msg_data)
+                        elif msg_type == 'status':
+                            if msg_data == 'finished':
+                                logger.info("Training process finished.")
+                                controller.switch_to_play()
+                                # Refresh model list for UI
+                                try:
+                                    web_server.handle_get_models()
+                                except Exception as e:
+                                    logger.error(f"Failed to refresh models list: {e}")
+                        elif msg_type == 'error':
+                            logger.error(f"Training process error: {msg_data}")
+                except Exception as e:
+                    logger.error(f"Error processing status queue: {e}")
+                
+                # 2. Check State Queue (Visuals)
+                try:
+                    latest_state = None
+                    while not controller.state_queue.empty():
+                        latest_state = controller.state_queue.get_nowait()
                     
-                    # Check if ball is in any zone
-                    # Check if ball is in any zone
-                    zones = zone_manager.get_zone_status(ball_pos[0], ball_pos[1])
-                    
-                    if zones['left'] or zones['right']:
-                        # Construct observation [x, y, vx, vy] normalized
-                        # Assuming 640x480 for normalization as in environment.py
-                        obs = np.array([
-                            ball_pos[0] / width,
-                            ball_pos[1] / height,
-                            np.clip(vx / 50.0, -1, 1),
-                            np.clip(vy / 50.0, -1, 1)
-                        ], dtype=np.float32)
-                        
-                        action = agnt.predict(obs)
+                    if latest_state:
+                        # Update local vision wrapper
+                        # We need to set external_control = True on the capture object
+                        if hasattr(vision_wrapper.capture, 'external_control'):
+                            vision_wrapper.capture.external_control = True
+                            vision_wrapper.capture.set_state(latest_state)
+                except:
+                    pass
+                
+                # Sleep a bit to avoid busy loop
+                time.sleep(0.01)
+                
+            else:
+                # PLAY Mode (Normal Inference)
+                
+                # Ensure external control is off
+                if hasattr(vision_wrapper.capture, 'external_control'):
+                    vision_wrapper.capture.external_control = False
 
-                        # Anti-holding for RL
-                        if not hasattr(vision_wrapper, 'rl_hold_steps'): vision_wrapper.rl_hold_steps = 0
-                        if not hasattr(vision_wrapper, 'rl_cooldown'): vision_wrapper.rl_cooldown = 0
+                # 1. Update Vision
+                ball_pos = vision_wrapper.update()
+                
+                current_time = time.time()
+                dt = current_time - last_time
+                last_time = current_time
+                
+                if ball_pos is not None:
+                    if use_rl:
+                        # Calculate velocity
+                        vx, vy = 0, 0
+                        if last_ball_pos is not None:
+                            vx = (ball_pos[0] - last_ball_pos[0]) / dt
+                            vy = (ball_pos[1] - last_ball_pos[1]) / dt
                         
-                        if vision_wrapper.rl_cooldown > 0:
-                            vision_wrapper.rl_cooldown -= 1
-                            action = constants.ACTION_NOOP
-                        else:
-                            is_holding = (action != constants.ACTION_NOOP)
-                            if is_holding:
-                                vision_wrapper.rl_hold_steps += 1
-                            else:
-                                vision_wrapper.rl_hold_steps = 0
-                                
-                            if vision_wrapper.rl_hold_steps > 90: # 3 seconds
+                        # Check if ball is in any zone
+                        zones = zone_manager.get_zone_status(ball_pos[0], ball_pos[1])
+                        
+                        if zones['left'] or zones['right']:
+                            # Construct observation [x, y, vx, vy] normalized
+                            # Assuming 640x480 for normalization as in environment.py
+                            obs = np.array([
+                                ball_pos[0] / width,
+                                ball_pos[1] / height,
+                                np.clip(vx / 50.0, -1, 1),
+                                np.clip(vy / 50.0, -1, 1)
+                            ], dtype=np.float32)
+                            
+                            action = agnt.predict(obs)
+
+                            # Anti-holding for RL
+                            if not hasattr(vision_wrapper, 'rl_hold_steps'): vision_wrapper.rl_hold_steps = 0
+                            if not hasattr(vision_wrapper, 'rl_cooldown'): vision_wrapper.rl_cooldown = 0
+                            
+                            if vision_wrapper.rl_cooldown > 0:
+                                vision_wrapper.rl_cooldown -= 1
                                 action = constants.ACTION_NOOP
-                                vision_wrapper.rl_cooldown = 30 # 1 second cooldown
-                                vision_wrapper.rl_hold_steps = 0
-                        
-                        # Execute action with zone restrictions
-                        # Logic matches environment.py: _execute_action
-                        
-                        # Left Flipper
-                        if (action == constants.ACTION_FLIP_LEFT or action == constants.ACTION_FLIP_BOTH) and zones['left']:
-                            if vision_wrapper.ai_enabled:
-                                hw.hold_left()
+                            else:
+                                is_holding = (action != constants.ACTION_NOOP)
+                                if is_holding:
+                                    vision_wrapper.rl_hold_steps += 1
+                                else:
+                                    vision_wrapper.rl_hold_steps = 0
+                                    
+                                if vision_wrapper.rl_hold_steps > 90: # 3 seconds
+                                    action = constants.ACTION_NOOP
+                                    vision_wrapper.rl_cooldown = 30 # 1 second cooldown
+                                    vision_wrapper.rl_hold_steps = 0
+                            
+                            # Execute action with zone restrictions
+                            # Logic matches environment.py: _execute_action
+                            
+                            # Left Flipper
+                            if (action == constants.ACTION_FLIP_LEFT or action == constants.ACTION_FLIP_BOTH) and zones['left']:
+                                if vision_wrapper.ai_enabled:
+                                    hw.hold_left()
+                                else:
+                                    hw.release_left()
                             else:
                                 hw.release_left()
-                        else:
-                            hw.release_left()
 
-                        # Right Flipper
-                        should_flip_right = (action == constants.ACTION_FLIP_RIGHT or action == constants.ACTION_FLIP_BOTH)
-                        
-                        # Safety Override: If ball is in right zone and moving down, force flip
-                        if zones['right'] and vy > 100: # Pixel/sec threshold
-                            should_flip_right = True
+                            # Right Flipper
+                            should_flip_right = (action == constants.ACTION_FLIP_RIGHT or action == constants.ACTION_FLIP_BOTH)
+                            
+                            # Safety Override: If ball is in right zone and moving down, force flip
+                            if zones['right'] and vy > 100: # Pixel/sec threshold
+                                should_flip_right = True
 
-                        if should_flip_right and zones['right']:
-                            if vision_wrapper.ai_enabled:
-                                hw.hold_right()
+                            if should_flip_right and zones['right']:
+                                if vision_wrapper.ai_enabled:
+                                    hw.hold_right()
+                                else:
+                                    hw.release_right()
                             else:
                                 hw.release_right()
-                        else:
-                            hw.release_right()
-                else:
-                    # Calculate velocity for Reflex Agent too
-                    vx, vy = 0, 0
-                    if last_ball_pos is not None:
-                        vx = (ball_pos[0] - last_ball_pos[0]) / dt
-                        vy = (ball_pos[1] - last_ball_pos[1]) / dt
+                    else:
+                        # Calculate velocity for Reflex Agent too
+                        vx, vy = 0, 0
+                        if last_ball_pos is not None:
+                            vx = (ball_pos[0] - last_ball_pos[0]) / dt
+                            vy = (ball_pos[1] - last_ball_pos[1]) / dt
+                        
+                        if vision_wrapper.ai_enabled:
+                            agnt.act(ball_pos, width, height, velocity=(vx, vy))
                     
-                    if vision_wrapper.ai_enabled:
-                        agnt.act(ball_pos, width, height, velocity=(vx, vy))
+                    last_ball_pos = ball_pos
+                else:
+                    last_ball_pos = None
                 
-                last_ball_pos = ball_pos
-            else:
-                last_ball_pos = None
-            
-            # Rate limiting (approx 60 Hz)
-            time.sleep(0.016)
+                # Rate limiting (approx 60 Hz)
+                time.sleep(0.016)
 
     except KeyboardInterrupt:
         logger.info("Stopping...")

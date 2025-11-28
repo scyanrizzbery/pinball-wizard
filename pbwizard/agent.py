@@ -100,3 +100,14 @@ class RLAgent:
         if self.model:
             self.model.save(path)
             logger.info(f"Model saved to {path}")
+
+    def load_model(self, path):
+        if os.path.exists(path):
+            logger.info(f"Loading RL model from {path}")
+            # We need to preserve the environment if we reload
+            env = self.model.get_env() if self.model else None
+            self.model = PPO.load(path, env=env)
+            return True
+        else:
+            logger.error(f"Model path not found: {path}")
+            return False

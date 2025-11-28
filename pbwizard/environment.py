@@ -303,10 +303,12 @@ class PinballEnv(gym.Env):
                 self.vision.capture.launch_ball()
         
         # Initial observation
-        if hasattr(self.vision, 'get_raw_frame'):
-            frame = self.vision.get_raw_frame()
-        else:
-            frame = self.vision.get_frame()
+        frame = None
+        if not self.headless:
+            if hasattr(self.vision, 'get_raw_frame'):
+                frame = self.vision.get_raw_frame()
+            elif hasattr(self.vision, 'get_frame'):
+                frame = self.vision.get_frame()
             
         # Process frame for visualization
         if hasattr(self.vision, 'process_frame') and frame is not None:

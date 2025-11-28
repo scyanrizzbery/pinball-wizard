@@ -211,6 +211,7 @@ class SimulatedFrameCapture:
         self.width = width
         self.height = height
         self.headless = headless
+        self.last_model = None  # Track last loaded model
         self.layout = PinballLayout() # Removed 'layout' parameter from init, so always create new
         self.zone_manager = ZoneManager(width, height, self.layout)
         
@@ -434,6 +435,8 @@ class SimulatedFrameCapture:
             if val != self.flipper_length:
                 self.flipper_length = val
                 self._update_flipper_rects()
+                if self.zone_manager:
+                    self.zone_manager.update_zones(self.width, self.height)
                 changes.append(f"Flipper Length: {val}")
                 
         if 'tilt_threshold' in params:
@@ -466,7 +469,8 @@ class SimulatedFrameCapture:
             'flipper_length': self.flipper_length,
             'tilt_threshold': self.tilt_threshold,
             'nudge_cost': self.nudge_cost,
-            'tilt_decay': self.tilt_decay
+            'tilt_decay': self.tilt_decay,
+            'last_model': getattr(self, 'last_model', None)
         }
         try:
             with open(filepath, 'w') as f:
@@ -486,6 +490,8 @@ class SimulatedFrameCapture:
                 config = json.load(f)
             
             self.update_physics_params(config)
+            if 'last_model' in config:
+                self.last_model = config['last_model']
             return config
         except Exception as e:
             logger.error(f"Failed to load config: {e}")
@@ -1111,15 +1117,9 @@ class SimulatedFrameCapture:
 
 
 class ZoneManager:
-    def __init__(self, frame_width, frame_height, layout: PinballLayout = None):
-        self.layout = layout if layout else PinballLayout()
-        
+    def update_zones(self, frame_width, frame_height):
         # Calculate zones based on layout and flipper rotation
         # Left Flipper: Pivot at (x_min, y_max)
-        # Length = x_max - x_min
-        # Max Up Angle: 20 deg -> Tip Y = y_max - length * sin(20)
-        # Max Down Angle: -30 deg -> Tip Y = y_max - length * sin(-30) = y_max + length * sin(30)
-        
         l_len = (self.layout.left_flipper_x_max - self.layout.left_flipper_x_min) * frame_width
         l_y_pivot = self.layout.left_flipper_y_max * frame_height
         
@@ -1137,11 +1137,15 @@ class ZoneManager:
         r_y_pivot = self.layout.right_flipper_y_max * frame_height
 
         self.right_flipper_zone = {
-            'x_min': int(self.layout.right_flipper_x_min * frame_width - l_len * 0.2 - padding),
+            'x_min': int(self.layout.right_flipper_x_min * frame_width - r_len * 0.2 - padding),
             'x_max': int(self.layout.right_flipper_x_max * frame_width + padding),
-            'y_min': int(r_y_pivot - r_len * np.sin(np.radians(20)) - padding), # Same angles roughly
+            'y_min': int(r_y_pivot - r_len * np.sin(np.radians(20)) - padding), 
             'y_max': int(r_y_pivot + r_len * np.sin(np.radians(30)) + padding)
         }
+
+    def __init__(self, frame_width, frame_height, layout: PinballLayout = None):
+        self.layout = layout if layout else PinballLayout()
+        self.update_zones(frame_width, frame_height)
 
     def is_in_zone(self, x, y, zone):
         return (zone['x_min'] <= x <= zone['x_max'] and

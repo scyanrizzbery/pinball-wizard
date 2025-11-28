@@ -72,7 +72,9 @@ def handle_connect():
                 'restitution': capture.restitution,
                 'flipper_speed': capture.flipper_speed,
                 'flipper_resting_angle': capture.flipper_resting_angle,
-                'flipper_stroke_angle': capture.flipper_stroke_angle
+                'flipper_resting_angle': capture.flipper_resting_angle,
+                'flipper_stroke_angle': capture.flipper_stroke_angle,
+                'last_model': getattr(capture, 'last_model', None)
             }
             socketio.emit('physics_config_loaded', config)
 
@@ -127,7 +129,7 @@ def handle_input(data):
             capture.nudge_right()
 
 
-@socketio.on('update_physics')
+@socketio.on('update_physics_v2')
 def handle_physics_update(data):
     if not vision_system:
         return
@@ -267,6 +269,90 @@ def handle_toggle_auto_start(data):
         logger.info(f"Auto-Start set to: {enabled}")
         # Broadcast new state to all clients
         socketio.emit('auto_start_status', {'enabled': enabled})
+
+
+@socketio.on('get_models')
+def handle_get_models():
+    import hashlib
+    try:
+        models_dir = os.path.join(os.getcwd(), 'models')
+        if not os.path.exists(models_dir):
+            os.makedirs(models_dir)
+            
+        model_list = []
+        for f in os.listdir(models_dir):
+            if f.endswith('.zip'):
+                filepath = os.path.join(models_dir, f)
+                # Calculate short hash
+                try:
+                    with open(filepath, "rb") as file:
+                        file_hash = hashlib.sha256(file.read()).hexdigest()[:6]
+                except Exception:
+                    file_hash = "unknown"
+                
+                model_list.append({
+                    'filename': f,
+                    'hash': file_hash
+                })
+        
+        # Sort by filename (version)
+        model_list.sort(key=lambda x: x['filename'])
+        socketio.emit('models_list', model_list)
+    except Exception as e:
+        logger.error(f"Error listing models: {e}")
+
+
+@socketio.on('load_model')
+def handle_load_model(data):
+    model_file = data.get('model')
+    model_name = data.get('model')
+    if not model_name:
+        return
+        
+    try:
+        model_path = os.path.join(os.getcwd(), 'models', model_name)
+        if os.path.exists(model_path):
+            if hasattr(vision_system, 'agent') and hasattr(vision_system.agent, 'load_model'):
+                vision_system.agent.load_model(model_path)
+                logger.info(f"Loaded model: {model_name}")
+                
+                # Save as last loaded model
+                if hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'save_config'):
+                    vision_system.capture.last_model = model_name
+                    vision_system.capture.save_config()
+                
+                socketio.emit('model_loaded', {'status': 'success', 'model': model_name})
+            else:
+                socketio.emit('model_loaded', {'status': 'error', 'message': 'Agent not initialized or does not support loading'})
+        else:
+            socketio.emit('model_loaded', {'status': 'error', 'message': 'Model file not found'})
+    except Exception as e:
+        logger.error(f"Error loading model: {e}")
+        socketio.emit('model_loaded', {'status': 'error', 'message': str(e)})
+
+@socketio.on('start_training')
+def handle_start_training(data):
+    logger.info(f"Received start_training event: {data}")
+    if hasattr(vision_system, 'controller'):
+        config = {
+            'model_name': data.get('model_name', 'ppo_pinball'),
+            'total_timesteps': int(data.get('total_timesteps', 100000)),
+            'learning_rate': float(data.get('learning_rate', 0.0003)),
+            'random_layouts': False # Disable random layouts for now
+        }
+        vision_system.controller.start_training(config)
+        socketio.emit('training_started', config)
+    else:
+        logger.error("No controller attached to vision system")
+
+@socketio.on('stop_training')
+def handle_stop_training():
+    logger.info("Received stop_training event")
+    if hasattr(vision_system, 'controller'):
+        vision_system.controller.stop_training()
+        socketio.emit('training_stopped')
+    else:
+        logger.error("No controller attached to vision system")
 
 class SocketIOLogHandler(logging.Handler):
     def emit(self, record):
