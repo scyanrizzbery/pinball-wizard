@@ -1480,6 +1480,9 @@
 
                     socket.on('presets_updated', (presets) => {
                         cameraPresets.value = presets;
+                        if (!selectedPreset.value && 'Default' in presets) {
+                            selectedPreset.value = 'Default';
+                        }
                     });
 
                     socket.on('connect', () => {

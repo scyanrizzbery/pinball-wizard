@@ -280,21 +280,13 @@ class SimulatedFrameCapture:
         # Initialized in _update_flipper_rects
         
         # 3D Camera Settings
-        self.cam_x = width / 2
-        self.cam_y = height * 1.5  # Behind the flippers
-        self.cam_z = width * 1.5   # Up in the air
-        self.focal_length = width * 1.2
+        # 3D Camera Settings (Default Preset Values)
+        self.cam_x = width * 0.5
+        self.cam_y = height * 2.5
+        self.cam_z = width * 1.5
+        self.focal_length = (width * 1.2) * 2.4 # Base * Zoom
         
-        # Calculate Pitch to look at center of table (width/2, height/2, 0)
-        # Vector from Cam to Target
-        target_y = height / 2
-        target_z = 0
-        dy = target_y - self.cam_y
-        dz = target_z - self.cam_z
-        
-        # We want to rotate such that the new Y component is 0
-        # y' = y*cos(p) - z*sin(p) = 0  => tan(p) = y/z
-        self.pitch = np.arctan2(dy, dz)
+        self.pitch = np.radians(73.0)
 
         self.camera_presets = {
             "Default": {
