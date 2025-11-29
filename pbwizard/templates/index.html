@@ -29,6 +29,7 @@
         #main-layout {
             display: grid;
             grid-template-columns: minmax(400px, 1fr) 240px minmax(320px, 1fr);
+            grid-template-rows: auto auto minmax(0, 1fr);
             grid-template-areas:
                 "game history settings"
                 "game history controls"
@@ -830,7 +831,7 @@
                                 <span>Gravity</span>
                                 <span>[[ formatNumber(physics.gravity, 1) ]]</span>
                             </div>
-                            <input type="range" min="500" max="2000" step="50" v-model.number="physics.gravity"
+                            <input type="range" min="0.1" max="2" step="0.1" v-model.number="physics.gravity"
                                 @input="updatePhysics('gravity')">
                         </div>
                         <div class="slider-container">
@@ -862,7 +863,7 @@
                                 <span>Speed</span>
                                 <span>[[ formatNumber(physics.flipper_speed, 1) ]]</span>
                             </div>
-                            <input type="range" min="500" max="3000" step="100" v-model.number="physics.flipper_speed"
+                            <input type="range" min="1" max="20" step="0.1" v-model.number="physics.flipper_speed"
                                 @input="updatePhysics('flipper_speed')">
                         </div>
                         <div class="slider-container">
@@ -888,6 +889,71 @@
                             </div>
                             <input type="range" min="0.1" max="0.3" step="0.01" v-model.number="physics.flipper_length"
                                 @input="updatePhysics('flipper_length')">
+                        </div>
+                    </div>
+
+                    <!-- Camera Group -->
+                    <div class="group-header" @click="toggleGroup('camera')">
+                        <span>Camera Settings</span>
+                        <span class="arrow" :class="{ rotated: expandedGroups.camera }">▼</span>
+                    </div>
+                    <div v-show="expandedGroups.camera" class="group-content">
+                        <div class="slider-container">
+                            <div class="slider-label">
+                                <span>Camera Pitch</span>
+                                <span>[[ formatNumber(physics.camera_pitch, 1) ]]°</span>
+                            </div>
+                            <input type="range" min="0" max="90" step="1" v-model.number="physics.camera_pitch"
+                                @input="updatePhysics('camera_pitch')">
+                        </div>
+                        <div class="slider-container">
+                            <div class="slider-label">
+                                <span>Camera X</span>
+                                <span>[[ formatNumber(physics.camera_x, 2) ]]x</span>
+                            </div>
+                            <input type="range" min="0.0" max="1.0" step="0.05" v-model.number="physics.camera_x"
+                                @input="updatePhysics('camera_x')">
+                        </div>
+                        <div class="slider-container">
+                            <div class="slider-label">
+                                <span>Camera Y</span>
+                                <span>[[ formatNumber(physics.camera_y, 2) ]]x</span>
+                            </div>
+                            <input type="range" min="0.5" max="3.0" step="0.1" v-model.number="physics.camera_y"
+                                @input="updatePhysics('camera_y')">
+                        </div>
+                        <div class="slider-container">
+                            <div class="slider-label">
+                                <span>Camera Z</span>
+                                <span>[[ formatNumber(physics.camera_z, 2) ]]x</span>
+                            </div>
+                            <input type="range" min="0.5" max="3.0" step="0.1" v-model.number="physics.camera_z"
+                                @input="updatePhysics('camera_z')">
+                        </div>
+                        <div class="slider-container">
+                            <div class="slider-label">
+                                <span>Camera Zoom</span>
+                                <span>[[ formatNumber(physics.camera_zoom, 2) ]]x</span>
+                            </div>
+                            <input type="range" min="0.5" max="4.0" step="0.1" v-model.number="physics.camera_zoom"
+                                @input="updatePhysics('camera_zoom')">
+                        </div>
+
+                        <div class="setting-group"
+                            style="margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
+                            <label>Presets</label>
+                            <div style="display: flex; gap: 5px;">
+                                <select v-model="selectedPreset" @change="applyPreset"
+                                    style="flex: 1; background: #222; color: #fff; border: 1px solid #444; padding: 5px;">
+                                    <option value="" disabled>Select Preset</option>
+                                    <option v-for="(preset, name) in cameraPresets" :key="name" :value="name">[[ name ]]
+                                    </option>
+                                </select>
+                                <button @click="savePreset"
+                                    style="background: #27ae60; border: none; color: white; padding: 5px 10px; cursor: pointer;">Save</button>
+                                <button @click="deletePreset"
+                                    style="background: #c0392b; border: none; color: white; padding: 5px 10px; cursor: pointer;">Del</button>
+                            </div>
                         </div>
                     </div>
 
@@ -974,7 +1040,8 @@
                 </div>
             </div>
             <div class="console">
-                <div class="game-log-container" ref="logContainer" style="height: 100%; max-height: none;">
+                <div class="game-log-container" ref="logContainer"
+                    style="height: 100%; width: 100%; max-height: 20em; box-sizing: border-box;">
                     <div v-for="(log, index) in logs" :key="index" class="log-entry">[[ log ]]</div>
                 </div>
             </div>
@@ -1061,15 +1128,58 @@
                     flipper_resting_angle: -30,
                     flipper_stroke_angle: 50,
                     flipper_length: 0.2,
-                    tilt_threshold: 8.0,
-                    nudge_cost: 4.0,
-                    tilt_decay: 0.05
+                    tilt_threshold: 5.0,
+                    nudge_cost: 0.5,
+                    tilt_decay: 0.1,
+                    camera_pitch: 45, // Default
+                    camera_x: 0.5, // Default
+                    camera_y: 1.5, // Default
+                    camera_z: 1.5, // Default
+                    camera_zoom: 1.0 // Default
                 });
 
                 const toggles = reactive({
                     ai: true,
                     autoStart: true
                 });
+
+                const cameraPresets = ref({});
+                const selectedPreset = ref('');
+
+                const applyPreset = () => {
+                    const preset = cameraPresets.value[selectedPreset.value];
+                    if (preset) {
+                        // Update local physics
+                        if (preset.camera_pitch !== undefined) physics.camera_pitch = preset.camera_pitch;
+                        if (preset.camera_x !== undefined) physics.camera_x = preset.camera_x;
+                        if (preset.camera_y !== undefined) physics.camera_y = preset.camera_y;
+                        if (preset.camera_z !== undefined) physics.camera_z = preset.camera_z;
+                        if (preset.camera_zoom !== undefined) physics.camera_zoom = preset.camera_zoom;
+
+                        // Send updates
+                        socket.emit('update_physics_v2', {
+                            camera_pitch: physics.camera_pitch,
+                            camera_x: physics.camera_x,
+                            camera_y: physics.camera_y,
+                            camera_z: physics.camera_z,
+                            camera_zoom: physics.camera_zoom
+                        });
+                    }
+                };
+
+                const savePreset = () => {
+                    const name = prompt("Enter preset name:");
+                    if (name) {
+                        socket.emit('save_preset', { name: name });
+                    }
+                };
+
+                const deletePreset = () => {
+                    if (selectedPreset.value && confirm(`Delete preset "${selectedPreset.value}"?`)) {
+                        socket.emit('delete_preset', { name: selectedPreset.value });
+                        selectedPreset.value = '';
+                    }
+                };
 
                 const layouts = ref([]);
                 const selectedLayout = ref('default');
@@ -1099,7 +1209,8 @@
                 const expandedGroups = reactive({
                     ball: false,
                     flipper: false,
-                    tilt: false
+                    tilt: false,
+                    camera: false
                 });
 
                 const toggleGroup = (group) => {
@@ -1147,6 +1258,7 @@
                         },
                         title: { text: null },
                         credits: { enabled: false },
+                        legend: { enabled: false },
                         xAxis: {
                             visible: true,
                             minPadding: 0,
@@ -1351,9 +1463,29 @@
                     // Initialize chart after a short delay to ensure container is ready
                     setTimeout(initChart, 100);
 
+                    socket.on('physics_config_loaded', (config) => {
+                        if (config) {
+                            // Update physics object
+                            Object.keys(config).forEach(key => {
+                                if (key in physics) {
+                                    physics[key] = config[key];
+                                }
+                            });
+                            // Update presets
+                            if (config.camera_presets) {
+                                cameraPresets.value = config.camera_presets;
+                            }
+                        }
+                    });
+
+                    socket.on('presets_updated', (presets) => {
+                        cameraPresets.value = presets;
+                    });
+
                     socket.on('connect', () => {
                         connected.value = true;
                         addLog('Connected to server');
+                        socket.emit('load_physics');
                     });
 
                     socket.on('disconnect', () => {
@@ -1518,7 +1650,13 @@
                     toggleGroup,
                     checkViewportHeight,
                     showChart,
-                    formatNumber
+                    showChart,
+                    formatNumber,
+                    cameraPresets,
+                    selectedPreset,
+                    applyPreset,
+                    savePreset,
+                    deletePreset
                 };
             }
         }).mount('#app');

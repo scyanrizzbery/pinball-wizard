@@ -200,6 +200,27 @@ def handle_load_layout(data):
         socketio.emit('layout_loaded', {'status': 'error', 'message': 'Not supported'})
 
 
+@socketio.on('save_preset')
+def handle_save_preset(data):
+    if not vision_system: return
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    if hasattr(capture, 'save_camera_preset'):
+        name = data.get('name')
+        if name:
+            presets = capture.save_camera_preset(name)
+            socketio.emit('presets_updated', presets)
+
+@socketio.on('delete_preset')
+def handle_delete_preset(data):
+    if not vision_system: return
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    if hasattr(capture, 'delete_camera_preset'):
+        name = data.get('name')
+        if name:
+            presets = capture.delete_camera_preset(name)
+            socketio.emit('presets_updated', presets)
+
+
         socketio.emit('layout_loaded', {'status': 'error', 'message': 'Not supported'})
 
 

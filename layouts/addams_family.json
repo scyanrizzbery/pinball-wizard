@@ -1,0 +1,69 @@
+{
+    "name": "The Addams Family",
+    "flippers": {
+        "left": {
+            "x_min": 0.25,
+            "x_max": 0.45,
+            "y_min": 0.85,
+            "y_max": 0.95
+        },
+        "right": {
+            "x_min": 0.55,
+            "x_max": 0.75,
+            "y_min": 0.85,
+            "y_max": 0.95
+        }
+    },
+    "bumpers": [
+        {
+            "x": 0.65,
+            "y": 0.2,
+            "radius_ratio": 0.05,
+            "value": 1000
+        },
+        {
+            "x": 0.75,
+            "y": 0.25,
+            "radius_ratio": 0.05,
+            "value": 1000
+        },
+        {
+            "x": 0.8,
+            "y": 0.15,
+            "radius_ratio": 0.05,
+            "value": 1000
+        },
+        {
+            "x": 0.5,
+            "y": 0.1,
+            "radius_ratio": 0.04,
+            "value": 5000
+        }
+    ],
+    "drop_targets": [
+        {
+            "x": 0.15,
+            "y": 0.3,
+            "width": 0.03,
+            "height": 0.01,
+            "value": 500
+        },
+        {
+            "x": 0.15,
+            "y": 0.35,
+            "width": 0.03,
+            "height": 0.01,
+            "value": 500
+        },
+        {
+            "x": 0.15,
+            "y": 0.4,
+            "width": 0.03,
+            "height": 0.01,
+            "value": 500
+        }
+    ],
+    "guide_lines": {
+        "y": 0.7
+    }
+}

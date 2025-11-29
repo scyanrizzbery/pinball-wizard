@@ -296,6 +296,51 @@ class SimulatedFrameCapture:
         # y' = y*cos(p) - z*sin(p) = 0  => tan(p) = y/z
         self.pitch = np.arctan2(dy, dz)
 
+        self.camera_presets = {
+            "Default": {
+                "camera_pitch": 73.0,
+                "camera_x": 0.5,
+                "camera_y": 2.5,
+                "camera_z": 1.5,
+                "camera_zoom": 2.4
+            },
+            "Top Down": {
+                "camera_pitch": 0.0,
+                "camera_x": 0.5,
+                "camera_y": 0.6,
+                "camera_z": 1.4,
+                "camera_zoom": 0.8
+            },
+            "Player View": {
+                "camera_pitch": 30.0,
+                "camera_x": 0.5,
+                "camera_y": 1.3,
+                "camera_z": 1.2,
+                "camera_zoom": 1.0
+            },
+            "Side View": {
+                "camera_pitch": 45.0,
+                "camera_x": 0.0,
+                "camera_y": 1.5,
+                "camera_z": 1.5,
+                "camera_zoom": 1.0
+            },
+            "Close Up": {
+                "camera_pitch": 20.0,
+                "camera_x": 0.5,
+                "camera_y": 1.3,
+                "camera_z": 1.1,
+                "camera_zoom": 1.6
+            },
+            "Wide Angle": {
+                "camera_pitch": 60.0,
+                "camera_x": 0.5,
+                "camera_y": 1.4,
+                "camera_z": 1.3,
+                "camera_zoom": 0.7
+            }
+        }
+
     def _update_flipper_rects(self):
         # Update flipper rectangles based on current flipper_length
         # Left Flipper: Pivot at x_min, length extends to right
@@ -392,7 +437,12 @@ class SimulatedFrameCapture:
         scale = self.focal_length / abs(cz)
         
         sx = int(cx * scale + self.width / 2)
-        sy = int(-cy * scale + self.height / 2) # Invert Y for correct screen orientation
+        sy = int(cy * scale + self.height / 2) # Removed inversion for correct orientation
+        
+        # Clamp to prevent integer overflow in OpenCV
+        limit = 30000
+        sx = max(-limit, min(limit, sx))
+        sy = max(-limit, min(limit, sy))
         
         return (sx, sy)
 
@@ -454,12 +504,54 @@ class SimulatedFrameCapture:
             if val != self.tilt_decay:
                 self.tilt_decay = val
                 changes.append(f"Tilt Decay: {val}")
+
+        if 'camera_pitch' in params:
+            val = float(params['camera_pitch'])
+            # Convert degrees to radians for internal use if needed, but self.pitch seems to be radians in _project_3d
+            # Let's assume input is degrees for UI friendliness
+            rad_val = np.radians(val)
+            if rad_val != self.pitch:
+                self.pitch = rad_val
+                changes.append(f"Camera Pitch: {val}°")
+
+        if 'camera_y' in params:
+            val = float(params['camera_y'])
+            # Input is likely a multiplier or offset. self.cam_y was initialized as height * 1.5
+            # Let's treat input as the raw Y value for now, or a multiplier relative to height?
+            # Let's treat it as a multiplier of height to keep it responsive
+            new_y = self.height * val
+            if new_y != self.cam_y:
+                self.cam_y = new_y
+                changes.append(f"Camera Y: {val}x")
+
+        if 'camera_x' in params:
+            val = float(params['camera_x'])
+            new_x = self.width * val
+            if new_x != self.cam_x:
+                self.cam_x = new_x
+                changes.append(f"Camera X: {val}x")
+
+        if 'camera_z' in params:
+            val = float(params['camera_z'])
+            new_z = self.width * val
+            if new_z != self.cam_z:
+                self.cam_z = new_z
+                changes.append(f"Camera Z: {val}x")
+
+        if 'camera_zoom' in params:
+            val = float(params['camera_zoom'])
+            # Treat as multiplier of base focal length (width * 1.2)
+            new_focal = (self.width * 1.2) * val
+            if new_focal != self.focal_length:
+                self.focal_length = new_focal
+                changes.append(f"Camera Zoom: {val}x")
             
         if changes:
             logger.info(f"Physics updated: {', '.join(changes)}")
 
-    def save_config(self, filepath="config.json"):
-        config = {
+    def get_config(self):
+        """Return the current configuration as a dictionary."""
+        return {
             'gravity': self.gravity,
             'friction': self.friction,
             'restitution': self.restitution,
@@ -470,8 +562,17 @@ class SimulatedFrameCapture:
             'tilt_threshold': self.tilt_threshold,
             'nudge_cost': self.nudge_cost,
             'tilt_decay': self.tilt_decay,
+            'camera_pitch': np.degrees(self.pitch), # Save as degrees
+            'camera_x': self.cam_x / self.width,
+            'camera_y': self.cam_y / self.height,
+            'camera_z': self.cam_z / self.width,
+            'camera_zoom': self.focal_length / (self.width * 1.2), # Save as multiplier
+            'camera_presets': self.camera_presets,
             'last_model': getattr(self, 'last_model', None)
         }
+
+    def save_config(self, filepath="config.json"):
+        config = self.get_config()
         try:
             with open(filepath, 'w') as f:
                 json.dump(config, f, indent=4)
@@ -483,7 +584,8 @@ class SimulatedFrameCapture:
 
     def load_config(self, filepath="config.json"):
         if not os.path.exists(filepath):
-            return False
+            logger.info("Config file not found, returning current (default) config")
+            return self.get_config()
         
         try:
             with open(filepath, 'r') as f:
@@ -492,12 +594,35 @@ class SimulatedFrameCapture:
             self.update_physics_params(config)
             if 'last_model' in config:
                 self.last_model = config['last_model']
+            if 'camera_presets' in config:
+                # Merge loaded presets into existing (default) presets
+                self.camera_presets.update(config['camera_presets'])
             return config
         except Exception as e:
             logger.error(f"Failed to load config: {e}")
             return False
 
     def reset_to_defaults(self):
+        # ... (existing reset logic, maybe update to include camera defaults if needed)
+        pass
+
+    def save_camera_preset(self, name):
+        preset = {
+            "camera_pitch": np.degrees(self.pitch),
+            "camera_x": self.cam_x / self.width,
+            "camera_y": self.cam_y / self.height,
+            "camera_z": self.cam_z / self.width,
+            "camera_zoom": self.focal_length / (self.width * 1.2)
+        }
+        self.camera_presets[name] = preset
+        self.save_config()
+        return self.camera_presets
+
+    def delete_camera_preset(self, name):
+        if name in self.camera_presets:
+            del self.camera_presets[name]
+            self.save_config()
+        return self.camera_presets
         """Reset all physics parameters to class constants and save."""
         self.gravity = self.GRAVITY
         self.friction = self.FRICTION
@@ -572,8 +697,8 @@ class SimulatedFrameCapture:
             self.drop_target_states = [True] * len(self.layout.drop_targets)
             logger.info("Sim: New Game Started")
         
-        # Load config if exists
-        self.load_config()
+        # Load config if exists - REMOVED to prevent resetting camera on new game
+        # self.load_config()
 
 
     def add_ball(self):
