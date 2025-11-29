@@ -6,10 +6,10 @@ A reinforcement learning agent for playing pinball.
 - **Manual Play Mode**: Test the physics and controls yourself via the web interface.
 - **Dynamic Physics Config**: Adjust gravity, friction, and flipper angles on the fly from the UI.
 
-<p align="center">
-  <img src="assets/screenshot_desktop.png" width="60%" alt="Desktop View" />
-  <img src="assets/screenshot_mobile.png" width="25%" alt="Mobile View" />
-</p>
+<div style="display: flex; justify-content: space-evenly">
+  <img src="assets/screenshot_desktop.png" alt="Desktop View" />
+  <img src="assets/screenshot_mobile.png" alt="Mobile View" />
+</div>
 
 ## 🛠️ Installation
 
