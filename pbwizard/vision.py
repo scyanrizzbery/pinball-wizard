@@ -1101,6 +1101,38 @@ class SimulatedFrameCapture:
         with self.lock:
             return self.frame.copy() if self.frame is not None else None
 
+    def get_state(self):
+        """Get current simulation state for synchronization."""
+        with self.lock:
+            return {
+                'balls': [b.copy() for b in self.balls],
+                'left_angle': self.current_left_angle,
+                'right_angle': self.current_right_angle,
+                'score': self.score,
+                'is_tilted': self.is_tilted,
+                'drop_targets': list(self.drop_target_states),
+                'bumpers': self.bumpers # Bumpers might change if randomized? No, layout is static per session usually.
+            }
+
+    def set_state(self, state):
+        """Set simulation state from external source (e.g. training worker)."""
+        with self.lock:
+            if 'balls' in state:
+                self.balls = state['balls']
+            if 'left_angle' in state:
+                self.current_left_angle = state['left_angle']
+            if 'right_angle' in state:
+                self.current_right_angle = state['right_angle']
+            if 'score' in state:
+                self.score = state['score']
+            if 'is_tilted' in state:
+                self.is_tilted = state['is_tilted']
+            if 'drop_targets' in state:
+                self.drop_target_states = state['drop_targets']
+            
+            # Force render frame
+            self._draw_frame()
+
     @property
     def ball_lost(self):
         # Return true only if ALL balls are lost

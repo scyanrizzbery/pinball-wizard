@@ -1,4 +1,5 @@
 {
+    "name": "Precision",
     "flippers": {
         "left": {
             "x_min": 0.25,

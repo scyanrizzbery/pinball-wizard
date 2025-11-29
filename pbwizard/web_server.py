@@ -211,9 +211,18 @@ def handle_get_layouts():
             os.makedirs(layouts_dir)
             
         files = [f for f in os.listdir(layouts_dir) if f.endswith('.json')]
-        # Remove extension for display
-        layout_names = [os.path.splitext(f)[0] for f in files]
-        socketio.emit('layouts_list', layout_names)
+        layout_list = []
+        for f in files:
+            try:
+                with open(os.path.join(layouts_dir, f), 'r') as json_file:
+                    import json
+                    data = json.load(json_file)
+                    name = data.get('name', os.path.splitext(f)[0])
+                    layout_list.append({'filename': os.path.splitext(f)[0], 'name': name})
+            except Exception:
+                layout_list.append({'filename': os.path.splitext(f)[0], 'name': os.path.splitext(f)[0]})
+        
+        socketio.emit('layouts_list', layout_list)
     except Exception as e:
         logger.error(f"Error listing layouts: {e}")
 
