@@ -75,7 +75,8 @@ def handle_connect():
                 'flipper_resting_angle': capture.flipper_resting_angle,
                 'flipper_resting_angle': capture.flipper_resting_angle,
                 'flipper_stroke_angle': capture.flipper_stroke_angle,
-                'last_model': getattr(capture, 'last_model', None)
+                'last_model': getattr(capture, 'last_model', None),
+                'last_preset': getattr(capture, 'last_preset', None)
             }
             socketio.emit('physics_config_loaded', config)
 
@@ -158,7 +159,7 @@ def handle_load_physics():
     if hasattr(capture, 'load_config'):
         config = capture.load_config()
         if config:
-            logger.info(f"Loaded config from file: {config}")
+            logger.debug(f"Loaded config from file: {config}")
             socketio.emit('physics_config_loaded', config)
             logger.info("Physics config loaded via web request")
 
@@ -209,6 +210,17 @@ def handle_save_preset(data):
         if name:
             presets = capture.save_camera_preset(name)
             socketio.emit('presets_updated', presets)
+
+@socketio.on('apply_preset')
+def handle_apply_preset(data):
+    if not vision_system: return
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    preset_name = data.get('name')
+    if preset_name and hasattr(capture, 'save_config'):
+        # Save the selected preset name
+        capture.last_preset = preset_name
+        capture.save_config()
+        logger.info(f"Applied and saved camera preset: {preset_name}")
 
 @socketio.on('delete_preset')
 def handle_delete_preset(data):

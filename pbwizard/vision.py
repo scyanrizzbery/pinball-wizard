@@ -212,6 +212,7 @@ class SimulatedFrameCapture:
         self.height = height
         self.headless = headless
         self.last_model = None  # Track last loaded model
+        self.last_preset = None  # Track last selected camera preset
         self.layout = PinballLayout() # Removed 'layout' parameter from init, so always create new
         self.zone_manager = ZoneManager(width, height, self.layout)
         
@@ -560,7 +561,8 @@ class SimulatedFrameCapture:
             'camera_z': self.cam_z / self.width,
             'camera_zoom': self.focal_length / (self.width * 1.2), # Save as multiplier
             'camera_presets': self.camera_presets,
-            'last_model': getattr(self, 'last_model', None)
+            'last_model': getattr(self, 'last_model', None),
+            'last_preset': getattr(self, 'last_preset', None)
         }
 
     def save_config(self, filepath="config.json"):
@@ -586,6 +588,8 @@ class SimulatedFrameCapture:
             self.update_physics_params(config)
             if 'last_model' in config:
                 self.last_model = config['last_model']
+            if 'last_preset' in config:
+                self.last_preset = config['last_preset']
             if 'camera_presets' in config:
                 # Merge loaded presets into existing (default) presets
                 self.camera_presets.update(config['camera_presets'])
@@ -1038,10 +1042,12 @@ class SimulatedFrameCapture:
         
         # 1. Draw Floor
         # Project 4 corners of the table
+        # Extended playfield bottom to accommodate flipper rotation
+        playfield_bottom = self.height * 1.15  # Extend 15% below normal height
         c1 = self._project_3d(0, 0, 0)
         c2 = self._project_3d(self.width, 0, 0)
-        c3 = self._project_3d(self.width, self.height, 0)
-        c4 = self._project_3d(0, self.height, 0)
+        c3 = self._project_3d(self.width, playfield_bottom, 0)
+        c4 = self._project_3d(0, playfield_bottom, 0)
         
         floor_cnt = np.array([c1, c2, c3, c4])
         cv2.fillPoly(frame, [floor_cnt], (30, 30, 30)) # Dark gray floor
@@ -1049,9 +1055,9 @@ class SimulatedFrameCapture:
         # Draw Grid on floor
         for i in range(0, self.width, 50):
             p1 = self._project_3d(i, 0, 0)
-            p2 = self._project_3d(i, self.height, 0)
+            p2 = self._project_3d(i, playfield_bottom, 0)
             cv2.line(frame, p1, p2, (40, 40, 40), 1)
-        for i in range(0, self.height, 50):
+        for i in range(0, int(playfield_bottom), 50):
             p1 = self._project_3d(0, i, 0)
             p2 = self._project_3d(self.width, i, 0)
             cv2.line(frame, p1, p2, (40, 40, 40), 1)
@@ -1081,9 +1087,9 @@ class SimulatedFrameCapture:
         wall_height = 40
         walls = [
             ((0, 0), (self.width, 0)), # Top
-            ((self.width, 0), (self.width, self.height)), # Right
-            ((self.width, self.height), (0, self.height)), # Bottom
-            ((0, self.height), (0, 0)) # Left
+            ((self.width, 0), (self.width, playfield_bottom)), # Right
+            ((self.width, playfield_bottom), (0, playfield_bottom)), # Bottom
+            ((0, playfield_bottom), (0, 0)) # Left
         ]
         
         for p1_2d, p2_2d in walls:

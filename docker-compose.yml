@@ -1,12 +1,9 @@
 services:
   pbwizard:
     build: .
-    # devices:
-    #   - /dev/video0:/dev/video0
-    #   - /dev/gpiomem:/dev/gpiomem
-    environment:
-      - USE_RL_AGENT=True
-      - SIMULATION_MODE=True
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/gpiomem:/dev/gpiomem
     ports:
       - "${FLASK_PORT}:${FLASK_PORT}"
     volumes:
