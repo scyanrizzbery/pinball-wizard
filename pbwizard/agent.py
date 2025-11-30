@@ -23,6 +23,10 @@ class ReflexAgent:
         x, y = ball_pos
         vx, vy = velocity
         zones = self.zone_manager.get_zone_status(x, y)
+        
+        # Debug Log (Throttle?)
+        if random.random() < 0.05: # Log 5% of frames to avoid spam
+             logger.info(f"Agent Act: Pos=({x:.1f}, {y:.1f}), Vel=({vx:.1f}, {vy:.1f}), Zones={zones}")
 
         # Only flip if ball is moving down (vy > 0) to prevent flailing
         # Also could check if ball is in lower part of zone for better timing
@@ -34,39 +38,71 @@ class ReflexAgent:
         if not hasattr(self, 'right_cooldown'): self.right_cooldown = 0
         
         MAX_HOLD = 60 # approx 2 seconds
+        MIN_HOLD = 10 # approx 0.3 seconds
         COOLDOWN = 30 # approx 1 second
         
         # Left Flipper Logic
         if self.left_cooldown > 0:
             self.left_cooldown -= 1
             self.hw.release_left()
-        elif zones['left'] and vy > 0:
-            if self.left_hold_steps < MAX_HOLD:
+        else:
+            # Check if we should START flipping
+            should_flip = zones['left'] and vy > 0
+            
+            # Check if we are ALREADY holding
+            is_holding = self.left_hold_steps > 0
+            
+            if is_holding:
+                # If holding, check if we should CONTINUE
+                # Continue if:
+                # 1. We haven't reached MIN_HOLD (forced hold)
+                # 2. We haven't reached MAX_HOLD AND (ball is still in zone OR moving down)
+                
+                force_hold = self.left_hold_steps < MIN_HOLD
+                valid_hold = (zones['left'] or vy > 0) and self.left_hold_steps < MAX_HOLD
+                
+                if force_hold or valid_hold:
+                    self.hw.flip_left()
+                    self.left_hold_steps += 1
+                else:
+                    self.hw.release_left()
+                    self.left_cooldown = COOLDOWN
+                    self.left_hold_steps = 0
+            elif should_flip:
+                # Start flipping
                 logger.debug("Ball in Left Zone & Moving Down -> Flip Left")
                 self.hw.flip_left()
-                self.left_hold_steps += 1
+                self.left_hold_steps = 1
             else:
-                self.hw.release_left() # Force release
-                self.left_cooldown = COOLDOWN # Start cooldown
+                self.hw.release_left()
                 self.left_hold_steps = 0
-        else:
-            self.left_hold_steps = 0
         
         # Right Flipper Logic
         if self.right_cooldown > 0:
             self.right_cooldown -= 1
             self.hw.release_right()
-        elif zones['right'] and vy > 0:
-            if self.right_hold_steps < MAX_HOLD:
+        else:
+            should_flip = zones['right'] and vy > 0
+            is_holding = self.right_hold_steps > 0
+            
+            if is_holding:
+                force_hold = self.right_hold_steps < MIN_HOLD
+                valid_hold = (zones['right'] or vy > 0) and self.right_hold_steps < MAX_HOLD
+                
+                if force_hold or valid_hold:
+                    self.hw.flip_right()
+                    self.right_hold_steps += 1
+                else:
+                    self.hw.release_right()
+                    self.right_cooldown = COOLDOWN
+                    self.right_hold_steps = 0
+            elif should_flip:
                 logger.debug("Ball in Right Zone & Moving Down -> Flip Right")
                 self.hw.flip_right()
-                self.right_hold_steps += 1
+                self.right_hold_steps = 1
             else:
-                self.hw.release_right() # Force release
-                self.right_cooldown = COOLDOWN # Start cooldown
+                self.hw.release_right()
                 self.right_hold_steps = 0
-        else:
-            self.right_hold_steps = 0
 
 
 class RLAgent:

@@ -5,12 +5,14 @@ import os
 import threading
 import multiprocessing
 try:
-    multiprocessing.set_start_method('spawn', force=True)
+    multiprocessing.set_start_method('spawn', force=True) # Force restart v2
 except RuntimeError:
     pass
 
 import time
 import logging
+# Force restart v2
+from queue import Queue
 import numpy as np
 from dotenv import load_dotenv
 
@@ -37,7 +39,7 @@ def main():
     # 1. Initialize Vision System (First, so we can pass it to HW)
     if sim_mode.lower() == 'true':
         logger.info("Simulation Mode: Using Simulated Video Feed")
-        cap = vision.SimulatedFrameCapture(width=450, height=800)
+        cap = vision.SimulatedFrameCapture(width=450, height=800, socketio=web_server.socketio)
     else:
         camera_index = int(os.getenv('CAMERA_INDEX', 0))
         logger.info(f"Using Camera Index: {camera_index}")
@@ -85,7 +87,7 @@ def main():
             if os.path.exists("config.json"):
                 with open("config.json", 'r') as f:
                     config = json.load(f)
-                    if 'last_model' in config:
+                    if 'last_model' in config and config['last_model']:
                         last_model = config['last_model']
                         last_model_path = os.path.join("models", last_model)
                         if os.path.exists(last_model_path):
@@ -102,10 +104,11 @@ def main():
 
     # 4. Start Web Server (in separate thread)
     class VisionWrapper:
-        def __init__(self, capture, tracker, zones):
+        def __init__(self, capture, tracker, zones, is_simulation=False):
             self.capture = capture
             self.tracker = tracker
             self.zones = zones
+            self.is_simulation = is_simulation
             self.latest_processed_frame = None
             self.lock = threading.Lock()
             self.ai_enabled = True
@@ -234,6 +237,8 @@ def main():
                 'nudge': nudge_data,
                 'tilt_value': tilt_value,
                 'is_tilted': is_tilted,
+                'is_tilted': is_tilted,
+                'is_simulation': self.is_simulation,
                 'game_history': self.game_history
             }
             
@@ -241,7 +246,16 @@ def main():
             with self.lock:
                 stats.update(self.training_stats)
                 
+            # Merge training stats
+            with self.lock:
+                stats.update(self.training_stats)
+                
             return stats
+
+        def get_game_state(self):
+            if hasattr(self.capture, 'get_game_state'):
+                return self.capture.get_game_state()
+            return {}
 
         @property
         def auto_start_enabled(self):
@@ -257,7 +271,7 @@ def main():
                 raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
             return getattr(self.capture, name)
 
-    vision_wrapper = VisionWrapper(cap, tracker, zone_manager)
+    vision_wrapper = VisionWrapper(cap, tracker, zone_manager, is_simulation=(sim_mode.lower() == 'true'))
     if use_rl:
         vision_wrapper.agent = agnt
     

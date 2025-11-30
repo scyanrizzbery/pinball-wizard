@@ -68,8 +68,15 @@ class WebStatsCallback(BaseCallback):
         super().__init__(verbose)
         self.status_queue = status_queue
         self.total_timesteps = total_timesteps
+        self.start_time = None
+
+    def _on_training_start(self) -> None:
+        self.start_time = time.time()
 
     def _on_step(self) -> bool:
+        if self.start_time is None:
+            self.start_time = time.time()
+
         if self.num_timesteps % 100 == 0:
             # Extract stats
             infos = self.locals.get("infos", [{}])[0]
@@ -77,17 +84,26 @@ class WebStatsCallback(BaseCallback):
             if "episode" in infos:
                 mean_reward = infos["episode"]["r"]
             
+            # Calculate ETA
+            elapsed_time = time.time() - self.start_time
+            eta_seconds = 0
+            if self.num_timesteps > 0 and elapsed_time > 0:
+                fps = self.num_timesteps / elapsed_time
+                remaining_steps = self.total_timesteps - self.num_timesteps
+                if fps > 0:
+                    eta_seconds = remaining_steps / fps
+
             stats = {
                 'timesteps': self.num_timesteps,
                 'mean_reward': mean_reward,
                 'is_training': True,
-                'progress_percent': int((self.num_timesteps / self.total_timesteps) * 100),
+                'training_progress': self.num_timesteps / self.total_timesteps,
                 'current_step': self.num_timesteps,
-                'total_steps': self.total_timesteps
+                'total_steps': self.total_timesteps,
+                'eta_seconds': eta_seconds
             }
             try:
                 self.status_queue.put(('stats', stats))
-                # logger.info(f"WebStatsCallback put stats: {stats['timesteps']}")
             except Exception as e:
                 logger.error(f"WebStatsCallback error: {e}")
         return True

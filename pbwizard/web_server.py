@@ -5,7 +5,9 @@ import logging
 import os
 
 import cv2
+# Force reload v6
 import eventlet
+eventlet.monkey_patch()
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 
@@ -13,7 +15,10 @@ from pbwizard import constants
 
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+app = Flask(__name__,
+            static_folder="../frontend/dist/assets",
+            static_url_path="/assets",
+            template_folder="../frontend/dist")
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 socketio = SocketIO(app, cors_allowed_origins="*")
 
@@ -33,6 +38,32 @@ def stream_frames():
         try:
             if vision_system:
                 # logger.debug("Getting frame...")
+                
+                # Emit 3D Game State
+                if hasattr(vision_system, 'get_game_state'):
+                    game_state = vision_system.get_game_state()
+                    socketio.emit('game_state', game_state)
+                    # Also emit stats_update for App.vue compatibility
+                    # Also emit stats_update for App.vue compatibility
+                    stats_data = {
+                        'score': game_state.get('score', 0),
+                        'high_score': game_state.get('high_score', 0),
+                        'balls': game_state.get('balls_remaining', 0),
+                        'games_played': game_state.get('games_played', 0),
+                        'game_history': game_state.get('game_history', []),
+                        'is_tilted': game_state.get('is_tilted', False),
+                        'nudge': game_state.get('nudge', None)
+                    }
+                    
+                    # Add training stats if available
+                    if hasattr(vision_system, 'training_stats'):
+                         stats_data.update(vision_system.training_stats)
+                         
+                    socketio.emit('stats_update', stats_data)
+                    if len(game_state.get('balls', [])) > 0:
+                        logger.debug(f"Emitting Game State: {game_state['balls'][0]}")
+
+                # Video Feed - Stream simulation frames
                 frame = vision_system.get_frame()
                 if frame is not None:
                     # logger.debug("Encoding frame...")
@@ -40,12 +71,6 @@ def stream_frames():
                     frame_bytes = base64.b64encode(buffer).decode('utf-8')
                     # logger.debug("Emitting frame...")
                     socketio.emit('video_frame', {'image': frame_bytes})
-
-                    # Emit stats if available
-                    if hasattr(vision_system, 'get_stats'):
-                        stats = vision_system.get_stats()
-                        # logger.debug(f"Emitting stats: {stats}") # Uncomment for verbose debugging
-                        socketio.emit('stats', stats)
 
                     frame_count += 1
                     if frame_count % 100 == 0:
@@ -66,17 +91,29 @@ def handle_connect():
     # Sync physics config on connect
     if vision_system:
         capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
-        if hasattr(capture, 'gravity'):
+        if hasattr(capture, 'get_config'):
+            config = capture.get_config()
+            socketio.emit('physics_config_loaded', config)
+        elif hasattr(capture, 'gravity'):
             config = {
                 'gravity': capture.gravity,
                 'friction': capture.friction,
                 'restitution': capture.restitution,
                 'flipper_speed': capture.flipper_speed,
                 'flipper_resting_angle': capture.flipper_resting_angle,
-                'flipper_resting_angle': capture.flipper_resting_angle,
                 'flipper_stroke_angle': capture.flipper_stroke_angle,
+                'flipper_length': capture.flipper_length,
+                'tilt_threshold': capture.tilt_threshold,
+                'nudge_cost': capture.nudge_cost,
+                'tilt_decay': capture.tilt_decay,
+                'camera_pitch': np.degrees(capture.pitch) if hasattr(capture, 'pitch') else 45,
+                'camera_x': capture.cam_x / capture.width if hasattr(capture, 'cam_x') else 0.5,
+                'camera_y': capture.cam_y / capture.height if hasattr(capture, 'cam_y') else 1.5,
+                'camera_z': capture.cam_z / capture.width if hasattr(capture, 'cam_z') else 1.5,
+                'camera_zoom': capture.focal_length / (capture.width * 1.2) if hasattr(capture, 'focal_length') else 1.0,
                 'last_model': getattr(capture, 'last_model', None),
-                'last_preset': getattr(capture, 'last_preset', None)
+                'last_preset': getattr(capture, 'last_preset', None),
+                'zones': capture.layout.zones if hasattr(capture, 'layout') else []
             }
             socketio.emit('physics_config_loaded', config)
 
@@ -120,9 +157,15 @@ def handle_input(data):
             capture.trigger_right()
         else:
             capture.release_right()
-    elif key == 'Space' and event_type == 'down':
-        logger.info("Input: Launch Ball Triggered")
-        capture.launch_ball()
+    elif key == 'Space':
+        if event_type == 'down':
+            logger.info("Input: Pull Plunger")
+            if hasattr(capture, 'pull_plunger'):
+                capture.pull_plunger(1.0) # Full pull for now
+        else:
+            logger.info("Input: Release Plunger")
+            if hasattr(capture, 'release_plunger'):
+                capture.release_plunger()
     elif key == 'ShiftLeft' and event_type == 'down':
         if hasattr(capture, 'nudge_left'):
             capture.nudge_left()
@@ -139,7 +182,34 @@ def handle_physics_update(data):
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
     if hasattr(capture, 'update_physics_params'):
         capture.update_physics_params(data)
+        # Emit updated config to sync clients (e.g. Pinball3D view)
+        if hasattr(capture, 'get_config'):
+            config = capture.get_config()
+            socketio.emit('physics_config_loaded', config)
 
+
+@socketio.on('update_zones')
+def handle_update_zones(zones_data):
+    """Handle zone updates from frontend."""
+    if vision_system:
+        vision_system.update_zones(zones_data)
+        # Save config automatically? Or wait for explicit save?
+        # Let's wait for explicit save or trigger it if desired.
+        # For now, just update runtime.
+        socketio.emit('status', {'msg': 'Zones updated'})
+
+@socketio.on('reset_zones')
+def handle_reset_zones():
+    """Handle request to reset zones to default."""
+    if vision_system:
+        capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+        if hasattr(capture, 'reset_zones'):
+            capture.reset_zones()
+            # Emit updated config to all clients
+            if hasattr(capture, 'get_config'):
+                config = capture.get_config()
+                socketio.emit('physics_config_loaded', config)
+            socketio.emit('status', {'msg': 'Zones reset to default'})
 
 @socketio.on('save_physics')
 def handle_save_physics():
@@ -155,7 +225,7 @@ def handle_save_physics():
 def handle_load_physics():
     if not vision_system:
         return
-    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system # The requested change was syntactically incorrect and has been ignored.
     if hasattr(capture, 'load_config'):
         config = capture.load_config()
         if config:
@@ -190,6 +260,16 @@ def handle_load_layout(data):
             if success:
                 logger.info("Layout loaded successfully")
                 socketio.emit('layout_loaded', {'status': 'success'})
+                
+                # Emit updated config (including new layout zones/targets) to frontend
+                if hasattr(capture, 'get_config'):
+                    config = capture.get_config()
+                    socketio.emit('physics_config_loaded', config)
+                
+                # Add to history
+                layout_name = data.get('name', 'Unknown Layout')
+                if hasattr(vision_system, 'add_history_event'):
+                    vision_system.add_history_event('layout_change', {'layout': layout_name})
             else:
                 logger.error("Failed to load layout")
                 socketio.emit('layout_loaded', {'status': 'error', 'message': 'Failed to load layout'})
@@ -275,6 +355,10 @@ def handle_load_layout_by_name(data):
                 import json
                 config = json.load(f)
             
+            # Ensure name is in config so handle_load_layout can use it
+            if 'name' not in config:
+                config['name'] = layout_name
+            
             # Reuse the existing load_layout logic
             handle_load_layout(config)
         else:
@@ -335,9 +419,20 @@ def handle_get_models():
                 except Exception:
                     file_hash = "unknown"
                 
+                # Get modification time
+                try:
+                    mtime = os.path.getmtime(filepath)
+                    # Format: YYYY-MM-DD HH:MM:SS
+                    import datetime
+                    dt = datetime.datetime.fromtimestamp(mtime)
+                    mod_time = dt.strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    mod_time = "unknown"
+
                 model_list.append({
                     'filename': f,
-                    'hash': file_hash
+                    'hash': file_hash,
+                    'mod_time': mod_time
                 })
         
         # Sort by filename (version)
@@ -402,6 +497,16 @@ def handle_stop_training():
         socketio.emit('training_stopped')
     else:
         logger.error("No controller attached to vision system")
+
+@socketio.on('camera_control')
+def handle_camera_control(data):
+    if not vision_system: return
+    
+    key = data.get('key')
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    
+    if hasattr(capture, 'adjust_camera'):
+        capture.adjust_camera(key)
 
 class SocketIOLogHandler(logging.Handler):
     def emit(self, record):

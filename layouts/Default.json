@@ -1,0 +1,122 @@
+{
+    "width": 0.6,
+    "height": 1.2,
+    "left_flipper_x_min": 0.27,
+    "left_flipper_x_max": 0.42000000000000004,
+    "left_flipper_y_min": 0.78,
+    "left_flipper_y_max": 0.88,
+    "right_flipper_x_min": 0.56,
+    "right_flipper_x_max": 0.7100000000000001,
+    "right_flipper_y_min": 0.78,
+    "right_flipper_y_max": 0.88,
+    "zones": [
+        {
+            "id": "default_left",
+            "type": "left",
+            "is_screen_space": true,
+            "points": [
+                {
+                    "x": 0.15,
+                    "y": 0.75
+                },
+                {
+                    "x": 0.42,
+                    "y": 0.75
+                },
+                {
+                    "x": 0.4206018518518518,
+                    "y": 1.0103841145833332
+                },
+                {
+                    "x": 0.15,
+                    "y": 0.95
+                }
+            ]
+        },
+        {
+            "id": "default_right",
+            "type": "right",
+            "is_screen_space": true,
+            "points": [
+                {
+                    "x": 0.58,
+                    "y": 0.75
+                },
+                {
+                    "x": 0.82,
+                    "y": 0.75
+                },
+                {
+                    "x": 0.82,
+                    "y": 0.95
+                },
+                {
+                    "x": 0.5826388888888889,
+                    "y": 0.9939778645833333
+                }
+            ]
+        }
+    ],
+    "bumpers": [
+        {
+            "x": 0.5,
+            "y": 0.3,
+            "radius_ratio": 0.05,
+            "value": 100
+        },
+        {
+            "x": 0.3,
+            "y": 0.4,
+            "radius_ratio": 0.04,
+            "value": 50
+        },
+        {
+            "x": 0.7,
+            "y": 0.4,
+            "radius_ratio": 0.04,
+            "value": 50
+        }
+    ],
+    "drop_targets": [
+        {
+            "x": 0.4,
+            "y": 0.1,
+            "width": 0.03,
+            "height": 0.01,
+            "value": 500
+        },
+        {
+            "x": 0.5,
+            "y": 0.1,
+            "width": 0.03,
+            "height": 0.01,
+            "value": 500
+        },
+        {
+            "x": 0.6,
+            "y": 0.1,
+            "width": 0.03,
+            "height": 0.01,
+            "value": 500
+        }
+    ],
+    "captures": [],
+    "ramps": [],
+    "teleports": [],
+    "upper_deck": null,
+    "upper_flippers": [],
+    "physics": {
+        "gravity": 436.3101609320878,
+        "friction": 0.5,
+        "restitution": 0.7,
+        "flipper_speed": 15.0,
+        "flipper_resting_angle": -30.0,
+        "flipper_stroke_angle": 50.0,
+        "flipper_length": 0.15,
+        "plunger_release_speed": 2000.0,
+        "launch_angle": 0.0,
+        "tilt_threshold": 1.0,
+        "nudge_cost": 10.0,
+        "tilt_decay": 0.117
+    }
+}

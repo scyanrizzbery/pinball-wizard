@@ -11,6 +11,36 @@ services:
     env_file:
       - .env
     privileged: true
+    networks:
+      - pbwizard-network
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      - VITE_API_TARGET=http://localhost:5000
+      - API_PROXY_TARGET=http://pbwizard:5000
+    networks:
+      - pbwizard-network
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "http://127.0.0.1:5173" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  frontend-builder:
+    profiles: [ "e2e" ]
+    build: ./frontend
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    command: sh -c "npm install && npm run build"
+    networks:
+      - pbwizard-network
 
   test:
     profiles: [ "test" ]
@@ -20,3 +50,48 @@ services:
     env_file:
       - .env
     command: python -m unittest discover tests
+    networks:
+      - pbwizard-network
+
+  cypress:
+    profiles: [ "e2e" ]
+    image: cypress/included:13.13.0
+    depends_on:
+      pbwizard:
+        condition: service_started
+      frontend:
+        condition: service_healthy
+    environment:
+      - CYPRESS_baseUrl=http://frontend:5173
+    volumes:
+      - ./frontend:/e2e
+      - frontend_node_modules:/e2e/node_modules
+    working_dir: /e2e
+    networks:
+      - pbwizard-network
+    # Run tests in headless mode
+    entrypoint: cypress run
+
+  cypress-interactive:
+    profiles: [ "e2e-dev" ]
+    image: cypress/included:13.6.0
+    depends_on:
+      - pbwizard
+    environment:
+      - CYPRESS_baseUrl=http://pbwizard:${FLASK_PORT}
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - .:/e2e
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    working_dir: /e2e
+    networks:
+      - pbwizard-network
+    # Open Cypress Test Runner (requires X11)
+    entrypoint: cypress open
+
+networks:
+  pbwizard-network:
+    driver: bridge
+
+volumes:
+  frontend_node_modules:

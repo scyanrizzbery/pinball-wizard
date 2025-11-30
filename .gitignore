@@ -7,3 +7,11 @@ venv/
 .vscode/
 models/*.zip
 config.json
+
+# Cypress
+cypress/screenshots
+cypress/videos
+cypress/downloads
+cypress.env.json
+node_modules/
+package-lock.json

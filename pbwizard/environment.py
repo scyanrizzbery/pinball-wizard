@@ -56,8 +56,8 @@ class PinballEnv(gym.Env):
         # Safety Override for Training/Execution:
         # If ball is in right zone and moving down fast, force right flip
         # This helps the agent "discover" the right flipper if it's stuck in a local optimum
-        if self.last_ball_pos is not None and hasattr(self.vision, 'zone_manager'):
-             zones = self.vision.zone_manager.get_zone_status(self.last_ball_pos[0], self.last_ball_pos[1])
+        if self.last_ball_pos is not None and hasattr(self.vision, 'check_zones'):
+             zones = self.vision.check_zones(self.last_ball_pos[0], self.last_ball_pos[1])
              # Calculate velocity if not available? We need vy.
              # We can use the previous step's velocity or calculate it.
              # Let's use a simple heuristic: if we are in the zone, we probably want to flip.
@@ -133,7 +133,13 @@ class PinballEnv(gym.Env):
         
         # Normalize observation
         # Use default dimensions if frame is not available (headless)
-        height, width = frame.shape[:2] if frame is not None else (constants.DEFAULT_HEIGHT, constants.DEFAULT_WIDTH)
+        if frame is not None:
+            height, width = frame.shape[:2]
+        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'width'):
+            width = self.vision.capture.width
+            height = self.vision.capture.height
+        else:
+            height, width = constants.DEFAULT_HEIGHT, constants.DEFAULT_WIDTH
         obs = self._create_observation(ball_pos, vx, vy, width, height)
             
         # 5. Calculate Reward
@@ -191,7 +197,17 @@ class PinballEnv(gym.Env):
         if self.last_ball_pos is None or not hasattr(self.vision, 'zone_manager'):
             return action
             
-        zones = self.vision.zone_manager.get_zone_status(self.last_ball_pos[0], self.last_ball_pos[1])
+        # Check Plunger Lane (Right 15% of screen)
+        # If ball is here, disable flippers to prevent "Ghost Flipping"
+        width = self.vision.width
+        if self.last_ball_pos[0] > width * 0.85:
+            return 0 # No Action
+            
+        if hasattr(self.vision, 'check_zones'):
+            zones = self.vision.check_zones(self.last_ball_pos[0], self.last_ball_pos[1])
+        else:
+            # Fallback (shouldn't happen with updated vision)
+            zones = {'left': False, 'right': False}
         allowed_action = action
         
         # Check Left
