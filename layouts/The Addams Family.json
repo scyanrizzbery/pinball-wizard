@@ -1,14 +1,14 @@
 {
     "width": 0.6,
     "height": 1.2,
-    "left_flipper_x_min": 0.25,
-    "left_flipper_x_max": 0.39,
-    "left_flipper_y_min": 0.85,
-    "left_flipper_y_max": 0.95,
-    "right_flipper_x_min": 0.61,
-    "right_flipper_x_max": 0.75,
-    "right_flipper_y_min": 0.85,
-    "right_flipper_y_max": 0.95,
+    "left_flipper_x_min": 0.1,
+    "left_flipper_x_max": 0.33999999999999997,
+    "left_flipper_y_min": 0.8,
+    "left_flipper_y_max": 0.9,
+    "right_flipper_x_min": 0.6599999999999999,
+    "right_flipper_x_max": 0.8999999999999999,
+    "right_flipper_y_min": 0.8,
+    "right_flipper_y_max": 0.9,
     "zones": [
         {
             "id": "default_left",
@@ -16,20 +16,20 @@
             "is_screen_space": true,
             "points": [
                 {
-                    "x": 0.1629629629629629,
-                    "y": 0.8283854166666667
+                    "x": -0.0009348182664077993,
+                    "y": 0.7301748545556049
                 },
                 {
-                    "x": 0.5486111111111112,
-                    "y": 0.81328125
+                    "x": 0.6334247911794049,
+                    "y": 0.7070568898592446
                 },
                 {
-                    "x": 0.5388888888888889,
-                    "y": 1.1559895833333331
+                    "x": 0.5046855213002953,
+                    "y": 1.04590720014428
                 },
                 {
-                    "x": 0.14675925925925923,
-                    "y": 1.146875
+                    "x": 0.0158934516898462,
+                    "y": 1.0132197995722674
                 }
             ]
         },
@@ -39,20 +39,20 @@
             "is_screen_space": true,
             "points": [
                 {
-                    "x": 0.5486111111111112,
-                    "y": 0.8205729166666665
+                    "x": 0.3301002050450724,
+                    "y": 0.71974233858156
                 },
                 {
-                    "x": 0.9212962962962964,
-                    "y": 0.8114583333333334
+                    "x": 0.9579975481292872,
+                    "y": 0.7301748545556049
                 },
                 {
-                    "x": 0.9342592592592593,
-                    "y": 1.1651041666666666
+                    "x": 0.950689927017048,
+                    "y": 1.0431231979066136
                 },
                 {
-                    "x": 0.5680555555555555,
-                    "y": 1.15234375
+                    "x": 0.5,
+                    "y": 1.0472951288316106
                 }
             ]
         }
@@ -112,15 +112,15 @@
     "upper_deck": null,
     "upper_flippers": [],
     "physics": {
-        "gravity": 2178.893568691454,
+        "gravity": 1221.2442448903314,
         "friction": 0.5,
         "restitution": 0.8,
-        "flipper_speed": 15.0,
-        "flipper_resting_angle": -51.0,
-        "flipper_stroke_angle": 27.0,
-        "flipper_length": 0.14,
-        "plunger_release_speed": 1700.0,
-        "launch_angle": 0.0,
+        "flipper_speed": 10.0,
+        "flipper_resting_angle": -56.0,
+        "flipper_stroke_angle": 32.0,
+        "flipper_length": 0.24,
+        "plunger_release_speed": 1660.0,
+        "launch_angle": 6.3,
         "tilt_threshold": 1.0,
         "nudge_cost": 10.0,
         "tilt_decay": 0.117

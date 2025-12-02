@@ -3,31 +3,31 @@
     <div style="display: flex; flex-direction: column; gap: 8px; min-width: 120px;">
       <button class="control-btn desktop-only" :class="{ pressed: buttonStates.left }"
         style="width: 100%; padding: 12px 20px; font-size: 16px; font-weight: bold;"
-        @mousedown="handleInput('KeyZ', 'down')" @mouseup="handleInput('KeyZ', 'up')">Left
+        @mousedown="handleInput('KeyZ', 'down')" @mouseup="handleInput('KeyZ', 'up')" :disabled="disabled">Left
         Flipper</button>
       <button class="control-btn desktop-only" :class="{ pressed: buttonStates.nudgeLeft }"
         style="width: 100%; padding: 8px 15px; font-size: 12px;" @mousedown="handleInput('ShiftLeft', 'down')"
-        @mouseup="handleInput('ShiftLeft', 'up')">Nudge Left</button>
+        @mouseup="handleInput('ShiftLeft', 'up')" :disabled="disabled">Nudge Left</button>
     </div>
     <button class="control-btn desktop-only" :class="{ pressed: buttonStates.launch }"
       style="width: 90px; height: 90px; border-radius: 50%; background-color: #d32f2f; border-color: #b71c1c; font-size: 16px; font-weight: bold; padding: 0; display: flex; align-items: center; justify-content: center;"
-      @mousedown="handleInput('Space', 'down')" @mouseup="handleInput('Space', 'up')">Launch</button>
+      @mousedown="handleInput('Space', 'down')" @mouseup="handleInput('Space', 'up')" :disabled="disabled">Launch</button>
     <div style="display: flex; flex-direction: column; gap: 8px; min-width: 120px;">
       <button class="control-btn desktop-only" :class="{ pressed: buttonStates.right }"
         style="width: 100%; padding: 12px 20px; font-size: 16px; font-weight: bold;"
-        @mousedown="handleInput('Slash', 'down')" @mouseup="handleInput('Slash', 'up')">Right
+        @mousedown="handleInput('Slash', 'down')" @mouseup="handleInput('Slash', 'up')" :disabled="disabled">Right
         Flipper</button>
       <button class="control-btn desktop-only" :class="{ pressed: buttonStates.nudgeRight }"
         style="width: 100%; padding: 8px 15px; font-size: 12px;" @mousedown="handleInput('ShiftRight', 'down')"
-        @mouseup="handleInput('ShiftRight', 'up')">Nudge Right</button>
+        @mouseup="handleInput('ShiftRight', 'up')" :disabled="disabled">Nudge Right</button>
     </div>
   </div>
   <div class="toggle-row">
-    <button class="toggle-btn" :class="{ active: toggles.ai }" @click="$emit('toggle-ai')">
+    <button class="toggle-btn" :class="{ active: toggles.ai }" @click="$emit('toggle-ai')" :disabled="disabled">
       <span class="toggle-dot"></span>
       AI: {{ toggles.ai ? 'ON' : 'OFF' }}
     </button>
-    <button class="toggle-btn" :class="{ active: toggles.autoStart }" @click="$emit('toggle-auto-start')">
+    <button class="toggle-btn" :class="{ active: toggles.autoStart }" @click="$emit('toggle-auto-start')" :disabled="disabled">
       <span class="toggle-dot"></span>
       Auto-Start: {{ toggles.autoStart ? 'ON' : 'OFF' }}
     </button>
@@ -37,7 +37,8 @@
 <script setup>
 defineProps({
   buttonStates: Object,
-  toggles: Object
+  toggles: Object,
+  disabled: Boolean
 })
 
 const emit = defineEmits(['input', 'toggle-ai', 'toggle-auto-start'])

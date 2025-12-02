@@ -91,7 +91,7 @@ class PinballLayout:
             {'x': 0.7, 'y': 0.4, 'radius_ratio': 0.04, 'value': 50}
         ]
         
-        self.guide_lines_y = 0.65
+        self.guide_lines_y = 0.82
         
         self.drop_targets = [
             {'x': 0.4, 'y': 0.1, 'width': 0.03, 'height': 0.01, 'value': 500},
@@ -299,7 +299,10 @@ class SimulatedFrameCapture:
     GRAVITY = 25.0 # Synced with physics.py
     SUB_STEPS = 20
     FRICTION = 0.5 # Synced with physics.py
+    FRICTION = 0.5 # Synced with physics.py
     RESTITUTION = 0.7 # Synced with physics.py
+    FLIPPER_LENGTH = 0.18 # Synced with config
+    FLIPPER_WIDTH = 0.010 # Synced with config
     
     MAX_BALLS = 5
     
@@ -334,7 +337,9 @@ class SimulatedFrameCapture:
         self.friction = self.FRICTION
         self.restitution = self.RESTITUTION
         self.flipper_speed = self.FLIPPER_SPEED
+        self.flipper_speed = self.FLIPPER_SPEED
         self.flipper_length = self.FLIPPER_LENGTH
+        self.flipper_width = self.FLIPPER_WIDTH
         
         # Tilt Parameters
         self.tilt_threshold = self.TILT_THRESHOLD
@@ -647,8 +652,12 @@ class SimulatedFrameCapture:
             
         if 'flipper_resting_angle' in params:
             self.flipper_resting_angle = float(params['flipper_resting_angle'])
+            if self.physics_engine:
+                self.physics_engine.flipper_resting_angle = self.flipper_resting_angle
         if 'flipper_stroke_angle' in params:
             self.flipper_stroke_angle = float(params['flipper_stroke_angle'])
+            if self.physics_engine:
+                self.physics_engine.flipper_stroke_angle = self.flipper_stroke_angle
             
         if 'flipper_length' in params:
             val = float(params['flipper_length'])
@@ -658,6 +667,15 @@ class SimulatedFrameCapture:
                 if self.physics_engine:
                     self.physics_engine.update_flipper_length(val)
                 changes.append(f"Flipper Length: {val}")
+
+        if 'flipper_width' in params:
+            val = float(params['flipper_width'])
+            if val != self.flipper_width:
+                self.flipper_width = val
+                changes.append(f"Flipper Width: {val}")
+            # Always update physics engine to ensure it has the correct value
+            if self.physics_engine:
+                self.physics_engine.update_flipper_width(val)
                 
         if 'tilt_threshold' in params:
             val = float(params['tilt_threshold'])
@@ -750,32 +768,36 @@ class SimulatedFrameCapture:
         # Left Flipper Translation
         if 'left_flipper_pos_x' in params:
             new_x = float(params['left_flipper_pos_x'])
-            width = self.layout.left_flipper_x_max - self.layout.left_flipper_x_min
-            self.layout.left_flipper_x_min = new_x
-            self.layout.left_flipper_x_max = new_x + width
-            flipper_moved = True
+            if abs(new_x - self.layout.left_flipper_x_min) > 0.0001:
+                width = self.layout.left_flipper_x_max - self.layout.left_flipper_x_min
+                self.layout.left_flipper_x_min = new_x
+                self.layout.left_flipper_x_max = new_x + width
+                flipper_moved = True
             
         if 'left_flipper_pos_y' in params:
             new_y = float(params['left_flipper_pos_y'])
-            height = self.layout.left_flipper_y_max - self.layout.left_flipper_y_min
-            self.layout.left_flipper_y_min = new_y
-            self.layout.left_flipper_y_max = new_y + height
-            flipper_moved = True
+            if abs(new_y - self.layout.left_flipper_y_min) > 0.0001:
+                height = self.layout.left_flipper_y_max - self.layout.left_flipper_y_min
+                self.layout.left_flipper_y_min = new_y
+                self.layout.left_flipper_y_max = new_y + height
+                flipper_moved = True
 
         # Right Flipper Translation
         if 'right_flipper_pos_x' in params:
             new_x = float(params['right_flipper_pos_x'])
-            width = self.layout.right_flipper_x_max - self.layout.right_flipper_x_min
-            self.layout.right_flipper_x_min = new_x
-            self.layout.right_flipper_x_max = new_x + width
-            flipper_moved = True
+            if abs(new_x - self.layout.right_flipper_x_min) > 0.0001:
+                width = self.layout.right_flipper_x_max - self.layout.right_flipper_x_min
+                self.layout.right_flipper_x_min = new_x
+                self.layout.right_flipper_x_max = new_x + width
+                flipper_moved = True
             
         if 'right_flipper_pos_y' in params:
             new_y = float(params['right_flipper_pos_y'])
-            height = self.layout.right_flipper_y_max - self.layout.right_flipper_y_min
-            self.layout.right_flipper_y_min = new_y
-            self.layout.right_flipper_y_max = new_y + height
-            flipper_moved = True
+            if abs(new_y - self.layout.right_flipper_y_min) > 0.0001:
+                height = self.layout.right_flipper_y_max - self.layout.right_flipper_y_min
+                self.layout.right_flipper_y_min = new_y
+                self.layout.right_flipper_y_max = new_y + height
+                flipper_moved = True
 
         if flipper_moved:
             self._update_flipper_rects()
@@ -893,7 +915,11 @@ class SimulatedFrameCapture:
             'flipper_resting_angle': self.flipper_resting_angle,
             'flipper_stroke_angle': self.flipper_stroke_angle,
             'flipper_length': self.flipper_length,
+            'flipper_resting_angle': self.flipper_resting_angle,
+            'flipper_stroke_angle': self.flipper_stroke_angle,
             'flipper_length': self.flipper_length,
+            'flipper_width': self.flipper_width,
+            'plunger_release_speed': self.plunger_release_speed,
             'plunger_release_speed': self.plunger_release_speed,
             'launch_angle': self.launch_angle,
             'tilt_threshold': self.tilt_threshold,
@@ -922,7 +948,8 @@ class SimulatedFrameCapture:
             'ramps': self.layout.ramps,
             'teleports': self.layout.teleports,
             'upper_deck': self.layout.upper_deck,
-            'upper_flippers': self.layout.upper_flippers
+            'upper_flippers': self.layout.upper_flippers,
+            'guide_lines': {'y': self.layout.guide_lines_y}
         }
         
         return config
@@ -959,6 +986,8 @@ class SimulatedFrameCapture:
             # Load layout configuration
             if self.layout:
                 self.layout.load(config)
+                # Ensure zones are updated (projected) after loading layout
+                self._update_zone_contours()
             
             # Return full config (including layout)
             return self.get_config()
@@ -992,7 +1021,10 @@ class SimulatedFrameCapture:
         self.friction = self.FRICTION
         self.restitution = self.RESTITUTION
         self.flipper_speed = self.FLIPPER_SPEED
+        self.flipper_speed = self.FLIPPER_SPEED
         self.flipper_length = self.FLIPPER_LENGTH
+        self.flipper_width = self.FLIPPER_WIDTH
+        self.flipper_resting_angle = self.LEFT_DOWN_ANGLE
         self.flipper_resting_angle = self.LEFT_DOWN_ANGLE
         self.flipper_stroke_angle = self.LEFT_UP_ANGLE - self.LEFT_DOWN_ANGLE # 20 - (-30) = 50
         
@@ -1013,7 +1045,11 @@ class SimulatedFrameCapture:
             'flipper_speed': self.flipper_speed,
             'flipper_resting_angle': self.flipper_resting_angle,
             'flipper_stroke_angle': self.flipper_stroke_angle,
+            'flipper_resting_angle': self.flipper_resting_angle,
+            'flipper_stroke_angle': self.flipper_stroke_angle,
             'flipper_length': self.flipper_length,
+            'flipper_width': self.flipper_width,
+            'tilt_threshold': self.tilt_threshold,
             'tilt_threshold': self.tilt_threshold,
             'nudge_cost': self.nudge_cost,
             'tilt_decay': self.tilt_decay
@@ -1105,33 +1141,13 @@ class SimulatedFrameCapture:
                          self.balls_remaining -= 1
                          logger.debug(f"Sim: Ball {1 - self.balls_remaining} of 1")
                     else:
-                        # Game Over Logic
-                        if self.score > 0:
-                            self.games_played += 1
-                            if self.score > self.high_score:
-                                self.high_score = self.score
-                            
-                            self.game_history.insert(0, {
-                                'type': 'game',
-                                'score': self.score,
-                                'timestamp': time.time(),
-                                'date': time.strftime("%Y-%m-%d %H:%M:%S")
-                            })
-                            # Keep history limited
-                            if len(self.game_history) > 50:
-                                self.game_history.pop()
-
-                        self.score = 0
-                        self.physics_engine.score = 0 # Reset physics score
-                        self.tilt_value = 0.0
-                        self.is_tilted = False
-                        if self.physics_engine:
-                            self.physics_engine.set_tilt(False)
-                        self.balls_remaining = 1 # Reset for new game
-                        self.balls_remaining -= 1 # Use first ball
-                        logger.debug("Sim: Score Reset (New Game)")
-                        # Reset targets
-                        self.drop_target_states = [True] * len(self.layout.drop_targets)
+                        # Game Over Logic - just reset for new game
+                        # Note: VisionSystem.get_stats() handles game history creation
+                        logger.debug(f"Sim: Game Over (Score: {self.score})")
+                        
+                        # Don't reset score here - let VisionSystem read it first
+                        # Score reset happens after VisionSystem detects game end
+                        pass
                 
                 # Spawn ball in plunger lane
                 ball_x = 0.9 * self.width
@@ -1561,6 +1577,8 @@ class SimulatedFrameCapture:
                 self.physics_engine.update(dt)
                 
                 # Sync score from physics engine
+                if self.physics_engine.score != self.score:
+                    logger.debug(f"Score sync: {self.score} -> {self.physics_engine.score}")
                 self.score = self.physics_engine.score
                 
             # Sync with Physics Engine
@@ -1888,7 +1906,31 @@ class SimulatedFrameCapture:
         c4 = self._project_3d(0, playfield_bottom, 0)
         
         floor_cnt = np.array([c1, c2, c3, c4], dtype=np.int32)
+        floor_cnt = np.array([c1, c2, c3, c4], dtype=np.int32)
         cv2.fillPoly(frame, [floor_cnt], (20, 20, 20)) # Dark Grey Floor
+        
+        # 1.1 Draw Guide Lines (Inlane Guides)
+        guide_y = self.layout.guide_lines_y * self.height
+        
+        # Left Guide
+        lx2 = self.layout.left_flipper_x_min * self.width - 2
+        ly2 = self.layout.left_flipper_y_max * self.height - 15
+        lx1 = lx2 # Vertical
+        ly1 = guide_y
+        
+        gl_p1 = self._project_3d(lx1, ly1, 10) # Height 10
+        gl_p2 = self._project_3d(lx2, ly2, 10)
+        cv2.line(frame, gl_p1, gl_p2, (100, 100, 100), 2)
+        
+        # Right Guide
+        rx2 = self.layout.right_flipper_x_max * self.width + 2
+        ry2 = self.layout.right_flipper_y_max * self.height - 15
+        rx1 = rx2 # Vertical
+        ry1 = guide_y
+        
+        gr_p1 = self._project_3d(rx1, ry1, 10)
+        gr_p2 = self._project_3d(rx2, ry2, 10)
+        cv2.line(frame, gr_p1, gr_p2, (100, 100, 100), 2)
         
         # 1.5 Draw Upper Deck
         if self.layout.upper_deck:
@@ -2319,6 +2361,13 @@ class BallTracker:
 
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, self.lower_silver, self.upper_silver)
+        
+        # Mask out plunger areas to prevent false positives (e.g. kickback plunger)
+        h, w = mask.shape[:2]
+        # Left Plunger (Kickback) - Bottom Left
+        cv2.rectangle(mask, (0, int(h * 0.8)), (int(w * 0.15), h), 0, -1)
+        # Right Plunger - Right side
+        cv2.rectangle(mask, (int(w * 0.85), int(h * 0.5)), (w, h), 0, -1)
         
         # Morphological operations to remove noise
         kernel = np.ones((5,5), np.uint8)

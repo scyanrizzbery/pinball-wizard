@@ -4,6 +4,7 @@ import logging
 import numpy as np
 import multiprocessing
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.utils import safe_mean
 
 from pbwizard import vision, hardware, agent, constants
 from pbwizard.environment import PinballEnv
@@ -93,14 +94,49 @@ class WebStatsCallback(BaseCallback):
                 if fps > 0:
                     eta_seconds = remaining_steps / fps
 
+            # Extract PPO metrics from logger
+            # SB3 logger stores values in name_to_value
+            logger_values = self.logger.name_to_value
+            
+            def safe_float(val):
+                if hasattr(val, 'item'): return val.item()
+                try: return float(val)
+                except: return 0.0
+
+            # Calculate real-time metrics
+            current_fps = 0
+            if elapsed_time > 0:
+                current_fps = int(self.num_timesteps / elapsed_time)
+            
+            # Use ep_info_buffer for real-time mean reward
+            # This updates every episode, unlike logger which updates every n_steps
+            ep_rew_mean = 0.0
+            ep_len_mean = 0.0
+            if self.model and hasattr(self.model, 'ep_info_buffer'):
+                if len(self.model.ep_info_buffer) > 0:
+                    ep_rew_mean = safe_mean([ep_info['r'] for ep_info in self.model.ep_info_buffer])
+                    ep_len_mean = safe_mean([ep_info['l'] for ep_info in self.model.ep_info_buffer])
+
             stats = {
                 'timesteps': self.num_timesteps,
-                'mean_reward': mean_reward,
+                'mean_reward': safe_float(mean_reward),
                 'is_training': True,
                 'training_progress': self.num_timesteps / self.total_timesteps,
                 'current_step': self.num_timesteps,
                 'total_steps': self.total_timesteps,
-                'eta_seconds': eta_seconds
+                'eta_seconds': eta_seconds,
+                
+                # PPO Metrics
+                'fps': current_fps, # Use real-time FPS
+                'loss': safe_float(logger_values.get('train/loss', 0.0)),
+                'value_loss': safe_float(logger_values.get('train/value_loss', 0.0)),
+                'policy_gradient_loss': safe_float(logger_values.get('train/policy_gradient_loss', 0.0)),
+                'entropy_loss': safe_float(logger_values.get('train/entropy_loss', 0.0)),
+                'approx_kl': safe_float(logger_values.get('train/approx_kl', 0.0)),
+                'learning_rate': safe_float(logger_values.get('train/learning_rate', 0.0)),
+                'explained_variance': safe_float(logger_values.get('train/explained_variance', 0.0)),
+                'ep_len_mean': ep_len_mean, # Use real-time mean length
+                'ep_rew_mean': ep_rew_mean  # Use real-time mean reward
             }
             try:
                 self.status_queue.put(('stats', stats))
@@ -132,8 +168,37 @@ def train_worker(config, state_queue, command_queue, status_queue):
         width = int(os.getenv('SIM_WIDTH', 450))
         height = int(os.getenv('SIM_HEIGHT', 800))
         
+        # Load Layout if specified
+        layout_config = None
+        layout_name = config.get('layout')
+        if layout_name:
+            import json
+            # Check if it's a filename or "Default"
+            if layout_name.lower() == 'default':
+                 layout_file = 'Default.json'
+            else:
+                 layout_file = f"{layout_name}.json"
+            
+            layout_path = os.path.join(os.getcwd(), 'layouts', layout_file)
+            if os.path.exists(layout_path):
+                try:
+                    with open(layout_path, 'r') as f:
+                        layout_config = json.load(f)
+                    logger.info(f"Training using layout: {layout_name}")
+                except Exception as e:
+                    logger.error(f"Failed to load layout {layout_path}: {e}")
+            else:
+                logger.warning(f"Layout file not found: {layout_path}")
+
         # Always use simulated capture for training
-        cap = vision.SimulatedFrameCapture(width=width, height=height, headless=True)
+        cap = vision.SimulatedFrameCapture(layout_config=layout_config, width=width, height=height, headless=True)
+        
+        # Apply Physics Config if provided
+        physics_config = config.get('physics')
+        if physics_config and hasattr(cap, 'update_physics_params'):
+            logger.info("Applying custom physics config for training")
+            cap.update_physics_params(physics_config)
+            
         cap.start()
         
         # Mock Controller
@@ -202,7 +267,9 @@ def train_worker(config, state_queue, command_queue, status_queue):
         agent_wrapper.save(save_path)
         
         logger.info(f"Training finished. Model saved to {save_path}")
-        status_queue.put(('status', 'finished'))
+        # Send model name (basename) so main process can load it
+        model_filename = f"{model_name}_v{next_version}.zip"
+        status_queue.put(('status', {'state': 'finished', 'model': model_filename}))
         
     except Exception as e:
         logger.error(f"Training Worker Error: {e}")

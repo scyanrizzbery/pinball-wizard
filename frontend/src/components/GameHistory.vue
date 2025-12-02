@@ -16,6 +16,9 @@
         <span class="stat-value">{{ historyStats.mean.toLocaleString() }}</span>
       </div>
     </div>
+    <div v-else class="stats-row" style="justify-content: center; color: #666; font-style: italic; padding: 10px;">
+      Complete a game to see statistics
+    </div>
 
     <div class="sparkline-container">
       <div v-if="!showChart"
@@ -194,6 +197,7 @@ const chartOptions = computed(() => {
     xAxis: {
       type: 'datetime',
       visible: true,
+      reversed: isVertical.value,
       minPadding: 0,
       maxPadding: 0,
       labels: {

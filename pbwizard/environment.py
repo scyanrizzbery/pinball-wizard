@@ -25,8 +25,8 @@ class PinballEnv(gym.Env):
         self.headless = headless
         self.random_layouts = random_layouts
         
-        # Action Space: 0: No-op, 1: Left Flip, 2: Right Flip, 3: Both Flip, 4: Nudge Left, 5: Nudge Right
-        self.action_space = spaces.Discrete(6)
+        # Action Space: 0: No-op, 1: Left Flip, 2: Right Flip, 3: Both Flip
+        self.action_space = spaces.Discrete(4)
         
         # Observation Space: [ball_x, ball_y, ball_vx, ball_vy] (normalized)
         self.observation_space = spaces.Box(low=0, high=1, shape=(4,), dtype=np.float32)
@@ -231,14 +231,6 @@ class PinballEnv(gym.Env):
         elif action == constants.ACTION_FLIP_BOTH:
             self.hw.hold_left()
             self.hw.hold_right()
-        elif action == 4: # Nudge Left
-            self.hw.release_left()
-            self.hw.release_right()
-            self.hw.nudge_left()
-        elif action == 5: # Nudge Right
-            self.hw.release_left()
-            self.hw.release_right()
-            self.hw.nudge_right()
         else: # constants.ACTION_NOOP
             self.hw.release_left()
             self.hw.release_right()

@@ -17,11 +17,11 @@
             />
           </div>
 
-          <VideoFeed v-if="viewMode === 'video' && !isSimulation" :videoSrc="videoSrc" :isTilted="isTilted" :stats="stats" :nudgeEvent="nudgeEvent" :physics="physics" :socket="socket"
+          <VideoFeed v-if="viewMode === 'video'" :videoSrc="videoSrc" :isTilted="isTilted" :stats="stats" :nudgeEvent="nudgeEvent" :physics="physics" :socket="socket"
             @update-zone="handleZoneUpdate" @reset-zones="handleResetZones" @toggle-view="toggleViewMode" />
           
           <Pinball3D 
-          v-if="viewMode === '3d' || (viewMode === 'video' && isSimulation)"
+          v-if="viewMode === '3d'"
           :socket="socket"
           :config="layoutConfig"
           :nudgeEvent="nudgeEvent"
@@ -31,7 +31,7 @@
         </div>
 
         <Controls :buttonStates="buttonStates" :toggles="toggles" @input="handleInput" @toggle-ai="toggleAI"
-          @toggle-auto-start="toggleAutoStart" />
+          @toggle-auto-start="toggleAutoStart" :disabled="stats.is_training" />
 
 
       </div>
@@ -51,28 +51,28 @@
       <div class="input-group" style="flex: 2;">
         <button class="input-btn" :class="{ pressed: buttonStates.left }" @mousedown="handleInput('KeyZ', 'down')"
           @mouseup="handleInput('KeyZ', 'up')" @touchstart.prevent="handleInput('KeyZ', 'down')"
-          @touchend.prevent="handleInput('KeyZ', 'up')">Left</button>
+          @touchend.prevent="handleInput('KeyZ', 'up')" :disabled="stats.is_training">Left</button>
         <button class="input-btn" :class="{ pressed: buttonStates.nudgeLeft }"
           style="min-height: 34px; font-size: 14px;" @mousedown="handleInput('ShiftLeft', 'down')"
           @mouseup="handleInput('ShiftLeft', 'up')" @touchstart.prevent="handleInput('ShiftLeft', 'down')"
-          @touchend.prevent="handleInput('ShiftLeft', 'up')">N Left</button>
+          @touchend.prevent="handleInput('ShiftLeft', 'up')" :disabled="stats.is_training">N Left</button>
       </div>
 
       <div class="input-group" style="flex: 1; align-items: center;">
         <button class="input-btn launch" :class="{ pressed: buttonStates.launch }"
           @mousedown="handleInput('Space', 'down')" @mouseup="handleInput('Space', 'up')"
           @touchstart.prevent="handleInput('Space', 'down')"
-          @touchend.prevent="handleInput('Space', 'up')">Launch</button>
+          @touchend.prevent="handleInput('Space', 'up')" :disabled="stats.is_training">Launch</button>
       </div>
 
       <div class="input-group" style="flex: 2;">
         <button class="input-btn" :class="{ pressed: buttonStates.right }" @mousedown="handleInput('Slash', 'down')"
           @mouseup="handleInput('Slash', 'up')" @touchstart.prevent="handleInput('Slash', 'down')"
-          @touchend.prevent="handleInput('Slash', 'up')">Right</button>
+          @touchend.prevent="handleInput('Slash', 'up')" :disabled="stats.is_training">Right</button>
         <button class="input-btn" :class="{ pressed: buttonStates.nudgeRight }"
           style="min-height: 34px; font-size: 14px;" @mousedown="handleInput('ShiftRight', 'down')"
           @mouseup="handleInput('ShiftRight', 'up')" @touchstart.prevent="handleInput('ShiftRight', 'down')"
-          @touchend.prevent="handleInput('ShiftRight', 'up')">N Right</button>
+          @touchend.prevent="handleInput('ShiftRight', 'up')" :disabled="stats.is_training">N Right</button>
       </div>
     </div>
   </div>
@@ -154,6 +154,7 @@ const physics = reactive({
   flipper_resting_angle: -30,
   flipper_stroke_angle: 50,
   flipper_length: 0.2,
+  flipper_width: 0.025,
   tilt_threshold: 8.0,
   nudge_cost: 5.0,
   tilt_decay: 0.03,
@@ -303,7 +304,9 @@ const startTraining = (config) => {
     socket.emit('start_training', {
       model_name: config.modelName,
       total_timesteps: config.timesteps,
-      learning_rate: config.learningRate
+      learning_rate: config.learningRate,
+      layout: config.layout,
+      physics: config.physics
     })
   } catch (e) {
     addLog(`Error starting training: ${e.message}`)
@@ -349,6 +352,10 @@ onMounted(() => {
       })
       if (config.camera_presets) {
         cameraPresets.value = config.camera_presets
+        // Auto-select Default preset if none selected
+        if (!selectedPreset.value && 'Default' in config.camera_presets) {
+          selectedPreset.value = 'Default'
+        }
       }
       addLog('Physics config loaded')
       if (config.last_model) {
@@ -407,6 +414,13 @@ onMounted(() => {
     addLog(`AI Enabled: ${data.enabled}`)
   })
 
+  socket.on('model_selected', (data) => {
+    addLog(`Auto-selected model: ${data.model}`)
+    selectedModel.value = data.model
+    // Refresh model list to ensure the new model is in the dropdown
+    socket.emit('get_models')
+  })
+
   socket.on('auto_start_status', (data) => {
     toggles.autoStart = data.enabled
     addLog(`Auto-Start: ${data.enabled}`)
@@ -414,9 +428,17 @@ onMounted(() => {
 
   socket.on('layouts_list', (data) => {
     layouts.value = data
+    // Check if selectedLayout exists in list
     const exists = layouts.value.some(l => l.filename === selectedLayout.value)
-    if (!exists && layouts.value.length > 0) {
-      selectedLayout.value = 'default'
+    if (!exists) {
+        // Try 'Default' (Capitalized)
+        const defaultExists = layouts.value.some(l => l.filename === 'Default')
+        if (defaultExists) {
+            selectedLayout.value = 'Default'
+        } else if (layouts.value.length > 0) {
+            // Fallback to first
+            selectedLayout.value = layouts.value[0].filename
+        }
     }
   })
 
@@ -474,6 +496,9 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('keyup', handleKeyup)
+  if (socket) {
+    socket.disconnect()
+  }
 })
 </script>
 

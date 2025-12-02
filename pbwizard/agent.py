@@ -25,8 +25,8 @@ class ReflexAgent:
         zones = self.zone_manager.get_zone_status(x, y)
         
         # Debug Log (Throttle?)
-        if random.random() < 0.05: # Log 5% of frames to avoid spam
-             logger.info(f"Agent Act: Pos=({x:.1f}, {y:.1f}), Vel=({vx:.1f}, {vy:.1f}), Zones={zones}")
+        if random.random() < 0.1: # Log 10% of frames
+             logger.info(f"Agent Act: Pos=({x:.1f}, {y:.1f}), Vel=({vx:.1f}, {vy:.1f}), Zones={zones}, LeftCooldown={self.left_cooldown}, RightCooldown={self.right_cooldown}")
 
         # Only flip if ball is moving down (vy > 0) to prevent flailing
         # Also could check if ball is in lower part of zone for better timing

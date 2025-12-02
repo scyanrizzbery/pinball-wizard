@@ -147,11 +147,40 @@ class PymunkEngine:
         #     cy = y + h/2
         #     self._add_static_box((cx, cy), (w, h), elasticity=0.2)
             
+        # Inlane Guides (Funnel to flippers)
+        # Prevent side drains by guiding ball from wall to flipper
+        guide_y_start = self.layout.guide_lines_y * self.height
+        
+        # Define Plunger Lanes first
+        lane_x = self.width * 0.85 # Right Plunger Lane Wall
+        left_lane_x = self.width * 0.15 # Left Plunger Lane Wall
+        
+        # Left Guide
+        # From (l_flipper_x - 5, guide_y_start) to (l_flipper_x - 5, l_flipper_y_max)
+        # Vertical guide above flipper pivot
+        l_flipper_x = self.layout.left_flipper_x_min * self.width
+        l_flipper_y = self.layout.left_flipper_y_max * self.height
+        
+        # Gap Adjustment:
+        # Align guide X with flipper pivot to prevent wedging
+        # Reduce vertical gap to 10px for smoother transition
+        guide_l_x = l_flipper_x
+        self._add_static_segment((guide_l_x, guide_y_start), (guide_l_x, l_flipper_y - 10), thickness=15.0)
+        
+        # Right Guide
+        # From (r_flipper_x, guide_y_start) to (r_flipper_x, right_flipper_y_max)
+        # Vertical guide above flipper pivot
+        r_flipper_x = self.layout.right_flipper_x_max * self.width
+        r_flipper_y = self.layout.right_flipper_y_max * self.height
+        # Make vertical: Start X = End X
+        guide_r_x = r_flipper_x
+        self._add_static_segment((guide_r_x, guide_y_start), (guide_r_x, r_flipper_y - 10), thickness=15.0)
+
         # Plunger Lane
         # Vertical wall separating plunger from playfield
-        lane_x = self.width * 0.85
         # self._add_static_segment((lane_x, self.height * 0.3), (lane_x, self.height), thickness=5.0)
         logger.info(f"Plunger Wall: x={lane_x}")
+
         
         # Plunger (Kinematic Body)
         # It starts at a resting position (holding the ball)
@@ -415,7 +444,15 @@ class PymunkEngine:
     def update_flipper_length(self, length_ratio):
         """Update flipper length and rebuild flippers."""
         self.flipper_length_ratio = length_ratio
-        
+        self._rebuild_flippers()
+
+    def update_flipper_width(self, width_ratio):
+        """Update flipper width (thickness) and rebuild flippers."""
+        self.flipper_width_ratio = width_ratio
+        self._rebuild_flippers()
+
+    def _rebuild_flippers(self):
+        """Remove and recreate flippers with current settings."""
         # Remove existing flippers
         for side, flipper in self.flippers.items():
             if side == 'upper':
@@ -435,14 +472,22 @@ class PymunkEngine:
         # Use stored ratio or default
         ratio = getattr(self, 'flipper_length_ratio', 0.12)
         length = self.width * ratio * length_scale 
-        thickness = 10.0 # Pixels
+        
+        # Use stored width ratio or default (0.025 ~ 11px)
+        width_ratio = getattr(self, 'flipper_width_ratio', 0.025)
+        thickness = self.width * width_ratio
+        radius = thickness / 2.0
         
         if side == 'left':
-            p1 = (0, 0)
-            p2 = (length, 0)
+            # Points Right [0, length]
+            # Segment from radius to length-radius
+            p1 = (radius, 0)
+            p2 = (length - radius, 0)
         else:
-            p1 = (0, 0)
-            p2 = (-length, 0)
+            # Points Left [-length, 0]
+            # Segment from -radius to -(length-radius)
+            p1 = (-radius, 0)
+            p2 = (-(length - radius), 0)
             
         shape = pymunk.Segment(body, p1, p2, thickness)
         shape.elasticity = 1.2  # High elasticity for strong ball bounce
@@ -551,23 +596,36 @@ class PymunkEngine:
         self._update_plunger(dt)
         self._update_left_plunger(dt)
         
+        # Auto-launch check
+        # If ball is resting in plunger lane, launch it
+        lane_x = self.width * 0.75
+        for b in self.balls:
+            if b.position.x > lane_x and b.position.y > self.height * 0.6:
+                if b.velocity.length < 10.0:
+                    logger.info("Auto-launching resting ball")
+                    self.launch_plunger()
+        
         # Configurable angles (degrees)
-        rest_angle = -30 # Down
-        up_angle = 30    # Up
+        # Use stored values or defaults
+        rest_val = getattr(self, 'flipper_resting_angle', -30.0)
+        up_val = getattr(self, 'flipper_stroke_angle', 30.0)
         
         # Convert to radians
-        # Left: Rest is +30 (down-right), Up is -30 (up-right)?
-        # Coordinate system: Y down.
-        # 0 is Right.
-        # +Angle is Clockwise (Down).
-        # So Rest (+30) is Down-Right.
-        # Up (-30) is Up-Right.
+        # Left Flipper (Points Right):
+        # Rest (Down-Right) is Positive Angle (if rest_val is negative, negate it)
+        # Up (Up-Right) is Negative Angle (if up_val is positive, negate it)
+        # We assume config values are like: Rest=-30 (Down), Up=30 (Up)
         
-        l_rest = np.radians(30)  # Down-Right (Positive angle for Down on Left Flipper)
-        l_up = np.radians(-30)   # Up-Right
+        # If config is Rest=-51, Up=27.
+        # Left Rest = +51. Left Up = -27.
+        l_rest = np.radians(-rest_val) 
+        l_up = np.radians(-up_val)
         
-        r_rest = np.radians(-30) # Down-Left (Symmetric to Left)
-        r_up = np.radians(30)    # Up-Left (Symmetric to Left)
+        # Right Flipper (Points Left):
+        # Rest (Down-Left) is Negative Angle.
+        # Up (Up-Left) is Positive Angle.
+        r_rest = np.radians(rest_val)
+        r_up = np.radians(up_val)
         
         # Actuation logic
         for side, flipper in self.flippers.items():
@@ -576,7 +634,7 @@ class PymunkEngine:
             self._update_single_flipper(flipper, dt, l_rest, l_up, r_rest, r_up)
                 
         # Sub-stepping for stability (Prevent tunneling)
-        steps = 5
+        steps = 10
         sub_dt = dt / steps
         for _ in range(steps):
             self.space.step(sub_dt)
@@ -606,7 +664,7 @@ class PymunkEngine:
         diff = target - current
         
         # Limit speed
-        max_speed = 15.0 * dt
+        max_speed = self.flipper_speed * dt
         change = np.clip(diff, -max_speed, max_speed)
         
         # For Kinematic bodies, we set velocity and let the simulation move it.

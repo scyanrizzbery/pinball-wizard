@@ -157,7 +157,13 @@ def main():
                         # Draw debug info on frame if needed
                         with self.lock:
                             self.latest_processed_frame = raw_frame
-                            self.current_ball_count = len(self.capture.balls) if hasattr(self.capture, 'balls') else 0
+                            # Count only non-lost balls, or use balls_remaining if available
+                            if hasattr(self.capture, 'balls_remaining'):
+                                self.current_ball_count = self.capture.balls_remaining
+                            elif hasattr(self.capture, 'balls'):
+                                self.current_ball_count = sum(1 for ball in self.capture.balls if not ball.get('lost', False))
+                            else:
+                                self.current_ball_count = 0
                     return ball_pos
 
             # Fallback to CV tracking
@@ -216,6 +222,25 @@ def main():
                 if len(self.game_history) > 50:
                     self.game_history.pop(0)
                 
+                # Reset score for new game
+                if hasattr(self.capture, 'score'):
+                    self.capture.score = 0
+                if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
+                    self.capture.physics_engine.score = 0
+                # Reset tilt
+                if hasattr(self.capture, 'tilt_value'):
+                    self.capture.tilt_value = 0.0
+                if hasattr(self.capture, 'is_tilted'):
+                    self.capture.is_tilted = False
+                    if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
+                        self.capture.physics_engine.set_tilt(False)
+                # Reset balls_remaining for new game
+                if hasattr(self.capture, 'balls_remaining'):
+                    self.capture.balls_remaining = 1
+                # Reset drop targets
+                if hasattr(self.capture, 'drop_target_states') and hasattr(self.capture, 'layout'):
+                    self.capture.drop_target_states = [True] * len(self.capture.layout.drop_targets)
+                    
             self.last_ball_count = current_balls
                 
             nudge_data = None
@@ -350,7 +375,8 @@ def main():
 
     # State tracking for RL
     last_ball_pos = None
-    last_time = time.time()
+    last_pos_time = time.time()
+    last_vx, last_vy = 0.0, 0.0
 
     try:
         while True:
@@ -371,7 +397,14 @@ def main():
                             # logger.info(f"Main received stats: {msg_data}") # Verbose
                             vision_wrapper.update_training_stats(msg_data)
                         elif msg_type == 'status':
-                            if msg_data == 'finished':
+                            # Handle both string and dict status for backward compatibility
+                            status_state = msg_data
+                            new_model = None
+                            if isinstance(msg_data, dict):
+                                status_state = msg_data.get('state')
+                                new_model = msg_data.get('model')
+
+                            if status_state == 'finished':
                                 logger.info("Training process finished.")
                                 controller.switch_to_play()
                                 # Refresh model list for UI
@@ -379,6 +412,17 @@ def main():
                                     web_server.handle_get_models()
                                 except Exception as e:
                                     logger.error(f"Failed to refresh models list: {e}")
+                                
+                                # Auto-load new model if available
+                                if new_model:
+                                    logger.info(f"Auto-loading new model: {new_model}")
+                                    try:
+                                        # Simulate load_model call
+                                        web_server.handle_load_model({'model': new_model})
+                                        # Also notify UI to update selection
+                                        web_server.socketio.emit('model_selected', {'model': new_model})
+                                    except Exception as e:
+                                        logger.error(f"Failed to auto-load model {new_model}: {e}")
                         elif msg_type == 'error':
                             logger.error(f"Training process error: {msg_data}")
                 except Exception as e:
@@ -412,17 +456,25 @@ def main():
                 # 1. Update Vision
                 ball_pos = vision_wrapper.update()
                 
-                current_time = time.time()
-                dt = current_time - last_time
-                last_time = current_time
-                
                 if ball_pos is not None:
+                    current_time = time.time()
+                    
+                    # Calculate velocity only if position changed (new frame)
+                    # This prevents v=0 when main loop is faster than camera
+                    if last_ball_pos is not None and (ball_pos[0] != last_ball_pos[0] or ball_pos[1] != last_ball_pos[1]):
+                        dt = current_time - last_pos_time
+                        if dt > 0:
+                            last_vx = (ball_pos[0] - last_ball_pos[0]) / dt
+                            last_vy = (ball_pos[1] - last_ball_pos[1]) / dt
+                            last_pos_time = current_time
+                            last_ball_pos = ball_pos
+                    elif last_ball_pos is None:
+                        last_ball_pos = ball_pos
+                        last_pos_time = current_time
+                        
+                    vx, vy = last_vx, last_vy
+
                     if use_rl:
-                        # Calculate velocity
-                        vx, vy = 0, 0
-                        if last_ball_pos is not None:
-                            vx = (ball_pos[0] - last_ball_pos[0]) / dt
-                            vy = (ball_pos[1] - last_ball_pos[1]) / dt
                         
                         # Check if ball is in any zone
                         zones = zone_manager.get_zone_status(ball_pos[0], ball_pos[1])
@@ -485,18 +537,15 @@ def main():
                             else:
                                 hw.release_right()
                     else:
-                        # Calculate velocity for Reflex Agent too
-                        vx, vy = 0, 0
-                        if last_ball_pos is not None:
-                            vx = (ball_pos[0] - last_ball_pos[0]) / dt
-                            vy = (ball_pos[1] - last_ball_pos[1]) / dt
-                        
+                        # Reflex Agent
                         if vision_wrapper.ai_enabled:
                             agnt.act(ball_pos, width, height, velocity=(vx, vy))
                     
-                    last_ball_pos = ball_pos
+                    # last_ball_pos updated above
                 else:
+                    # Ball lost
                     last_ball_pos = None
+                    last_vx, last_vy = 0.0, 0.0
                 
                 # Rate limiting (approx 60 Hz)
                 time.sleep(0.016)

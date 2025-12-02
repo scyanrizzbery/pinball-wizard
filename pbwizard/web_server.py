@@ -44,20 +44,36 @@ def stream_frames():
                     game_state = vision_system.get_game_state()
                     socketio.emit('game_state', game_state)
                     # Also emit stats_update for App.vue compatibility
-                    # Also emit stats_update for App.vue compatibility
-                    stats_data = {
-                        'score': game_state.get('score', 0),
-                        'high_score': game_state.get('high_score', 0),
-                        'balls': game_state.get('balls_remaining', 0),
-                        'games_played': game_state.get('games_played', 0),
-                        'game_history': game_state.get('game_history', []),
-                        'is_tilted': game_state.get('is_tilted', False),
-                        'nudge': game_state.get('nudge', None)
-                    }
+                    if hasattr(vision_system, 'get_stats'):
+                        stats_data = vision_system.get_stats()
+                    else:
+                        stats_data = {
+                            'score': game_state.get('score', 0),
+                            'high_score': game_state.get('high_score', 0),
+                            'balls': game_state.get('balls_remaining', 0),
+                            'games_played': game_state.get('games_played', 0),
+                            'game_history': game_state.get('game_history', []),
+                            'is_tilted': game_state.get('is_tilted', False),
+                            'nudge': game_state.get('nudge', None)
+                        }
                     
                     # Add training stats if available
                     if hasattr(vision_system, 'training_stats'):
                          stats_data.update(vision_system.training_stats)
+                    
+                    # Sanitize for JSON serialization (handle numpy types)
+                    def sanitize_for_json(obj):
+                        if isinstance(obj, dict):
+                            return {k: sanitize_for_json(v) for k, v in obj.items()}
+                        elif isinstance(obj, list):
+                            return [sanitize_for_json(v) for v in obj]
+                        elif hasattr(obj, 'item'): # Numpy scalar
+                            return obj.item()
+                        elif hasattr(obj, 'tolist'): # Numpy array
+                            return obj.tolist()
+                        return obj
+
+                    stats_data = sanitize_for_json(stats_data)
                          
                     socketio.emit('stats_update', stats_data)
                     if len(game_state.get('balls', [])) > 0:
@@ -193,10 +209,11 @@ def handle_update_zones(zones_data):
     """Handle zone updates from frontend."""
     if vision_system:
         vision_system.update_zones(zones_data)
-        # Save config automatically? Or wait for explicit save?
-        # Let's wait for explicit save or trigger it if desired.
-        # For now, just update runtime.
-        socketio.emit('status', {'msg': 'Zones updated'})
+        # Save config to persist zone edits
+        capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+        if hasattr(capture, 'save_config'):
+            capture.save_config()
+        socketio.emit('status', {'msg': 'Zones updated and saved'})
 
 @socketio.on('reset_zones')
 def handle_reset_zones():
@@ -482,6 +499,8 @@ def handle_start_training(data):
             'model_name': data.get('model_name', 'ppo_pinball'),
             'total_timesteps': int(data.get('total_timesteps', 100000)),
             'learning_rate': float(data.get('learning_rate', 0.0003)),
+            'layout': data.get('layout'),
+            'physics': data.get('physics'),
             'random_layouts': False # Disable random layouts for now
         }
         vision_system.controller.start_training(config)

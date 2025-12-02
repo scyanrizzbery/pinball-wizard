@@ -6,7 +6,7 @@
         <div style="flex: 1;">
           <div class="label">Model</div>
           <select :value="selectedModel" @change="$emit('update:selectedModel', $event.target.value); $emit('load-model')"
-            class="select-input">
+            class="select-input" :disabled="stats.is_training">
             <option v-for="model in models" :key="model.filename" :value="model.filename">
               {{ model.filename }} ({{ model.mod_time || model.hash }})
             </option>
@@ -17,7 +17,7 @@
         <div style="flex: 1;">
           <div class="label">Layout</div>
           <select :value="selectedLayout" @change="$emit('update:selectedLayout', $event.target.value); $emit('change-layout')"
-            class="select-input">
+            class="select-input" :disabled="stats.is_training">
             <option v-for="layout in layouts" :key="layout.filename" :value="layout.filename">
               {{ layout.name }}
             </option>
@@ -28,7 +28,7 @@
         <div style="flex: 1;">
           <div class="label">View</div>
           <select :value="selectedPreset" @change="$emit('update:selectedPreset', $event.target.value); $emit('apply-preset', $event.target.value)"
-            class="select-input">
+            class="select-input" :disabled="stats.is_training">
             <option value="" disabled>Select Camera Preset</option>
             <option v-for="(preset, name) in cameraPresets" :key="name" :value="name">{{ name }}</option>
           </select>
@@ -54,7 +54,7 @@
             <span>Table Tilt</span>
             <span>{{ formatNumber(physics.table_tilt, 1) }}°</span>
           </div>
-          <input type="range" min="1.0" max="20.0" step="0.5" v-model.number="physics.table_tilt"
+          <input type="range" min="1.0" max="10.0" step="0.1" v-model.number="physics.table_tilt"
             @input="updatePhysics('table_tilt')">
         </div>
         <div class="slider-container">
@@ -62,7 +62,7 @@
             <span>Friction</span>
             <span>{{ formatNumber(physics.friction, 3) }}</span>
           </div>
-          <input type="range" min="0.1" max="2.000" step="0.1" v-model.number="physics.friction"
+          <input type="range" min="0.01" max="2.000" step="0.01" v-model.number="physics.friction"
             @input="updatePhysics('friction')">
         </div>
         <div class="slider-container">
@@ -70,24 +70,24 @@
             <span>Restitution (Bounce)</span>
             <span>{{ formatNumber(physics.restitution, 2) }}</span>
           </div>
-          <input type="range" min="0.1" max="2.0" step="0.1" v-model.number="physics.restitution"
-            @input="updatePhysics('restitution')">
+          <input type="range" min="0.1" max="2.0" step="0.01" v-model.number="physics.restitution"
+            @input="updatePhysics('restitution')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
             <span>Plunger Force</span>
             <span>{{ formatNumber(physics.plunger_release_speed, 0) }}</span>
           </div>
-          <input type="range" min="500" max="5000" step="100" v-model.number="physics.plunger_release_speed"
-            @input="updatePhysics('plunger_release_speed')">
+          <input type="range" min="100" max="2000" step="10" v-model.number="physics.plunger_release_speed"
+            @input="updatePhysics('plunger_release_speed')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
             <span>Launch Angle</span>
             <span>{{ formatNumber(physics.launch_angle, 1) }}°</span>
           </div>
-          <input type="range" min="-45" max="45" step="1" v-model.number="physics.launch_angle"
-            @input="updatePhysics('launch_angle')">
+          <input type="range" min="0" max="12" step="0.1" v-model.number="physics.launch_angle"
+            @input="updatePhysics('launch_angle')" :disabled="stats.is_training">
         </div>
       </div>
 
@@ -102,8 +102,8 @@
             <span>Speed</span>
             <span>{{ formatNumber(physics.flipper_speed, 1) }}</span>
           </div>
-          <input type="range" min="10" max="60" step="1.0" v-model.number="physics.flipper_speed"
-            @input="updatePhysics('flipper_speed')">
+          <input type="range" min="0" max="60" step="0.1" v-model.number="physics.flipper_speed"
+            @input="updatePhysics('flipper_speed')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -111,7 +111,7 @@
             <span>{{ physics.flipper_resting_angle }}</span>
           </div>
           <input type="range" v-model.number="physics.flipper_resting_angle" min="-60" max="0" step="1"
-            @input="updatePhysics('flipper_resting_angle')">
+            @input="updatePhysics('flipper_resting_angle')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -119,7 +119,7 @@
             <span>{{ physics.flipper_stroke_angle }}</span>
           </div>
           <input type="range" v-model.number="physics.flipper_stroke_angle" min="10" max="90" step="1"
-            @input="updatePhysics('flipper_stroke_angle')">
+            @input="updatePhysics('flipper_stroke_angle')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -127,7 +127,15 @@
             <span>{{ formatNumber(physics.flipper_length, 2) }}</span>
           </div>
           <input type="range" min="0.1" max="0.3" step="0.01" v-model.number="physics.flipper_length"
-            @input="updatePhysics('flipper_length')">
+            @input="updatePhysics('flipper_length')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Width</span>
+            <span>{{ formatNumber(physics.flipper_width, 3) }}</span>
+          </div>
+          <input type="range" min="0.01" max="0.05" step="0.001" v-model.number="physics.flipper_width"
+            @input="updatePhysics('flipper_width')" :disabled="stats.is_training">
         </div>
         
         <div style="margin-bottom: 10px; margin-top: 15px; color: #aaa; font-size: 0.8em; border-top: 1px dashed #333; padding-top: 10px;">Left Flipper Position</div>
@@ -137,7 +145,7 @@
             <span>{{ formatNumber(physics.left_flipper_pos_x, 2) }}</span>
           </div>
           <input type="range" min="0.0" max="0.5" step="0.01" v-model.number="physics.left_flipper_pos_x"
-            @input="updatePhysics('left_flipper_pos_x')">
+            @input="updatePhysics('left_flipper_pos_x')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -145,7 +153,7 @@
             <span>{{ formatNumber(physics.left_flipper_pos_y, 2) }}</span>
           </div>
           <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.left_flipper_pos_y"
-            @input="updatePhysics('left_flipper_pos_y')">
+            @input="updatePhysics('left_flipper_pos_y')" :disabled="stats.is_training">
         </div>
 
         <div style="margin-bottom: 10px; margin-top: 10px; color: #aaa; font-size: 0.8em;">Right Flipper Position</div>
@@ -155,7 +163,7 @@
             <span>{{ formatNumber(physics.right_flipper_pos_x, 2) }}</span>
           </div>
           <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.right_flipper_pos_x"
-            @input="updatePhysics('right_flipper_pos_x')">
+            @input="updatePhysics('right_flipper_pos_x')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -163,7 +171,7 @@
             <span>{{ formatNumber(physics.right_flipper_pos_y, 2) }}</span>
           </div>
           <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.right_flipper_pos_y"
-            @input="updatePhysics('right_flipper_pos_y')">
+            @input="updatePhysics('right_flipper_pos_y')" :disabled="stats.is_training">
         </div>
       </div>
       
@@ -181,7 +189,7 @@
             <span>{{ formatNumber(physics.camera_pitch, 1) }}°</span>
           </div>
           <input type="range" min="0" max="90" step="1" v-model.number="physics.camera_pitch"
-            @input="updatePhysics('camera_pitch')">
+            @input="updatePhysics('camera_pitch')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -189,7 +197,7 @@
             <span>{{ formatNumber(physics.camera_x, 2) }}x</span>
           </div>
           <input type="range" min="0.0" max="1.0" step="0.05" v-model.number="physics.camera_x"
-            @input="updatePhysics('camera_x')">
+            @input="updatePhysics('camera_x')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -197,7 +205,7 @@
             <span>{{ formatNumber(physics.camera_y, 2) }}x</span>
           </div>
           <input type="range" min="0.5" max="3.0" step="0.1" v-model.number="physics.camera_y"
-            @input="updatePhysics('camera_y')">
+            @input="updatePhysics('camera_y')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -205,7 +213,7 @@
             <span>{{ formatNumber(physics.camera_z, 2) }}x</span>
           </div>
           <input type="range" min="0.5" max="3.0" step="0.1" v-model.number="physics.camera_z"
-            @input="updatePhysics('camera_z')">
+            @input="updatePhysics('camera_z')" :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -213,7 +221,7 @@
             <span>{{ formatNumber(physics.camera_zoom, 2) }}x</span>
           </div>
           <input type="range" min="0.5" max="4.0" step="0.1" v-model.number="physics.camera_zoom"
-            @input="updatePhysics('camera_zoom')">
+            @input="updatePhysics('camera_zoom')" :disabled="stats.is_training">
         </div>
 
         <div class="setting-group" style="margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
@@ -225,9 +233,9 @@
               <option v-for="(preset, name) in cameraPresets" :key="name" :value="name">{{ name }}
               </option>
             </select>
-            <button @click="savePreset"
+            <button @click="savePreset" :disabled="stats.is_training"
               style="background: #27ae60; border: none; color: white; padding: 5px 10px; cursor: pointer;">Save</button>
-            <button @click="deletePreset"
+            <button @click="deletePreset" :disabled="stats.is_training"
               style="background: #c0392b; border: none; color: white; padding: 5px 10px; cursor: pointer;">Del</button>
           </div>
         </div>
@@ -245,7 +253,7 @@
             <span>{{ formatNumber(physics.tilt_threshold, 1) }}</span>
           </div>
           <input type="range" min="1" max="20" step="0.5" v-model.number="physics.tilt_threshold"
-            @input="updatePhysics('tilt_threshold')">
+            @input="updatePhysics('tilt_threshold')" :disabled="stats.is_training">
         </div>
 
         <div class="slider-container">
@@ -254,7 +262,7 @@
             <span>{{ formatNumber(physics.nudge_cost, 1) }}</span>
           </div>
           <input type="range" min="0.1" max="10" step="0.1" v-model.number="physics.nudge_cost"
-            @input="updatePhysics('nudge_cost')">
+            @input="updatePhysics('nudge_cost')" :disabled="stats.is_training">
         </div>
 
         <div class="slider-container">
@@ -263,12 +271,12 @@
             <span>{{ formatNumber(physics.tilt_decay, 3) }}</span>
           </div>
           <input type="range" min="0.001" max="0.2" step="0.001" v-model.number="physics.tilt_decay"
-            @input="updatePhysics('tilt_decay')">
+            @input="updatePhysics('tilt_decay')" :disabled="stats.is_training">
         </div>
       </div>
 
       <div style="margin-top: auto; padding-top: 20px;">
-        <button class="control-btn" @click="$emit('reset-config')"
+        <button class="control-btn" @click="$emit('reset-config')" :disabled="stats.is_training"
           style="width: 100%; background-color: #d32f2f;">Reset Physics</button>
       </div>
     </div>
@@ -277,17 +285,17 @@
     <div v-show="activeTab === 'training'" class="tab-content">
       <div class="setting-group">
         <label>Model Name</label>
-        <input type="text" v-model="trainingConfig.modelName"
+        <input type="text" v-model="trainingConfig.modelName" :disabled="stats.is_training"
           style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
       </div>
       <div class="setting-group">
         <label>Timesteps</label>
-        <input type="number" v-model="trainingConfig.timesteps"
+        <input type="number" v-model="trainingConfig.timesteps" :disabled="stats.is_training"
           style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
       </div>
       <div class="setting-group">
         <label>Learning Rate</label>
-        <input type="number" v-model="trainingConfig.learningRate" step="0.0001"
+        <input type="number" v-model="trainingConfig.learningRate" step="0.0001" :disabled="stats.is_training"
           style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
       </div>
 
@@ -305,6 +313,48 @@
           <span>Steps: {{ formatNumber(stats.current_step) }} / {{ formatNumber(stats.total_steps) }}</span>
           <span v-if="stats.eta_seconds">ETA: {{ formatTime(stats.eta_seconds) }}</span>
         </div>
+
+        <!-- PPO Metrics Grid -->
+        <div style="margin-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.8em;">
+          <div class="metric-box">
+            <span class="metric-label">FPS</span>
+            <span class="metric-value">{{ stats.fps || 0 }}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Mean Reward</span>
+            <span class="metric-value">{{ formatNumber(stats.ep_rew_mean || 0, 2) }}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Loss</span>
+            <span class="metric-value">{{ formatNumber(stats.loss || 0, 3) }}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Entropy</span>
+            <span class="metric-value">{{ formatNumber(stats.entropy_loss || 0, 3) }}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Value Loss</span>
+            <span class="metric-value">{{ formatNumber(stats.value_loss || 0, 3) }}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Policy Loss</span>
+            <span class="metric-value">{{ formatNumber(stats.policy_gradient_loss || 0, 4) }}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Approx KL</span>
+            <span class="metric-value">{{ formatNumber(stats.approx_kl || 0, 4) }}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Expl. Var</span>
+            <span class="metric-value">{{ formatNumber(stats.explained_variance || 0, 3) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Training Stats Chart -->
+      <div v-if="stats.is_training" style="margin-top: 20px; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
+        <h4 style="margin: 0 0 10px 0; color: #ccc; font-size: 0.9em;">Training Metrics</h4>
+        <highcharts :options="trainingChartOptions" ref="trainingChart" style="width:100%; height:250px;"></highcharts>
       </div>
 
       <div style="margin-top: auto; padding-top: 20px; display: flex; gap: 10px;">
@@ -318,7 +368,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch, computed } from 'vue'
+import { Chart } from 'highcharts-vue'
 
 const props = defineProps({
   physics: Object,
@@ -391,8 +442,178 @@ const deletePreset = () => {
 }
 
 const startTraining = () => {
-  emit('start-training', trainingConfig)
+  emit('start-training', {
+    ...trainingConfig,
+    layout: props.selectedLayout,
+    physics: props.physics
+  })
 }
+
+// Training chart data
+const trainingChartData = reactive({
+  timestamps: [],
+  mean_reward: [],
+  loss: [],
+  entropy_loss: [],
+  value_loss: [],
+  explained_variance: []
+})
+
+const trainingChartOptions = computed(() => ({
+  chart: {
+    type: 'line',
+    backgroundColor: 'transparent',
+    animation: false
+  },
+  title: { text: null },
+  credits: { enabled: false },
+  time: { useUTC: false },
+  xAxis: {
+    type: 'datetime',
+    gridLineColor: '#333',
+    labels: { style: { color: '#999' } }
+  },
+  yAxis: [
+    { // Primary Y-axis (Reward)
+      title: { text: 'Reward', style: { color: '#4caf50' } },
+      labels: { style: { color: '#4caf50' } },
+      gridLineColor: '#333'
+    },
+    { // Secondary Y-axis (Loss)
+      title: { text: 'Loss', style: { color: '#f44336' } },
+      labels: { style: { color: '#f44336' } },
+      opposite: true,
+      gridLineColor: '#333'
+    }
+  ],
+  legend: {
+    itemStyle: { color: '#ccc' },
+    itemHoverStyle: { color: '#fff' }
+  },
+  tooltip: {
+    shared: true,
+    backgroundColor: '#1a1a1a',
+    borderColor: '#444',
+    style: { color: '#ccc' }
+  },
+  plotOptions: {
+    line: {
+      marker: { 
+        enabled: false,
+        states: {
+          hover: {
+            enabled: true,
+            radius: 4
+          }
+        }
+      },
+      lineWidth: 2,
+      states: {
+        hover: {
+          lineWidthPlus: 1
+        }
+      }
+    }
+  },
+  series: [
+    {
+      name: 'Mean Reward',
+      data: trainingChartData.mean_reward,
+      color: '#4caf50',
+      yAxis: 0
+    },
+    {
+      name: 'Loss',
+      data: trainingChartData.loss,
+      color: '#f44336',
+      yAxis: 1
+    },
+    {
+      name: 'Entropy Loss',
+      data: trainingChartData.entropy_loss,
+      color: '#ff9800',
+      yAxis: 1
+    },
+    {
+      name: 'Value Loss',
+      data: trainingChartData.value_loss,
+      color: '#2196f3',
+      yAxis: 1
+    },
+    {
+      name: 'Explained Variance',
+      data: trainingChartData.explained_variance,
+      color: '#9c27b0',
+      yAxis: 0
+    }
+  ]
+}))
+
+// Watch for stats updates and add to chart
+watch(() => props.stats, (newStats) => {
+  if (newStats.is_training && newStats.current_step) {
+    const timestamp = Date.now()
+    const maxPoints = 200 // Limit total points for performance
+    
+    // Add new data points
+    if (newStats.ep_rew_mean !== undefined) {
+      trainingChartData.mean_reward.push([timestamp, newStats.ep_rew_mean || 0])
+      // Downsample if exceeding max points (keep every other point from older half)
+      if (trainingChartData.mean_reward.length > maxPoints) {
+        const half = Math.floor(trainingChartData.mean_reward.length / 2)
+        const oldHalf = trainingChartData.mean_reward.slice(0, half).filter((_, i) => i % 2 === 0)
+        const newHalf = trainingChartData.mean_reward.slice(half)
+        trainingChartData.mean_reward = [...oldHalf, ...newHalf]
+      }
+    }
+    if (newStats.loss !== undefined) {
+      trainingChartData.loss.push([timestamp, newStats.loss || 0])
+      if (trainingChartData.loss.length > maxPoints) {
+        const half = Math.floor(trainingChartData.loss.length / 2)
+        const oldHalf = trainingChartData.loss.slice(0, half).filter((_, i) => i % 2 === 0)
+        const newHalf = trainingChartData.loss.slice(half)
+        trainingChartData.loss = [...oldHalf, ...newHalf]
+      }
+    }
+    if (newStats.entropy_loss !== undefined) {
+      trainingChartData.entropy_loss.push([timestamp, newStats.entropy_loss || 0])
+      if (trainingChartData.entropy_loss.length > maxPoints) {
+        const half = Math.floor(trainingChartData.entropy_loss.length / 2)
+        const oldHalf = trainingChartData.entropy_loss.slice(0, half).filter((_, i) => i % 2 === 0)
+        const newHalf = trainingChartData.entropy_loss.slice(half)
+        trainingChartData.entropy_loss = [...oldHalf, ...newHalf]
+      }
+    }
+    if (newStats.value_loss !== undefined) {
+      trainingChartData.value_loss.push([timestamp, newStats.value_loss || 0])
+      if (trainingChartData.value_loss.length > maxPoints) {
+        const half = Math.floor(trainingChartData.value_loss.length / 2)
+        const oldHalf = trainingChartData.value_loss.slice(0, half).filter((_, i) => i % 2 === 0)
+        const newHalf = trainingChartData.value_loss.slice(half)
+        trainingChartData.value_loss = [...oldHalf, ...newHalf]
+      }
+    }
+    if (newStats.explained_variance !== undefined) {
+      trainingChartData.explained_variance.push([timestamp, newStats.explained_variance || 0])
+      if (trainingChartData.explained_variance.length > maxPoints) {
+        const half = Math.floor(trainingChartData.explained_variance.length / 2)
+        const oldHalf = trainingChartData.explained_variance.slice(0, half).filter((_, i) => i % 2 === 0)
+        const newHalf = trainingChartData.explained_variance.slice(half)
+        trainingChartData.explained_variance = [...oldHalf, ...newHalf]
+      }
+    }
+  }
+  
+  // Clear chart data when training stops
+  if (!newStats.is_training && trainingChartData.mean_reward.length > 0) {
+    trainingChartData.timestamps = []
+    trainingChartData.mean_reward = []
+    trainingChartData.loss = []
+    trainingChartData.entropy_loss = []
+    trainingChartData.value_loss = []
+    trainingChartData.explained_variance = []
+  }
+}, { deep: true })
 
 const stopTraining = () => {
   emit('stop-training')
@@ -611,5 +832,24 @@ input[type="range"]::-moz-range-thumb {
 .select-input:focus {
   border-color: #4caf50;
   outline: none;
+}
+.metric-box {
+  background: #222;
+  padding: 5px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.metric-label {
+  color: #888;
+  font-size: 0.85em;
+  margin-bottom: 2px;
+}
+
+.metric-value {
+  color: #eee;
+  font-weight: bold;
 }
 </style>

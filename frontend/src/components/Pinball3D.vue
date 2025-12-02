@@ -150,6 +150,65 @@ const createTable = (config = null) => {
         flippers.dropTargets.push(target) // Store reference for updates
       })
     }
+    
+    // Inlane Guides (Visuals)
+    if (config.guide_lines) {
+        const guideY = config.guide_lines.y || 0.65
+        const wallHeight = 0.02 // Short berm style
+        const wallThickness = 0.02
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0x888888 }) // Lighter grey for visibility
+        
+        // Left Guide
+        // Vertical guide above flipper pivot
+        // Physics uses offsets: x aligned (0), y - 10px (~0.0125)
+        const xOffset = 0.0
+        const yOffset = 0.0125
+        
+        // Use config values or defaults
+        const l_flip_x = config.left_flipper_pos_x !== undefined ? config.left_flipper_pos_x : 0.3
+        const l_flip_y = config.left_flipper_pos_y_max !== undefined ? config.left_flipper_pos_y_max : 0.9
+        
+        // Apply offsets to match physics
+        const lx2 = mapX(l_flip_x - xOffset) 
+        const ly2 = mapY(l_flip_y - yOffset)
+        
+        // Vertical: Start X = End X
+        const lx1 = lx2
+        const ly1 = mapY(guideY)
+        
+        // Create a box between these two points
+        const l_vec = new THREE.Vector2(lx2 - lx1, ly2 - ly1)
+        const l_len = l_vec.length()
+        const l_angle = Math.atan2(l_vec.y, l_vec.x)
+        
+        const l_guide = new THREE.Mesh(new THREE.BoxGeometry(l_len, wallThickness, wallHeight), wallMat)
+        // Position is midpoint
+        l_guide.position.set(lx1 + l_vec.x/2, ly1 + l_vec.y/2, wallHeight/2)
+        l_guide.rotation.z = l_angle
+        tableGroup.add(l_guide)
+        
+        // Right Guide
+        // Vertical guide above flipper pivot
+        const r_flip_x = config.right_flipper_pos_x_max !== undefined ? config.right_flipper_pos_x_max : 0.7
+        const r_flip_y = config.right_flipper_pos_y_max !== undefined ? config.right_flipper_pos_y_max : 0.9
+        
+        // Apply offsets (Right side: x + offset, y - offset)
+        const rx2 = mapX(r_flip_x + xOffset)
+        const ry2 = mapY(r_flip_y - yOffset)
+        
+        // Vertical: Start X = End X
+        const rx1 = rx2
+        const ry1 = mapY(guideY)
+        
+        const r_vec = new THREE.Vector2(rx2 - rx1, ry2 - ry1)
+        const r_len = r_vec.length()
+        const r_angle = Math.atan2(r_vec.y, r_vec.x)
+        
+        const r_guide = new THREE.Mesh(new THREE.BoxGeometry(r_len, wallThickness, wallHeight), wallMat)
+        r_guide.position.set(rx1 + r_vec.x/2, ry1 + r_vec.y/2, wallHeight/2)
+        r_guide.rotation.z = r_angle
+        tableGroup.add(r_guide)
+    }
 
 
 
@@ -192,9 +251,44 @@ const createTable = (config = null) => {
   // Use config.flipper_length (fraction of width) * table width (0.6)
   // Default flipper_length in physics is 0.2. 0.2 * 0.6 = 0.12 (matches previous hardcoded value)
   const flipperLength = (config && config.flipper_length) ? config.flipper_length * 0.6 : 0.12
-  const flipperWidth = 0.02
+  const flipperWidth = (config && config.flipper_width) ? config.flipper_width * 0.6 : 0.02
   const flipperHeight = 0.04
-  const flipperGeo = new THREE.BoxGeometry(flipperLength, flipperWidth, flipperHeight)
+  
+  // Create rounded flipper shape (Stadium/Capsule 2D shape)
+  const flipperShape = new THREE.Shape()
+  const radius = flipperWidth / 2
+  // The physics segment goes from (radius, 0) to (length-radius, 0)
+  // We want to draw the outline of this segment with thickness 'flipperWidth'
+  // Effectively, a rectangle from x=radius to x=length-radius with height=flipperWidth,
+  // plus semicircles at x=radius and x=length-radius.
+  // Actually, simpler: just draw the path.
+  
+  const segLen = flipperLength - flipperWidth // Distance between circle centers
+  
+  // Start at bottom-left of the straight part
+  flipperShape.moveTo(radius, -radius)
+  // Line to bottom-right
+  flipperShape.lineTo(radius + segLen, -radius)
+  // Semicircle at right end
+  flipperShape.absarc(radius + segLen, 0, radius, -Math.PI/2, Math.PI/2, false)
+  // Line to top-left
+  flipperShape.lineTo(radius, radius)
+  // Semicircle at left end
+  flipperShape.absarc(radius, 0, radius, Math.PI/2, -Math.PI/2, false)
+  
+  const flipperGeo = new THREE.ExtrudeGeometry(flipperShape, {
+    depth: flipperHeight,
+    bevelEnabled: false
+  })
+  // Center the geometry vertically so z=0 is the middle? 
+  // No, currently boxes are placed at z=0.02 (center) with height 0.04.
+  // ExtrudeGeometry creates mesh from z=0 to z=depth.
+  // We want it centered on Z axis relative to pivot?
+  // Pivot is at z=0.02.
+  // If we add mesh to pivot, and mesh is 0..0.04, it will be 0.02..0.06.
+  // We want -0.02..0.02 relative to pivot.
+  flipperGeo.translate(0, 0, -flipperHeight/2)
+
   const flipperMat = new THREE.MeshStandardMaterial({ color: 0xff0000 })
 
   // Left Flipper

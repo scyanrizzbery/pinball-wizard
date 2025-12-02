@@ -496,7 +496,7 @@ img {
 
 .add-controls {
   position: absolute;
-  bottom: 10px;
+  bottom: 60px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
