@@ -18,7 +18,7 @@
           <div class="label">Layout</div>
           <select :value="selectedLayout" @change="$emit('update:selectedLayout', $event.target.value); $emit('change-layout')"
             class="select-input" :disabled="stats.is_training">
-            <option v-for="layout in layouts" :key="layout.filename" :value="layout.filename">
+            <option v-for="layout in layouts" :key="layout.id" :value="layout.id">
               {{ layout.name }}
             </option>
           </select>
@@ -31,6 +31,17 @@
             class="select-input" :disabled="stats.is_training">
             <option value="" disabled>Select Camera Preset</option>
             <option v-for="(preset, name) in cameraPresets" :key="name" :value="name">{{ name }}</option>
+          </select>
+        </div>
+      </div>
+      <div class="control-group">
+        <div style="flex: 1;">
+          <div class="label">AI Difficulty</div>
+          <select :value="selectedDifficulty" @change="$emit('update-difficulty', $event.target.value)"
+            class="select-input" :disabled="stats.is_training">
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
           </select>
         </div>
       </div>
@@ -173,9 +184,139 @@
           <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.right_flipper_pos_y"
             @input="updatePhysics('right_flipper_pos_y')" :disabled="stats.is_training">
         </div>
+
+
+
       </div>
       
 
+
+      <!-- Rail Group -->
+      <div class="group-header" @click="toggleGroup('rails')">
+        <span>Rail Settings</span>
+        <span class="arrow" :class="{ rotated: groupsExpanded.rails }">▼</span>
+      </div>
+      <div v-if="groupsExpanded.rails" class="group-content">
+        <div class="slider-container" style="justify-content: space-between; align-items: center;">
+          <div class="slider-label">
+            <span>Show Rail Debug (Yellow Lines)</span>
+          </div>
+          <input type="checkbox" :checked="physics.show_rail_debug" 
+            @change="updatePhysics('show_rail_debug', $event.target.checked)">
+        </div>
+
+        <div style="margin-bottom: 5px; color: #999; font-size: 0.85em;">Left Rail Position</div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Start X</span>
+            <span>{{ formatNumber(physics.rail_left_p1_x, 2) }}</span>
+          </div>
+          <input type="range" min="0.0" max="0.5" step="0.01" v-model.number="physics.rail_left_p1_x"
+            @input="updatePhysics('rail_left_p1_x')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Start Y</span>
+            <span>{{ formatNumber(physics.rail_left_p1_y, 2) }}</span>
+          </div>
+          <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_left_p1_y"
+            @input="updatePhysics('rail_left_p1_y')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>End X</span>
+            <span>{{ formatNumber(physics.rail_left_p2_x, 2) }}</span>
+          </div>
+          <input type="range" min="0.0" max="0.5" step="0.01" v-model.number="physics.rail_left_p2_x"
+            @input="updatePhysics('rail_left_p2_x')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>End Y</span>
+            <span>{{ formatNumber(physics.rail_left_p2_y, 2) }}</span>
+          </div>
+          <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_left_p2_y"
+            @input="updatePhysics('rail_left_p2_y')" :disabled="stats.is_training">
+        </div>
+        
+        <div style="margin-bottom: 5px; margin-top: 10px; color: #999; font-size: 0.85em;">Right Rail Position</div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Start X</span>
+            <span>{{ formatNumber(physics.rail_right_p1_x, 2) }}</span>
+          </div>
+          <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.rail_right_p1_x"
+            @input="updatePhysics('rail_right_p1_x')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Start Y</span>
+            <span>{{ formatNumber(physics.rail_right_p1_y, 2) }}</span>
+          </div>
+          <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_right_p1_y"
+            @input="updatePhysics('rail_right_p1_y')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>End X</span>
+            <span>{{ formatNumber(physics.rail_right_p2_x, 2) }}</span>
+          </div>
+          <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.rail_right_p2_x"
+            @input="updatePhysics('rail_right_p2_x')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>End Y</span>
+            <span>{{ formatNumber(physics.rail_right_p2_y, 2) }}</span>
+          </div>
+          <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_right_p2_y"
+            @input="updatePhysics('rail_right_p2_y')" :disabled="stats.is_training">
+        </div>
+        
+        <div style="margin-bottom: 5px; margin-top: 15px; color: #999; font-size: 0.85em; border-top: 1px dashed #333; padding-top: 10px;">Rail Translation</div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>X Offset (Left/Right)</span>
+            <span>{{ formatNumber(physics.rail_x_offset, 2) }}</span>
+          </div>
+          <input type="range" min="-1.0" max="1.0" step="0.01" v-model.number="physics.rail_x_offset"
+            @input="updatePhysics('rail_x_offset')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Y Offset (Up/Down)</span>
+            <span>{{ formatNumber(physics.rail_y_offset, 2) }}</span>
+          </div>
+          <input type="range" min="-1.0" max="1.0" step="0.01" v-model.number="physics.rail_y_offset"
+            @input="updatePhysics('rail_y_offset')" :disabled="stats.is_training">
+        </div>
+        
+        <div style="margin-bottom: 5px; margin-top: 15px; color: #999; font-size: 0.85em; border-top: 1px dashed #333; padding-top: 10px;">Rail Transformations</div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Thickness</span>
+            <span>{{ formatNumber(physics.guide_thickness, 1) }}</span>
+          </div>
+          <input type="range" min="5.0" max="50.0" step="1.0" v-model.number="physics.guide_thickness"
+            @input="updatePhysics('guide_thickness')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Length Scale</span>
+            <span>{{ formatNumber(physics.guide_length_scale, 2) }}</span>
+          </div>
+          <input type="range" min="0.5" max="1.5" step="0.05" v-model.number="physics.guide_length_scale"
+            @input="updatePhysics('guide_length_scale')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Angle Offset</span>
+            <span>{{ formatNumber(physics.guide_angle_offset, 1) }}°</span>
+          </div>
+          <input type="range" min="-45.0" max="45.0" step="1.0" v-model.number="physics.guide_angle_offset"
+            @input="updatePhysics('guide_angle_offset')" :disabled="stats.is_training">
+        </div>
+      </div>
 
       <!-- Camera Group -->
       <div class="group-header" @click="toggleGroup('camera')">
@@ -379,10 +520,11 @@ const props = defineProps({
   layouts: Array,
   selectedModel: String,
   selectedLayout: String,
-  selectedPreset: String
+  selectedPreset: String,
+  selectedDifficulty: String
 })
 
-const emit = defineEmits(['update-physics', 'reset-config', 'start-training', 'stop-training', 'apply-preset', 'save-preset', 'delete-preset', 'update:selectedModel', 'update:selectedLayout', 'update:selectedPreset', 'load-model', 'change-layout'])
+const emit = defineEmits(['update-physics', 'reset-config', 'start-training', 'stop-training', 'apply-preset', 'save-preset', 'delete-preset', 'update:selectedModel', 'update:selectedLayout', 'update:selectedPreset', 'load-model', 'change-layout', 'update-difficulty'])
 
 const activeTab = ref('settings')
 // selectedPreset is now a prop
@@ -395,6 +537,7 @@ const trainingConfig = reactive({
 const groupsExpanded = reactive({
   ball: false,
   flipper: false,
+  rails: false,
   zones: false,
   tilt: false,
   camera: false
@@ -419,8 +562,9 @@ const formatTime = (seconds) => {
   return `${minutes}m ${remainingSeconds}s`
 }
 
-const updatePhysics = (param) => {
-  emit('update-physics', param, props.physics[param])
+const updatePhysics = (param, value) => {
+  const val = value !== undefined ? value : props.physics[param]
+  emit('update-physics', param, val)
 }
 
 const applyPreset = () => {
@@ -456,7 +600,8 @@ const trainingChartData = reactive({
   loss: [],
   entropy_loss: [],
   value_loss: [],
-  explained_variance: []
+  explained_variance: [],
+  updateCount: 0 // Track updates for sampling
 })
 
 const trainingChartOptions = computed(() => ({
@@ -552,55 +697,30 @@ const trainingChartOptions = computed(() => ({
 // Watch for stats updates and add to chart
 watch(() => props.stats, (newStats) => {
   if (newStats.is_training && newStats.current_step) {
-    const timestamp = Date.now()
-    const maxPoints = 200 // Limit total points for performance
+    trainingChartData.updateCount++
     
-    // Add new data points
+    // Sample every 5th update to keep chart lightweight
+    if (trainingChartData.updateCount % 5 !== 0) {
+      return
+    }
+    
+    const timestamp = Date.now()
+    
+    // Add sampled data points
     if (newStats.ep_rew_mean !== undefined) {
       trainingChartData.mean_reward.push([timestamp, newStats.ep_rew_mean || 0])
-      // Downsample if exceeding max points (keep every other point from older half)
-      if (trainingChartData.mean_reward.length > maxPoints) {
-        const half = Math.floor(trainingChartData.mean_reward.length / 2)
-        const oldHalf = trainingChartData.mean_reward.slice(0, half).filter((_, i) => i % 2 === 0)
-        const newHalf = trainingChartData.mean_reward.slice(half)
-        trainingChartData.mean_reward = [...oldHalf, ...newHalf]
-      }
     }
     if (newStats.loss !== undefined) {
       trainingChartData.loss.push([timestamp, newStats.loss || 0])
-      if (trainingChartData.loss.length > maxPoints) {
-        const half = Math.floor(trainingChartData.loss.length / 2)
-        const oldHalf = trainingChartData.loss.slice(0, half).filter((_, i) => i % 2 === 0)
-        const newHalf = trainingChartData.loss.slice(half)
-        trainingChartData.loss = [...oldHalf, ...newHalf]
-      }
     }
     if (newStats.entropy_loss !== undefined) {
       trainingChartData.entropy_loss.push([timestamp, newStats.entropy_loss || 0])
-      if (trainingChartData.entropy_loss.length > maxPoints) {
-        const half = Math.floor(trainingChartData.entropy_loss.length / 2)
-        const oldHalf = trainingChartData.entropy_loss.slice(0, half).filter((_, i) => i % 2 === 0)
-        const newHalf = trainingChartData.entropy_loss.slice(half)
-        trainingChartData.entropy_loss = [...oldHalf, ...newHalf]
-      }
     }
     if (newStats.value_loss !== undefined) {
       trainingChartData.value_loss.push([timestamp, newStats.value_loss || 0])
-      if (trainingChartData.value_loss.length > maxPoints) {
-        const half = Math.floor(trainingChartData.value_loss.length / 2)
-        const oldHalf = trainingChartData.value_loss.slice(0, half).filter((_, i) => i % 2 === 0)
-        const newHalf = trainingChartData.value_loss.slice(half)
-        trainingChartData.value_loss = [...oldHalf, ...newHalf]
-      }
     }
     if (newStats.explained_variance !== undefined) {
       trainingChartData.explained_variance.push([timestamp, newStats.explained_variance || 0])
-      if (trainingChartData.explained_variance.length > maxPoints) {
-        const half = Math.floor(trainingChartData.explained_variance.length / 2)
-        const oldHalf = trainingChartData.explained_variance.slice(0, half).filter((_, i) => i % 2 === 0)
-        const newHalf = trainingChartData.explained_variance.slice(half)
-        trainingChartData.explained_variance = [...oldHalf, ...newHalf]
-      }
     }
   }
   
@@ -612,6 +732,7 @@ watch(() => props.stats, (newStats) => {
     trainingChartData.entropy_loss = []
     trainingChartData.value_loss = []
     trainingChartData.explained_variance = []
+    trainingChartData.updateCount = 0
   }
 }, { deep: true })
 

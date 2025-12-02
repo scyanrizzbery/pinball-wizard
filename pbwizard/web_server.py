@@ -5,7 +5,7 @@ import logging
 import os
 
 import cv2
-# Force reload v6
+
 import eventlet
 eventlet.monkey_patch()
 from flask import Flask, render_template
@@ -42,7 +42,7 @@ def stream_frames():
                 # Emit 3D Game State
                 if hasattr(vision_system, 'get_game_state'):
                     game_state = vision_system.get_game_state()
-                    socketio.emit('game_state', game_state)
+                    socketio.emit('game_state', game_state, namespace='/game')
                     # Also emit stats_update for App.vue compatibility
                     if hasattr(vision_system, 'get_stats'):
                         stats_data = vision_system.get_stats()
@@ -54,8 +54,23 @@ def stream_frames():
                             'games_played': game_state.get('games_played', 0),
                             'game_history': game_state.get('game_history', []),
                             'is_tilted': game_state.get('is_tilted', False),
-                            'nudge': game_state.get('nudge', None)
+                            'nudge': game_state.get('nudge', None),
+                            'combo_count': 0,
+                            'score_multiplier': 1.0,
+                            'combo_active': False
                         }
+                    
+                    # Add combo data from physics engine
+                    try:
+                        capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+                        if hasattr(capture, 'physics_engine'):
+                            combo_status = capture.physics_engine.get_combo_status()
+                            stats_data['combo_count'] = combo_status['combo_count']
+                            stats_data['combo_active'] = combo_status['combo_active']
+                            stats_data['combo_timer'] = combo_status['combo_timer']
+                            stats_data['score_multiplier'] = capture.physics_engine.get_multiplier()
+                    except Exception as e:
+                        logger.error(f"Error adding combo stats: {e}")
                     
                     # Add training stats if available
                     if hasattr(vision_system, 'training_stats'):
@@ -75,7 +90,7 @@ def stream_frames():
 
                     stats_data = sanitize_for_json(stats_data)
                          
-                    socketio.emit('stats_update', stats_data)
+                    socketio.emit('stats_update', stats_data, namespace='/game')
                     if len(game_state.get('balls', [])) > 0:
                         logger.debug(f"Emitting Game State: {game_state['balls'][0]}")
 
@@ -86,7 +101,7 @@ def stream_frames():
                     _, buffer = cv2.imencode('.jpg', frame)
                     frame_bytes = base64.b64encode(buffer).decode('utf-8')
                     # logger.debug("Emitting frame...")
-                    socketio.emit('video_frame', {'image': frame_bytes})
+                    socketio.emit('video_frame', {'image': frame_bytes}, namespace='/game')
 
                     frame_count += 1
                     if frame_count % 100 == 0:
@@ -101,15 +116,19 @@ def stream_frames():
         socketio.sleep(0.033)  # ~30 FPS
 
 
-@socketio.on('connect')
-def handle_connect():
-    logger.info('Client connected')
+@socketio.on('connect', namespace='/game')
+def handle_connect_game():
+    logger.info('Client connected to /game')
+
+@socketio.on('connect', namespace='/config')
+def handle_connect_config():
+    logger.info('Client connected to /config')
     # Sync physics config on connect
     if vision_system:
         capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
         if hasattr(capture, 'get_config'):
             config = capture.get_config()
-            socketio.emit('physics_config_loaded', config)
+            socketio.emit('physics_config_loaded', config, namespace='/config')
         elif hasattr(capture, 'gravity'):
             config = {
                 'gravity': capture.gravity,
@@ -122,6 +141,9 @@ def handle_connect():
                 'tilt_threshold': capture.tilt_threshold,
                 'nudge_cost': capture.nudge_cost,
                 'tilt_decay': capture.tilt_decay,
+                'guide_thickness': getattr(capture, 'guide_thickness', 25.0),
+                'guide_length_scale': getattr(capture, 'guide_length_scale', 1.0),
+                'guide_angle_offset': getattr(capture, 'guide_angle_offset', 0.0),
                 'camera_pitch': np.degrees(capture.pitch) if hasattr(capture, 'pitch') else 45,
                 'camera_x': capture.cam_x / capture.width if hasattr(capture, 'cam_x') else 0.5,
                 'camera_y': capture.cam_y / capture.height if hasattr(capture, 'cam_y') else 1.5,
@@ -131,16 +153,20 @@ def handle_connect():
                 'last_preset': getattr(capture, 'last_preset', None),
                 'zones': capture.layout.zones if hasattr(capture, 'layout') else []
             }
-            socketio.emit('physics_config_loaded', config)
+            socketio.emit('physics_config_loaded', config, namespace='/config')
 
-        # Sync initial state
+@socketio.on('connect', namespace='/training')
+def handle_connect_training():
+    logger.info('Client connected to /training')
+    # Sync initial state
+    if vision_system:
         ai_enabled = getattr(vision_system, 'ai_enabled', True)
         auto_start = getattr(vision_system, 'auto_start_enabled', True)
-        socketio.emit('ai_status', {'enabled': ai_enabled})
-        socketio.emit('auto_start_status', {'enabled': auto_start})
+        socketio.emit('ai_status', {'enabled': ai_enabled}, namespace='/training')
+        socketio.emit('auto_start_status', {'enabled': auto_start}, namespace='/training')
 
 
-@socketio.on('input_event')
+@socketio.on('input_event', namespace='/control')
 def handle_input(data):
     # data: {'key': 'ShiftLeft', 'type': 'down'}
     if not vision_system:
@@ -190,7 +216,7 @@ def handle_input(data):
             capture.nudge_right()
 
 
-@socketio.on('update_physics_v2')
+@socketio.on('update_physics_v2', namespace='/config')
 def handle_physics_update(data):
     if not vision_system:
         return
@@ -201,10 +227,10 @@ def handle_physics_update(data):
         # Emit updated config to sync clients (e.g. Pinball3D view)
         if hasattr(capture, 'get_config'):
             config = capture.get_config()
-            socketio.emit('physics_config_loaded', config)
+            socketio.emit('physics_config_loaded', config, namespace='/config')
 
 
-@socketio.on('update_zones')
+@socketio.on('update_zones', namespace='/config')
 def handle_update_zones(zones_data):
     """Handle zone updates from frontend."""
     if vision_system:
@@ -213,9 +239,9 @@ def handle_update_zones(zones_data):
         capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
         if hasattr(capture, 'save_config'):
             capture.save_config()
-        socketio.emit('status', {'msg': 'Zones updated and saved'})
+        socketio.emit('status', {'msg': 'Zones updated and saved'}, namespace='/config')
 
-@socketio.on('reset_zones')
+@socketio.on('reset_zones', namespace='/config')
 def handle_reset_zones():
     """Handle request to reset zones to default."""
     if vision_system:
@@ -225,10 +251,10 @@ def handle_reset_zones():
             # Emit updated config to all clients
             if hasattr(capture, 'get_config'):
                 config = capture.get_config()
-                socketio.emit('physics_config_loaded', config)
-            socketio.emit('status', {'msg': 'Zones reset to default'})
+                socketio.emit('physics_config_loaded', config, namespace='/config')
+            socketio.emit('status', {'msg': 'Zones reset to default'}, namespace='/config')
 
-@socketio.on('save_physics')
+@socketio.on('save_physics', namespace='/config')
 def handle_save_physics():
     if not vision_system:
         return
@@ -238,20 +264,20 @@ def handle_save_physics():
         logger.info("Physics config saved via web request")
 
 
-@socketio.on('load_physics')
+@socketio.on('load_physics', namespace='/config')
 def handle_load_physics():
     if not vision_system:
         return
-    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system # The requested change was syntactically incorrect and has been ignored.
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
     if hasattr(capture, 'load_config'):
         config = capture.load_config()
         if config:
             logger.debug(f"Loaded config from file: {config}")
-            socketio.emit('physics_config_loaded', config)
+            socketio.emit('physics_config_loaded', config, namespace='/config')
             logger.info("Physics config loaded via web request")
 
 
-@socketio.on('reset_physics')
+@socketio.on('reset_physics', namespace='/config')
 def handle_reset_physics():
     if not vision_system:
         return
@@ -259,11 +285,11 @@ def handle_reset_physics():
     if hasattr(capture, 'reset_to_defaults'):
         config = capture.reset_to_defaults()
         if config:
-            socketio.emit('physics_config_loaded', config)
+            socketio.emit('physics_config_loaded', config, namespace='/config')
             logger.info("Physics config reset to defaults")
 
 
-@socketio.on('load_layout')
+@socketio.on('load_layout', namespace='/config')
 def handle_load_layout(data):
     if not vision_system:
         return
@@ -276,12 +302,12 @@ def handle_load_layout(data):
             success = capture.load_layout(data)
             if success:
                 logger.info("Layout loaded successfully")
-                socketio.emit('layout_loaded', {'status': 'success'})
+                socketio.emit('layout_loaded', {'status': 'success'}, namespace='/config')
                 
                 # Emit updated config (including new layout zones/targets) to frontend
                 if hasattr(capture, 'get_config'):
                     config = capture.get_config()
-                    socketio.emit('physics_config_loaded', config)
+                    socketio.emit('physics_config_loaded', config, namespace='/config')
                 
                 # Add to history
                 layout_name = data.get('name', 'Unknown Layout')
@@ -289,16 +315,16 @@ def handle_load_layout(data):
                     vision_system.add_history_event('layout_change', {'layout': layout_name})
             else:
                 logger.error("Failed to load layout")
-                socketio.emit('layout_loaded', {'status': 'error', 'message': 'Failed to load layout'})
+                socketio.emit('layout_loaded', {'status': 'error', 'message': 'Failed to load layout'}, namespace='/config')
         except Exception as e:
             logger.error(f"Error loading layout: {e}")
-            socketio.emit('layout_loaded', {'status': 'error', 'message': str(e)})
+            socketio.emit('layout_loaded', {'status': 'error', 'message': str(e)}, namespace='/config')
     else:
         logger.warning("Vision system does not support layout loading")
-        socketio.emit('layout_loaded', {'status': 'error', 'message': 'Not supported'})
+        socketio.emit('layout_loaded', {'status': 'error', 'message': 'Not supported'}, namespace='/config')
 
 
-@socketio.on('save_preset')
+@socketio.on('save_preset', namespace='/config')
 def handle_save_preset(data):
     if not vision_system: return
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
@@ -306,9 +332,9 @@ def handle_save_preset(data):
         name = data.get('name')
         if name:
             presets = capture.save_camera_preset(name)
-            socketio.emit('presets_updated', presets)
+            socketio.emit('presets_updated', presets, namespace='/config')
 
-@socketio.on('apply_preset')
+@socketio.on('apply_preset', namespace='/config')
 def handle_apply_preset(data):
     if not vision_system: return
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
@@ -319,7 +345,7 @@ def handle_apply_preset(data):
         capture.save_config()
         logger.info(f"Applied and saved camera preset: {preset_name}")
 
-@socketio.on('delete_preset')
+@socketio.on('delete_preset', namespace='/config')
 def handle_delete_preset(data):
     if not vision_system: return
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
@@ -327,67 +353,58 @@ def handle_delete_preset(data):
         name = data.get('name')
         if name:
             presets = capture.delete_camera_preset(name)
-            socketio.emit('presets_updated', presets)
+            socketio.emit('presets_updated', presets, namespace='/config')
 
 
         socketio.emit('layout_loaded', {'status': 'error', 'message': 'Not supported'})
 
 
-@socketio.on('get_layouts')
+@socketio.on('get_layouts', namespace='/config')
 def handle_get_layouts():
     try:
-        layouts_dir = os.path.join(os.getcwd(), 'layouts')
-        if not os.path.exists(layouts_dir):
-            os.makedirs(layouts_dir)
-            
-        files = [f for f in os.listdir(layouts_dir) if f.endswith('.json')]
-        layout_list = []
-        for f in files:
-            try:
-                with open(os.path.join(layouts_dir, f), 'r') as json_file:
-                    import json
-                    data = json.load(json_file)
-                    name = data.get('name', os.path.splitext(f)[0])
-                    layout_list.append({'filename': os.path.splitext(f)[0], 'name': name})
-            except Exception:
-                layout_list.append({'filename': os.path.splitext(f)[0], 'name': os.path.splitext(f)[0]})
-        
-        socketio.emit('layouts_list', layout_list)
+        # Get layouts from snake_case.json via vision system
+        if vision_system:
+            capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+            if hasattr(capture, 'available_layouts'):
+                layouts = []
+                for key, data in capture.available_layouts.items():
+                    layouts.append({
+                        'id': key,
+                        'name': data.get('name', key)
+                    })
+                socketio.emit('layouts_list', layouts, namespace='/config')
+                return
+
+        # Fallback to file system if needed (or just return empty)
+        socketio.emit('layouts_list', [], namespace='/config')
     except Exception as e:
         logger.error(f"Error listing layouts: {e}")
 
 
-@socketio.on('load_layout_by_name')
+@socketio.on('load_layout_by_name', namespace='/config')
 def handle_load_layout_by_name(data):
     layout_name = data.get('name')
     if not layout_name:
         return
 
-    try:
-        filename = f"{layout_name}.json"
-        filepath = os.path.join(os.getcwd(), 'layouts', filename)
+    if not vision_system:
+        return
         
-        if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                import json
-                config = json.load(f)
-            
-            # Ensure name is in config so handle_load_layout can use it
-            if 'name' not in config:
-                config['name'] = layout_name
-            
-            # Reuse the existing load_layout logic
-            handle_load_layout(config)
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    
+    if hasattr(capture, 'load_layout'):
+        success = capture.load_layout(layout_name)
+        if success:
+            socketio.emit('layout_loaded', {'status': 'success', 'layout': layout_name}, namespace='/config')
+            # Emit updated config
+            if hasattr(capture, 'get_config'):
+                config = capture.get_config()
+                socketio.emit('physics_config_loaded', config, namespace='/config')
         else:
-            logger.error(f"Layout file not found: {filepath}")
-            socketio.emit('layout_loaded', {'status': 'error', 'message': 'Layout not found'})
-            
-    except Exception as e:
-        logger.error(f"Error loading layout by name: {e}")
-        socketio.emit('layout_loaded', {'status': 'error', 'message': str(e)})
+            socketio.emit('layout_loaded', {'status': 'error', 'message': 'Layout not found'}, namespace='/config')
 
 
-@socketio.on('toggle_ai')
+@socketio.on('toggle_ai', namespace='/training')
 def handle_toggle_ai(data):
     logger.info(f"DEBUG: handle_toggle_ai called with {data}")
     if not vision_system:
@@ -400,10 +417,10 @@ def handle_toggle_ai(data):
         vision_system.ai_enabled = enabled
         logger.info(f"AI Enabled set to: {enabled}")
         # Broadcast new state to all clients
-        socketio.emit('ai_status', {'enabled': enabled})
+        socketio.emit('ai_status', {'enabled': enabled}, namespace='/training')
 
 
-@socketio.on('toggle_auto_start')
+@socketio.on('toggle_auto_start', namespace='/training')
 def handle_toggle_auto_start(data):
     if not vision_system:
         return
@@ -414,10 +431,46 @@ def handle_toggle_auto_start(data):
         vision_system.auto_start_enabled = enabled
         logger.info(f"Auto-Start set to: {enabled}")
         # Broadcast new state to all clients
-        socketio.emit('auto_start_status', {'enabled': enabled})
+        socketio.emit('auto_start_status', {'enabled': enabled}, namespace='/training')
 
 
-@socketio.on('get_models')
+@socketio.on('update_difficulty', namespace='/training')
+def handle_update_difficulty(data):
+    """Handle AI difficulty level changes."""
+    if not vision_system:
+        return
+    
+    difficulty = data.get('difficulty', 'medium')
+    logger.info(f"Received update_difficulty event. Setting to: {difficulty}")
+    
+    # Update agent difficulty if reflex agent
+    if hasattr(vision_system, 'agent'):
+        if hasattr(vision_system.agent, 'difficulty'):
+            vision_system.agent.difficulty = difficulty
+            # Update difficulty parameters
+            params = vision_system.agent.DIFFICULTY_PARAMS.get(difficulty, vision_system.agent.DIFFICULTY_PARAMS['medium'])
+            vision_system.agent.MIN_HOLD = params['MIN_HOLD']
+            vision_system.agent.MAX_HOLD = params['MAX_HOLD']
+            vision_system.agent.COOLDOWN = params['COOLDOWN']
+            vision_system.agent.VY_THRESHOLD = params['VY_THRESHOLD']
+            vision_system.agent.USE_VELOCITY_PREDICTION = params['USE_VELOCITY_PREDICTION']
+            logger.info(f"AI Difficulty updated to: {difficulty}")
+    
+    # Save to config
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    if hasattr(capture, 'save_config'):
+        # Temporarily set ai_difficulty on capture for saving
+        if not hasattr(capture, 'ai_difficulty'):
+            capture.ai_difficulty = difficulty
+        else:
+            capture.ai_difficulty = difficulty
+        capture.save_config()
+    
+    # Broadcast new state to all clients
+    socketio.emit('difficulty_status', {'difficulty': difficulty}, namespace='/training')
+
+
+@socketio.on('get_models', namespace='/training')
 def handle_get_models():
     import hashlib
     try:
@@ -454,12 +507,12 @@ def handle_get_models():
         
         # Sort by filename (version)
         model_list.sort(key=lambda x: x['filename'])
-        socketio.emit('models_list', model_list)
+        socketio.emit('models_list', model_list, namespace='/training')
     except Exception as e:
         logger.error(f"Error listing models: {e}")
 
 
-@socketio.on('load_model')
+@socketio.on('load_model', namespace='/training')
 def handle_load_model(data):
     model_file = data.get('model')
     model_name = data.get('model')
@@ -482,16 +535,16 @@ def handle_load_model(data):
                 if hasattr(vision_system, 'add_history_event'):
                     vision_system.add_history_event('model_change', {'model': model_name})
 
-                socketio.emit('model_loaded', {'status': 'success', 'model': model_name})
+                socketio.emit('model_loaded', {'status': 'success', 'model': model_name}, namespace='/training')
             else:
-                socketio.emit('model_loaded', {'status': 'error', 'message': 'Agent not initialized or does not support loading'})
+                socketio.emit('model_loaded', {'status': 'error', 'message': 'Agent not initialized or does not support loading'}, namespace='/training')
         else:
-            socketio.emit('model_loaded', {'status': 'error', 'message': 'Model file not found'})
+            socketio.emit('model_loaded', {'status': 'error', 'message': 'Model file not found'}, namespace='/training')
     except Exception as e:
         logger.error(f"Error loading model: {e}")
-        socketio.emit('model_loaded', {'status': 'error', 'message': str(e)})
+        socketio.emit('model_loaded', {'status': 'error', 'message': str(e)}, namespace='/training')
 
-@socketio.on('start_training')
+@socketio.on('start_training', namespace='/training')
 def handle_start_training(data):
     logger.info(f"Received start_training event: {data}")
     if hasattr(vision_system, 'controller'):
@@ -504,20 +557,20 @@ def handle_start_training(data):
             'random_layouts': False # Disable random layouts for now
         }
         vision_system.controller.start_training(config)
-        socketio.emit('training_started', config)
+        socketio.emit('training_started', config, namespace='/training')
     else:
         logger.error("No controller attached to vision system")
 
-@socketio.on('stop_training')
+@socketio.on('stop_training', namespace='/training')
 def handle_stop_training():
     logger.info("Received stop_training event")
     if hasattr(vision_system, 'controller'):
         vision_system.controller.stop_training()
-        socketio.emit('training_stopped')
+        socketio.emit('training_stopped', namespace='/training')
     else:
         logger.error("No controller attached to vision system")
 
-@socketio.on('camera_control')
+@socketio.on('camera_control', namespace='/config')
 def handle_camera_control(data):
     if not vision_system: return
     
@@ -531,7 +584,7 @@ class SocketIOLogHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            socketio.emit('log_message', {'message': msg})
+            socketio.emit('log_message', {'message': msg}, namespace='/game')
         except Exception:
             self.handleError(record)
 
@@ -551,4 +604,4 @@ def start_server(vision_sys, port=5000):
     
     # Start streaming thread
     socketio.start_background_task(stream_frames)
-    socketio.run(app, host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, use_reloader=True)

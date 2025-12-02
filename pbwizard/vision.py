@@ -75,13 +75,13 @@ class PinballLayout:
                 'id': 'default_left',
                 'type': 'left',
                 'is_screen_space': False,
-                'points': [{'x': 0.15, 'y': 0.75}, {'x': 0.42, 'y': 0.75}, {'x': 0.42, 'y': 0.95}, {'x': 0.15, 'y': 0.95}]
+                'points': [{'x': 0.18, 'y': 0.65}, {'x': 0.42, 'y': 0.65}, {'x': 0.42, 'y': 0.85}, {'x': 0.18, 'y': 0.85}]
             },
             {
                 'id': 'default_right',
                 'type': 'right',
                 'is_screen_space': False,
-                'points': [{'x': 0.58, 'y': 0.75}, {'x': 0.82, 'y': 0.75}, {'x': 0.82, 'y': 0.95}, {'x': 0.58, 'y': 0.95}]
+                'points': [{'x': 0.58, 'y': 0.65}, {'x': 0.82, 'y': 0.65}, {'x': 0.82, 'y': 0.85}, {'x': 0.58, 'y': 0.85}]
             }
         ]
         
@@ -91,7 +91,7 @@ class PinballLayout:
             {'x': 0.7, 'y': 0.4, 'radius_ratio': 0.04, 'value': 50}
         ]
         
-        self.guide_lines_y = 0.82
+
         
         self.drop_targets = [
             {'x': 0.4, 'y': 0.1, 'width': 0.03, 'height': 0.01, 'value': 500},
@@ -115,6 +115,19 @@ class PinballLayout:
         
         # Upper Flippers
         self.upper_flippers = []
+        
+        # Rails (Inlane/Outlane guides)
+        # Prevent direct side drains
+        self.rails = [
+            # Left Rail - angled inward to catch center balls
+            {'p1': {'x': 0.18, 'y': 0.40}, 'p2': {'x': 0.36, 'y': 0.83}},
+            # Right Rail - angled inward to catch center balls
+            {'p1': {'x': 0.82, 'y': 0.50}, 'p2': {'x': 0.64, 'y': 0.83}}
+        ]
+        
+        # Rail Translation Offsets (Defaults)
+        self.rail_x_offset = -0.61
+        self.rail_y_offset = -0.11
         
         # Physics Parameters (Persisted per layout)
         self.physics_params = {}
@@ -170,6 +183,9 @@ class PinballLayout:
             'upper_deck': self.upper_deck,
             'upper_deck': self.upper_deck,
             'upper_flippers': self.upper_flippers,
+            'rails': self.rails,
+            'rail_x_offset': self.rail_x_offset,
+            'rail_y_offset': self.rail_y_offset,
             'physics': self.physics_params
         }
         try:
@@ -208,11 +224,14 @@ class PinballLayout:
             
         if 'physics' in config:
             self.physics_params = config['physics']
-            self.drop_targets = config['drop_targets']
+        if 'rails' in config:
+            self.rails = config['rails']
             
-        if 'guide_lines' in config:
-            self.guide_lines_y = config['guide_lines'].get('y', self.guide_lines_y)
-            
+        if 'rail_x_offset' in config:
+            self.rail_x_offset = config['rail_x_offset']
+        if 'rail_y_offset' in config:
+            self.rail_y_offset = config['rail_y_offset']
+
     def to_dict(self):
         return {
             "flippers": {
@@ -232,9 +251,9 @@ class PinballLayout:
             "zones": self.zones,
             "bumpers": self.bumpers,
             "drop_targets": self.drop_targets,
-            "guide_lines": {
-                "y": self.guide_lines_y
-            }
+            "rails": self.rails,
+            "rail_x_offset": self.rail_x_offset,
+            "rail_y_offset": self.rail_y_offset
         }
 
     def randomize(self):
@@ -319,11 +338,39 @@ class SimulatedFrameCapture:
         self.headless = headless
         self.last_model = None  # Track last loaded model
         self.last_preset = None  # Track last selected camera preset
+        self.current_layout_id = 'default' # Track current layout ID
         self.layout = PinballLayout() # Removed 'layout' parameter from init, so always create new
         if layout_config:
             self.layout.load(layout_config)
         self.physics_engine = PymunkEngine(self.layout, width, height) # Initialize Physics Engine
         self.zone_manager = ZoneManager(width, height, self.layout)
+        
+        # Load layouts from layouts directory
+        self.available_layouts = {}
+        layouts_dir = os.path.join(os.getcwd(), 'layouts')
+        if not os.path.exists(layouts_dir):
+            os.makedirs(layouts_dir)
+            
+        try:
+            for filename in os.listdir(layouts_dir):
+                if filename.endswith('.json'):
+                    layout_name = filename[:-5] # Remove .json
+                    filepath = os.path.join(layouts_dir, filename)
+                    try:
+                        with open(filepath, 'r') as f:
+                            layout_data = json.load(f)
+                            # Store both data and filepath if needed, or just data
+                            # For consistency with previous implementation, store data
+                            # But we also want to know the filename for saving back
+                            self.available_layouts[layout_name] = layout_data
+                    except Exception as e:
+                        logger.error(f"Failed to load layout {filename}: {e}")
+                        
+            logger.info(f"Loaded {len(self.available_layouts)} layouts from {layouts_dir}")
+        except Exception as e:
+            logger.error(f"Failed to scan layouts directory: {e}")
+
+
         
         # Table Tilt (Degrees)
         self.table_tilt = 6.0 # Standard pinball tilt
@@ -346,12 +393,36 @@ class SimulatedFrameCapture:
         self.nudge_cost = self.NUDGE_COST
         self.tilt_decay = self.TILT_DECAY
         
+        self.show_rail_debug = False # Toggle for yellow rail lines
+        
         # Table Tilt (Degrees)
         self.table_tilt = 6.0 # Standard pinball tilt
         
         # Flipper Angles (Symmetric Control)
         self.flipper_resting_angle = -30.0
         self.flipper_stroke_angle = 50.0
+        
+        self.flipper_stroke_angle = 50.0
+        
+        
+        # Rail Parameters (for UI control)
+        self.rail_thickness = 10.0
+        self.rail_length_scale = 1.0
+        self.rail_angle_offset = 0.0
+        
+        # Rail endpoint parameters (direct control)
+        self.rail_left_p1_x = 0.18
+        self.rail_left_p1_y = 0.50
+        self.rail_left_p2_x = 0.36
+        self.rail_left_p2_y = 0.83
+        self.rail_right_p1_x = 0.82
+        self.rail_right_p1_y = 0.50
+        self.rail_right_p2_x = 0.64
+        self.rail_right_p2_y = 0.83
+        
+        # Rail translation offsets
+        self.rail_x_offset = -0.61
+        self.rail_y_offset = -0.11
         
         self.plunger_release_speed = 1500.0 # Default
 
@@ -402,7 +473,7 @@ class SimulatedFrameCapture:
         # Flipper zones (calculated from layout)
         self.left_flipper_rect = None
         self.right_flipper_rect = None
-        self.guide_lines = []
+
         
         self._update_flipper_rects()
         
@@ -486,6 +557,8 @@ class SimulatedFrameCapture:
         # This ensures flippers work immediately on startup
         self.load_config()
 
+
+
     def _update_flipper_rects(self):
         # Update flipper rectangles based on current flipper_length
         # Left Flipper: Pivot at x_min, length extends to right
@@ -516,16 +589,7 @@ class SimulatedFrameCapture:
         # Sync layout object
         self.layout.right_flipper_x_min = r_x_min
         
-        # Update Guide Lines (Funnel to flippers)
-        # Left pivot is bottom-left of rect (x_min, y_max)
-        l_pivot = (self.left_flipper_rect[0], self.left_flipper_rect[3])
-        # Right pivot is bottom-right of rect (x_max, y_max)
-        r_pivot = (self.right_flipper_rect[2], self.right_flipper_rect[3])
-        
-        self.guide_lines = [
-            (np.array([0, self.height * self.layout.guide_lines_y]), np.array(l_pivot)),
-            (np.array([self.width, self.height * self.layout.guide_lines_y]), np.array(r_pivot))
-        ]
+
 
     def _load_assets(self):
         asset_dir = os.path.join(os.path.dirname(__file__), 'assets')
@@ -798,16 +862,98 @@ class SimulatedFrameCapture:
                 self.layout.right_flipper_y_min = new_y
                 self.layout.right_flipper_y_max = new_y + height
                 flipper_moved = True
-
+                
         if flipper_moved:
             self._update_flipper_rects()
+            # Rebuild flippers in physics engine
+            if self.physics_engine:
+                self.physics_engine._rebuild_flippers()
             # If zones are relative to flippers, we might want to update them too?
             # But we just decoupled them. So let's keep them independent as requested.
             # However, if we move the flipper significantly, the zone might need manual adjustment.
             changes.append("Flipper Position Updated")
 
+        # Rail Parameters
+        rail_changed = False
+        if 'guide_thickness' in params:  # Frontend still uses 'guide_thickness'
+            val = float(params['guide_thickness'])
+            self.rail_thickness = val
+            rail_changed = True
+            changes.append(f"Rail Thickness: {val}")
+            
+        if 'guide_length_scale' in params:
+            val = float(params['guide_length_scale'])
+            self.rail_length_scale = val
+            rail_changed = True
+            changes.append(f"Rail Length: {val}")
+            
+        if 'guide_angle_offset' in params:
+            val = float(params['guide_angle_offset'])
+            self.rail_angle_offset = val
+            rail_changed = True
+            changes.append(f"Rail Angle: {val}°")
+            
+        if rail_changed and self.physics_engine:
+            self.physics_engine.update_rail_params(self.rail_thickness, self.rail_length_scale, self.rail_angle_offset)
+
+        # Rail endpoint parameters - update layout rails directly
+        rail_endpoint_changed = False
+        endpoint_params = [
+            ('rail_left_p1_x', 0, 'p1', 'x'),
+            ('rail_left_p1_y', 0, 'p1', 'y'),
+            ('rail_left_p2_x', 0, 'p2', 'x'),
+            ('rail_left_p2_y', 0, 'p2', 'y'),
+            ('rail_right_p1_x', 1, 'p1', 'x'),
+            ('rail_right_p1_y', 1, 'p1', 'y'),
+            ('rail_right_p2_x', 1, 'p2', 'x'),
+            ('rail_right_p2_y', 1, 'p2', 'y'),
+        ]
+        
+        for param_name, rail_idx, point, coord in endpoint_params:
+            if param_name in params:
+                val = float(params[param_name])
+                setattr(self, param_name, val)
+                # Update layout rails
+                if hasattr(self.layout, 'rails') and len(self.layout.rails) > rail_idx:
+                    self.layout.rails[rail_idx][point][coord] = val
+                rail_endpoint_changed = True
+                changes.append(f"Rail {rail_idx} {point}.{coord}: {val:.2f}")
+        
+        if rail_endpoint_changed and self.physics_engine:
+            # Rebuild rails with new base positions
+            self.physics_engine._rebuild_rails()
+
+        # Rail translation offsets - shift both rails
+        offset_changed = False
+        if 'rail_x_offset' in params:
+            val = float(params['rail_x_offset'])
+            self.rail_x_offset = val
+            if self.layout:
+                self.layout.rail_x_offset = val
+            offset_changed = True
+            changes.append(f"Rail X Offset: {val:.2f}")
+            
+        if 'rail_y_offset' in params:
+            val = float(params['rail_y_offset'])
+            self.rail_y_offset = val
+            if self.layout:
+                self.layout.rail_y_offset = val
+            offset_changed = True
+            changes.append(f"Rail Y Offset: {val:.2f}")
+            
+        if offset_changed and self.physics_engine:
+            self.physics_engine.rail_x_offset = self.rail_x_offset
+            self.physics_engine.rail_y_offset = self.rail_y_offset
+            self.physics_engine._rebuild_rails()
+
         # Zones are now updated via update_zones, not physics params
         
+        if 'show_rail_debug' in params:
+            val = bool(params['show_rail_debug'])
+            if val != self.show_rail_debug:
+                self.show_rail_debug = val
+                changes.append(f"Rail Debug: {'On' if val else 'Off'}")
+
         if changes:
             logger.info(f"Physics/Camera updated: {', '.join(changes)}")
             
@@ -949,7 +1095,9 @@ class SimulatedFrameCapture:
             'teleports': self.layout.teleports,
             'upper_deck': self.layout.upper_deck,
             'upper_flippers': self.layout.upper_flippers,
-            'guide_lines': {'y': self.layout.guide_lines_y}
+            'rails': self.layout.rails,
+            'rail_x_offset': self.rail_x_offset,
+            'rail_y_offset': self.rail_y_offset
         }
         
         return config
@@ -979,6 +1127,8 @@ class SimulatedFrameCapture:
                 self.last_model = config['last_model']
             if 'last_preset' in config:
                 self.last_preset = config['last_preset']
+            if 'current_layout_id' in config:
+                self.current_layout_id = config['current_layout_id']
             if 'camera_presets' in config:
                 # Merge loaded presets into existing (default) presets
                 self.camera_presets.update(config['camera_presets'])
@@ -1055,9 +1205,18 @@ class SimulatedFrameCapture:
             'tilt_decay': self.tilt_decay
         }
 
-    def load_layout(self, layout_config):
-        """Load a new table layout from a dictionary."""
+    def load_layout(self, layout_source):
+        """Load a new table layout from a dictionary or name."""
         with self.lock:
+            if isinstance(layout_source, str):
+                if layout_source not in self.available_layouts:
+                    logger.error(f"Layout '{layout_source}' not found!")
+                    return False
+                layout_config = self.available_layouts[layout_source]
+                logger.info(f"Loading layout from name: {layout_source}")
+            else:
+                layout_config = layout_source
+                
             self.layout.load(layout_config)
             
             # Re-initialize components dependent on layout
@@ -1078,11 +1237,18 @@ class SimulatedFrameCapture:
             # Re-init drop targets
             self.drop_target_states = [True] * len(self.layout.drop_targets)
             
-            # Reinitialize physics engine with new layout
+            # ReInitialize physics engine with new layout
             if self.physics_engine:
                 from pbwizard.physics import PymunkEngine
                 self.physics_engine = PymunkEngine(self.layout, self.width, self.height)
-                logger.info("Physics engine reinitialized with new layout")
+                
+                # Sync rail offsets from layout to simulation instance
+                self.rail_x_offset = getattr(self.layout, 'rail_x_offset', -0.61)
+                self.rail_y_offset = getattr(self.layout, 'rail_y_offset', -0.11)
+                self.physics_engine.rail_x_offset = self.rail_x_offset
+                self.physics_engine.rail_y_offset = self.rail_y_offset
+                
+                logger.info(f"Physics engine reinitialized with new layout. Rail Offsets: {self.rail_x_offset}, {self.rail_y_offset}")
             
             # Reset game state
             self.score = 0
@@ -1114,8 +1280,12 @@ class SimulatedFrameCapture:
     def save_layout(self):
         """Save the current layout to its file."""
         if self.layout and self.layout.name:
-            # Sanitize name
-            safe_name = "".join([c for c in self.layout.name if c.isalpha() or c.isdigit() or c in (' ', '_', '-')]).strip()
+            # Sanitize name to create filename (snake_case preference)
+            # If we loaded from a file, we might want to preserve that filename
+            # But here we construct it from the name
+            safe_name = self.layout.name.lower().replace(' ', '_')
+            safe_name = "".join([c for c in safe_name if c.isalnum() or c == '_'])
+            
             filename = f"{safe_name}.json"
             filepath = os.path.join(os.getcwd(), 'layouts', filename)
             
@@ -1123,6 +1293,10 @@ class SimulatedFrameCapture:
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
             
             self.layout.save_to_file(filepath)
+            
+            # Update available_layouts with new data
+            self.available_layouts[safe_name] = self.layout.to_dict()
+            
             logger.info(f"Layout saved to {filepath}")
 
     def launch_ball(self):
@@ -1142,11 +1316,21 @@ class SimulatedFrameCapture:
                          logger.debug(f"Sim: Ball {1 - self.balls_remaining} of 1")
                     else:
                         # Game Over Logic - just reset for new game
-                        # Note: VisionSystem.get_stats() handles game history creation
                         logger.debug(f"Sim: Game Over (Score: {self.score})")
                         
-                        # Don't reset score here - let VisionSystem read it first
-                        # Score reset happens after VisionSystem detects game end
+                        # Record Game History
+                        self.game_history.insert(0, {
+                            'type': 'game',
+                            'score': self.score,
+                            'timestamp': time.time(),
+                            'date': time.strftime("%Y-%m-%d %H:%M:%S")
+                        })
+                        if len(self.game_history) > 50:
+                            self.game_history.pop()
+                        
+                        # Reset Score
+                        self.score = 0
+                        self.balls_remaining = 3 # Reset balls
                         pass
                 
                 # Spawn ball in plunger lane
@@ -1839,7 +2023,7 @@ class SimulatedFrameCapture:
                 'upper_angles': self.current_upper_angles
             },
             'drop_targets': self.drop_target_states,
-            'captures': [], # Could add capture status
+            'bumper_states': self.physics_engine.bumper_states if self.physics_engine else [],
             'captures': [], # Could add capture status
             'score': self.score,
             'high_score': self.high_score,
@@ -1886,6 +2070,7 @@ class SimulatedFrameCapture:
                      'y': self.physics_engine.left_plunger_body.position.y,
                      'state': getattr(self.physics_engine, 'left_plunger_state', 'resting')
                  }
+                 
                 
         return state
 
@@ -1909,28 +2094,6 @@ class SimulatedFrameCapture:
         floor_cnt = np.array([c1, c2, c3, c4], dtype=np.int32)
         cv2.fillPoly(frame, [floor_cnt], (20, 20, 20)) # Dark Grey Floor
         
-        # 1.1 Draw Guide Lines (Inlane Guides)
-        guide_y = self.layout.guide_lines_y * self.height
-        
-        # Left Guide
-        lx2 = self.layout.left_flipper_x_min * self.width - 2
-        ly2 = self.layout.left_flipper_y_max * self.height - 15
-        lx1 = lx2 # Vertical
-        ly1 = guide_y
-        
-        gl_p1 = self._project_3d(lx1, ly1, 10) # Height 10
-        gl_p2 = self._project_3d(lx2, ly2, 10)
-        cv2.line(frame, gl_p1, gl_p2, (100, 100, 100), 2)
-        
-        # Right Guide
-        rx2 = self.layout.right_flipper_x_max * self.width + 2
-        ry2 = self.layout.right_flipper_y_max * self.height - 15
-        rx1 = rx2 # Vertical
-        ry1 = guide_y
-        
-        gr_p1 = self._project_3d(rx1, ry1, 10)
-        gr_p2 = self._project_3d(rx2, ry2, 10)
-        cv2.line(frame, gr_p1, gr_p2, (100, 100, 100), 2)
         
         # 1.5 Draw Upper Deck
         if self.layout.upper_deck:
@@ -2036,7 +2199,8 @@ class SimulatedFrameCapture:
             cv2.polylines(frame, [plunger_cnt], True, (200, 200, 200), 2)
 
         # Draw Bumpers
-        for bumper in self.bumpers:
+        bumper_states = self.physics_engine.bumper_states if self.physics_engine else []
+        for i, bumper in enumerate(self.bumpers):
             # Project center
             # bumper['pos'] is in pixels (width * ratio, height * ratio)
             # We need to project it to 3D
@@ -2055,8 +2219,14 @@ class SimulatedFrameCapture:
             cv2.line(frame, center, base, (100, 0, 100), 2)
             
             # Draw Top
-            cv2.circle(frame, center, radius, (200, 0, 200), -1)
-            cv2.circle(frame, center, radius, (255, 100, 255), 2)
+            if i < len(bumper_states) and bumper_states[i] > 0:
+                # Active Flash (Cyan/White)
+                cv2.circle(frame, center, radius, (255, 255, 0), -1)
+                cv2.circle(frame, center, radius, (255, 255, 255), 2)
+            else:
+                # Inactive (Purple/Pink)
+                cv2.circle(frame, center, radius, (200, 0, 200), -1)
+                cv2.circle(frame, center, radius, (255, 100, 255), 2)
             
             # Draw "Pop" ring
             cv2.circle(frame, center, int(radius * 0.7), (255, 255, 255), 1)
@@ -2112,6 +2282,65 @@ class SimulatedFrameCapture:
             
         for teleport in self.layout.teleports:
             self._draw_teleport(frame, teleport)
+            
+        # Draw Rails (apply parameters for visual consistency with physics)
+        if hasattr(self.layout, 'rails'):
+            for rail in self.layout.rails:
+                p1_base = rail['p1']
+                p2_base = rail['p2']
+                
+                # Apply length scale and angle offset (same as physics)
+                p1_x = p1_base['x'] * self.width
+                p1_y = p1_base['y'] * self.height
+                p2_x = p2_base['x'] * self.width
+                p2_y = p2_base['y'] * self.height
+                
+                dx = p1_x - p2_x
+                dy = p1_y - p2_y
+                length = np.sqrt(dx*dx + dy*dy)
+                
+                if length > 0:
+                    scaled_length = length * self.rail_length_scale
+                    ux = dx / length
+                    uy = dy / length
+                    p1_x_scaled = p2_x + ux * scaled_length
+                    p1_y_scaled = p2_y + uy * scaled_length
+                    
+                    # Apply angle offset
+                    if abs(self.rail_angle_offset) > 0.01:
+                        angle_rad = np.radians(self.rail_angle_offset)
+                        dx_new = p1_x_scaled - p2_x
+                        dy_new = p1_y_scaled - p2_y
+                        p1_x_final = p2_x + dx_new * np.cos(angle_rad) - dy_new * np.sin(angle_rad)
+                        p1_y_final = p2_y + dx_new * np.sin(angle_rad) + dy_new * np.cos(angle_rad)
+                    else:
+                        p1_x_final = p1_x_scaled
+                        p1_y_final = p1_y_scaled
+                else:
+                    p1_x_final = p1_x
+                    p1_y_final = p1_y
+                
+                # Project to 3D
+                start = self._project_3d(p1_x_final, p1_y_final, 0)
+                end = self._project_3d(p2_x, p2_y, 0)
+                
+                # Draw with thickness parameter
+                thickness = max(1, int(self.rail_thickness / 2))  # Scale down for visual
+                cv2.line(frame, start, end, (200, 200, 200), thickness)
+                
+                # DEBUG: Draw the actual physics polygon vertices to see exact collision boundaries
+                if self.physics_engine and hasattr(self.physics_engine, 'rail_shapes'):
+                    for i, shape in enumerate(self.physics_engine.rail_shapes):
+                        vertices = shape.get_vertices()
+                        poly_points = []
+                        for v in vertices:
+                            world_v = v.rotated(shape.body.angle) + shape.body.position
+                            screen_point = self._project_3d(world_v.x, world_v.y, 0)
+                            poly_points.append(screen_point)
+                        
+                        if poly_points and self.show_rail_debug:
+                            poly_array = np.array(poly_points, dtype=np.int32)
+                            cv2.polylines(frame, [poly_array], True, (0, 255, 255), 2)  # Bright yellow outline
             
         # Draw Upper Flippers
         for i, uf in enumerate(self.layout.upper_flippers):
@@ -2368,6 +2597,12 @@ class BallTracker:
         cv2.rectangle(mask, (0, int(h * 0.8)), (int(w * 0.15), h), 0, -1)
         # Right Plunger - Right side
         cv2.rectangle(mask, (int(w * 0.85), int(h * 0.5)), (w, h), 0, -1)
+        
+        # Mask out rail areas to prevent false positives
+        # Left rail area (X: 0.15-0.3, Y: 0.6-0.9)
+        cv2.rectangle(mask, (int(w * 0.13), int(h * 0.55)), (int(w * 0.32), int(h * 0.90)), 0, -1)
+        # Right rail area (X: 0.7-0.85, Y: 0.6-0.9)
+        cv2.rectangle(mask, (int(w * 0.68), int(h * 0.55)), (int(w * 0.87), int(h * 0.90)), 0, -1)
         
         # Morphological operations to remove noise
         kernel = np.ones((5,5), np.uint8)

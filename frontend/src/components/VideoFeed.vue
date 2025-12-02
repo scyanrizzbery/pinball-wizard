@@ -82,7 +82,8 @@ const props = defineProps({
   stats: Object,
   nudgeEvent: Object,
   physics: Object, // Receive physics config to get zone coords
-  socket: Object // Receive socket instance
+  socket: Object, // Receive socket instance
+  configSocket: Object // Receive config socket instance
 })
 
 const emit = defineEmits(['update-zone', 'reset-zones', 'toggle-view'])
@@ -90,8 +91,8 @@ const emit = defineEmits(['update-zone', 'reset-zones', 'toggle-view'])
 const handleKeydown = (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.code)) {
     e.preventDefault()
-    if (props.socket) {
-        props.socket.emit('camera_control', { key: e.code })
+    if (props.configSocket) {
+        props.configSocket.emit('camera_control', { key: e.code })
     }
   }
 }

@@ -16,7 +16,8 @@ class PinballEnv(gym.Env):
 
     metadata = {'render_modes': ['human', 'rgb_array'], 'render_fps': 30}
 
-    def __init__(self, vision_system, hardware_controller, score_reader, headless: bool = False, random_layouts: bool = False):
+
+    def __init__(self, vision_system, hardware_controller, score_reader, headless: bool = False, random_layouts: bool = False, difficulty: str = 'medium'):
         super(PinballEnv, self).__init__()
         
         self.vision = vision_system
@@ -24,6 +25,7 @@ class PinballEnv(gym.Env):
         self.score_reader = score_reader
         self.headless = headless
         self.random_layouts = random_layouts
+        self.difficulty = difficulty  # easy, medium, hard
         
         # Action Space: 0: No-op, 1: Left Flip, 2: Right Flip, 3: Both Flip
         self.action_space = spaces.Discrete(4)
@@ -147,9 +149,22 @@ class PinballEnv(gym.Env):
         score_diff = self.current_score - self.last_score
         self.last_score = self.current_score
         
+        # Get difficulty parameters
+        difficulty_params = self._get_difficulty_params()
+        
         # Reward Shaping
         reward = score_diff / 100.0 # Scale score (e.g. 500 -> 5.0)
-        reward += 0.2 # Survival reward
+        reward += difficulty_params['survival_reward'] # Survival reward (scaled by difficulty)
+        
+        # Combo Bonus Reward - encourage maintaining combos
+        if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'engine'):
+            combo_status = self.vision.capture.engine.get_combo_status()
+            if combo_status['combo_active'] and combo_status['combo_count'] > 1:
+                # Award bonus for maintaining combo
+                combo_reward = 0.5 * combo_status['combo_count']
+                reward += combo_reward
+                if combo_status['combo_count'] > 3:
+                    logger.debug(f"Combo reward bonus: +{combo_reward:.2f} for {combo_status['combo_count']}x combo")
         
         # Debug logging for start of episode
         # Debug logging for start of episode (only first step)
@@ -162,7 +177,7 @@ class PinballEnv(gym.Env):
              # Max reward approx 0.1 per step at top
              reward += (1.0 - (ball_pos[1] / height)) * 0.1
              
-             # Holding Penalty
+             # Holding Penalty (scaled by difficulty)
              # Calculate velocity magnitude
              velocity_mag = np.sqrt(vx**2 + vy**2)
              if velocity_mag < 20.0: # Threshold for "holding" (pixels/sec approx)
@@ -170,11 +185,12 @@ class PinballEnv(gym.Env):
              else:
                  self.holding_steps = 0
                  
-             if self.holding_steps > 90: # Approx 3 seconds at 30Hz
-                 reward -= 0.5 # Significant penalty to force action
+             holding_threshold = difficulty_params['holding_threshold']
+             if self.holding_steps > holding_threshold: # Threshold varies by difficulty
+                 reward -= difficulty_params['holding_penalty'] # Penalty scaled by difficulty
                  
                  # STUCK BALL HEURISTIC: Force Nudge if stuck for too long
-                 if self.holding_steps > 100:
+                 if self.holding_steps > holding_threshold + 20:
                      import random
                      # Force Nudge Left (4) or Right (5)
                      nudge_action = random.choice([4, 5])
@@ -324,6 +340,27 @@ class PinballEnv(gym.Env):
 
         # For simplicity, return zeros or wait for ball
         return np.array([0, 0, 0, 0], dtype=np.float32), {}
+
+    def _get_difficulty_params(self):
+        """Return difficulty-specific reward scaling parameters."""
+        params = {
+            'easy': {
+                'survival_reward': 0.3,  # Higher survival reward
+                'holding_threshold': 120,  # 4 seconds - more lenient
+                'holding_penalty': 0.3  # Lower penalty
+            },
+            'medium': {
+                'survival_reward': 0.2,  # Standard
+                'holding_threshold': 90,  # 3 seconds
+                'holding_penalty': 0.5  # Standard penalty
+            },
+            'hard': {
+                'survival_reward': 0.1,  # Lower survival reward - must score to win
+                'holding_threshold': 60,  # 2 seconds - aggressive
+                'holding_penalty': 0.8  # Harsh penalty for holding
+            }
+        }
+        return params.get(self.difficulty, params['medium'])
 
     def render(self):
         pass # Visualization is handled by the web server

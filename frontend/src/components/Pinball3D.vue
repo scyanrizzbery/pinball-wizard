@@ -69,7 +69,8 @@ const createTable = (config = null) => {
   
   // Clear existing balls and flippers so they are recreated in the new group
   balls = []
-  flippers = { left: null, right: null, dropTargets: [] }
+  balls = []
+  flippers = { left: null, right: null, dropTargets: [], bumpers: [] }
 
   // Floor
   const floorGeo = new THREE.PlaneGeometry(0.6, 1.2)
@@ -126,12 +127,14 @@ const createTable = (config = null) => {
     // Bumpers
     if (config.bumpers) {
       const bumperGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.05, 32)
-      const bumperMat = new THREE.MeshStandardMaterial({ color: 0xffaa00 })
+      const baseMat = new THREE.MeshStandardMaterial({ color: 0xffaa00 })
       config.bumpers.forEach(b => {
-         const mesh = new THREE.Mesh(bumperGeo, bumperMat)
+         const mat = baseMat.clone() // Clone for individual color control
+         const mesh = new THREE.Mesh(bumperGeo, mat)
          mesh.rotation.x = Math.PI / 2
          mesh.position.set(mapX(b.x), mapY(b.y), 0.025)
          tableGroup.add(mesh)
+         flippers.bumpers.push(mesh)
       })
     }
 
@@ -150,67 +153,6 @@ const createTable = (config = null) => {
         flippers.dropTargets.push(target) // Store reference for updates
       })
     }
-    
-    // Inlane Guides (Visuals)
-    if (config.guide_lines) {
-        const guideY = config.guide_lines.y || 0.65
-        const wallHeight = 0.02 // Short berm style
-        const wallThickness = 0.02
-        const wallMat = new THREE.MeshStandardMaterial({ color: 0x888888 }) // Lighter grey for visibility
-        
-        // Left Guide
-        // Vertical guide above flipper pivot
-        // Physics uses offsets: x aligned (0), y - 10px (~0.0125)
-        const xOffset = 0.0
-        const yOffset = 0.0125
-        
-        // Use config values or defaults
-        const l_flip_x = config.left_flipper_pos_x !== undefined ? config.left_flipper_pos_x : 0.3
-        const l_flip_y = config.left_flipper_pos_y_max !== undefined ? config.left_flipper_pos_y_max : 0.9
-        
-        // Apply offsets to match physics
-        const lx2 = mapX(l_flip_x - xOffset) 
-        const ly2 = mapY(l_flip_y - yOffset)
-        
-        // Vertical: Start X = End X
-        const lx1 = lx2
-        const ly1 = mapY(guideY)
-        
-        // Create a box between these two points
-        const l_vec = new THREE.Vector2(lx2 - lx1, ly2 - ly1)
-        const l_len = l_vec.length()
-        const l_angle = Math.atan2(l_vec.y, l_vec.x)
-        
-        const l_guide = new THREE.Mesh(new THREE.BoxGeometry(l_len, wallThickness, wallHeight), wallMat)
-        // Position is midpoint
-        l_guide.position.set(lx1 + l_vec.x/2, ly1 + l_vec.y/2, wallHeight/2)
-        l_guide.rotation.z = l_angle
-        tableGroup.add(l_guide)
-        
-        // Right Guide
-        // Vertical guide above flipper pivot
-        const r_flip_x = config.right_flipper_pos_x_max !== undefined ? config.right_flipper_pos_x_max : 0.7
-        const r_flip_y = config.right_flipper_pos_y_max !== undefined ? config.right_flipper_pos_y_max : 0.9
-        
-        // Apply offsets (Right side: x + offset, y - offset)
-        const rx2 = mapX(r_flip_x + xOffset)
-        const ry2 = mapY(r_flip_y - yOffset)
-        
-        // Vertical: Start X = End X
-        const rx1 = rx2
-        const ry1 = mapY(guideY)
-        
-        const r_vec = new THREE.Vector2(rx2 - rx1, ry2 - ry1)
-        const r_len = r_vec.length()
-        const r_angle = Math.atan2(r_vec.y, r_vec.x)
-        
-        const r_guide = new THREE.Mesh(new THREE.BoxGeometry(r_len, wallThickness, wallHeight), wallMat)
-        r_guide.position.set(rx1 + r_vec.x/2, ry1 + r_vec.y/2, wallHeight/2)
-        r_guide.rotation.z = r_angle
-        tableGroup.add(r_guide)
-    }
-
-
 
 
 
@@ -242,6 +184,34 @@ const createTable = (config = null) => {
         
         const mesh = new THREE.Mesh(geometry, material)
         mesh.position.z = 0.01 // Slightly above floor
+        tableGroup.add(mesh)
+      })
+    }
+
+    // Rails (New)
+    if (config.rails) {
+      // Use same color as walls (0x444444)
+      const railMat = new THREE.MeshStandardMaterial({ color: 0x444444 })
+      const railHeight = 0.05
+      const railThickness = 0.02
+      
+      config.rails.forEach(rail => {
+        const p1 = rail.p1
+        const p2 = rail.p2
+        
+        const x1 = mapX(p1.x)
+        const y1 = mapY(p1.y)
+        const x2 = mapX(p2.x)
+        const y2 = mapY(p2.y)
+        
+        const vec = new THREE.Vector2(x2 - x1, y2 - y1)
+        const len = vec.length()
+        const angle = Math.atan2(vec.y, vec.x)
+        
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, railHeight), railMat)
+        mesh.position.set(x1 + vec.x/2, y1 + vec.y/2, railHeight/2)
+        mesh.rotation.z = angle
+        mesh.scale.set(len, railThickness, 1)
         tableGroup.add(mesh)
       })
     }
@@ -294,7 +264,7 @@ const createTable = (config = null) => {
   // Left Flipper
   const leftPivot = new THREE.Group()
   // Default fallback if config missing
-  let lx = -0.18
+  let lx = -0.26
   let ly = -0.48
   
   if (config && config.left_flipper_pos_x !== undefined) {
@@ -314,7 +284,7 @@ const createTable = (config = null) => {
   // Right Flipper
   const rightPivot = new THREE.Group()
   // Default fallback
-  let rx = 0.18
+  let rx = 0.26
   let ry = -0.48
   
   if (config && config.right_flipper_pos_x_max !== undefined) {
@@ -447,8 +417,6 @@ const updateFlippers = (state) => {
     flippers.right.rotation.z = THREE.MathUtils.degToRad(180 - flipperData.right_angle)
   }
   
-
-  
   if (flippers.plunger && state.plunger) {
       // Physics Y is in pixels (0 to height)
       // MapY expects normalized 0-1
@@ -544,7 +512,6 @@ onMounted(() => {
   
   const onConnect = () => {
     console.log('Pinball3D Socket Connected')
-    socket.emit('load_physics')
   }
   
   
@@ -557,11 +524,31 @@ onMounted(() => {
       }
     })
   }
+
+  const updateBumpers = (bumperStates) => {
+    if (!flippers.bumpers || !bumperStates) return
+    
+    flippers.bumpers.forEach((mesh, i) => {
+      if (i < bumperStates.length) {
+        const active = bumperStates[i] > 0
+        if (active) {
+            mesh.material.color.setHex(0x00ffff) // Cyan Flash
+            mesh.material.emissive.setHex(0x00ffff)
+            mesh.material.emissiveIntensity = 0.5
+        } else {
+            mesh.material.color.setHex(0xffaa00) // Orange
+            mesh.material.emissive.setHex(0x000000)
+            mesh.material.emissiveIntensity = 0.0
+        }
+      }
+    })
+  }
   
   const onGameState = (state) => {
     updateBalls(state.balls)
     updateFlippers(state)
     updateDropTargets(state.drop_targets)
+    updateBumpers(state.bumper_states)
   }
   
   // REMOVED: onConfigLoaded listener (handled by prop)

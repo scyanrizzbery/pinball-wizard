@@ -12,6 +12,7 @@ COLLISION_TYPE_BUMPER = 4
 COLLISION_TYPE_DROP_TARGET = 5
 COLLISION_TYPE_PLUNGER = 6
 COLLISION_TYPE_LEFT_PLUNGER = 7
+COLLISION_TYPE_RAIL = 8
 
 # Mapping for logging
 COLLISION_LABELS = {
@@ -21,7 +22,8 @@ COLLISION_LABELS = {
     4: "bumper",
     5: "drop_target",
     6: "plunger_stop",
-    7: "left_plunger"
+    7: "left_plunger",
+    8: "rail"
 }
 
 class PymunkEngine:
@@ -36,13 +38,31 @@ class PymunkEngine:
         
         self.balls = []
         self.flippers = {}
-        self.balls = []
-        self.flippers = {}
+        self.bumper_states = [] # List of flash timers (0.0 to 1.0)
+        self.bumper_shape_map = {} # Map shape to index
         self.score = 0  # Track score in physics engine
         self.flipper_speed = 30.0 # Default speed
         self.is_tilted = False # Track tilt state
         self.drop_target_shapes = [] # Track drop target shapes for removal
         self.launch_angle = 0.0 # Launch angle in degrees (0 = Up)
+        
+        # Combo System
+        self.combo_count = 0
+        self.combo_timer = 0.0
+        self.last_hit_time = 0.0
+        self.combo_window = 3.0  # seconds - can be overridden by config
+        self.score_multiplier = 1.0
+        self.combo_multiplier_enabled = True
+        self. base_combo_bonus = 50  # Base points for maintaining combo
+        self.multiplier_max = 5.0  # Max multiplier cap
+        
+        # Rail tracking
+        self.rail_shapes = []
+        self.rail_thickness = 10.0
+        self.rail_length_scale = 1.0
+        self.rail_angle_offset = 0.0
+        self.rail_x_offset = 0.0
+        self.rail_y_offset = 0.0
         
         self._setup_static_geometry()
         self._setup_flippers()
@@ -68,8 +88,50 @@ class PymunkEngine:
                 # Award score for certain collision types
                 score_value = SCORE_VALUES.get(other, 0)
                 if score_value > 0:
-                    self.score += score_value
-                    logger.debug(f"BALL COLLISION: hit {label} (+{score_value} points, total: {self.score})")
+                    # Combo detection - check if this is a scoring hit
+                    import time
+                    current_time = time.time()
+                    time_since_last_hit = current_time - self.last_hit_time
+                    
+                    # Combo logic: consecutive hits within combo_window
+                    if self.combo_count > 0 and time_since_last_hit <= self.combo_window:
+                        # Extend combo
+                        self.combo_count += 1
+                        self.combo_timer = self.combo_window  # Reset timer
+                        logger.info(f"COMBO x{self.combo_count}! Time since last: {time_since_last_hit:.2f}s")
+                    elif time_since_last_hit <= self.combo_window or self.combo_count == 0:
+                        # Start new combo
+                        self.combo_count = 1
+                        self.combo_timer = self.combo_window
+                        if time_since_last_hit > self.combo_window and self.combo_count == 0:
+                            logger.debug("Starting new combo chain")
+                    
+                    self.last_hit_time = current_time
+                    
+                    # Calculate multiplier based on combo
+                    if self.combo_multiplier_enabled and self.combo_count > 1:
+                        # Multiplier increases with combo: 2x, 3x, 4x, up to max
+                        self.score_multiplier = min(
+                            float(self.combo_count), 
+                            self.multiplier_max
+                        )
+                    else:
+                        self.score_multiplier = 1.0
+                    
+                    # Apply multiplier to score
+                    final_score = int(score_value * self.score_multiplier)
+                    self.score += final_score
+                    
+                    # Award combo bonus for maintaining chains
+                    if self.combo_count > 2:
+                        combo_bonus = self.base_combo_bonus * (self.combo_count - 1)
+                        self.score += combo_bonus
+                        logger.debug(f"Combo bonus: +{combo_bonus} points")
+                    
+                    if self.score_multiplier > 1.0:
+                        logger.info(f"BALL COLLISION: hit {label} (+{score_value} x{self.score_multiplier:.1f} = {final_score} points, total: {self.score})")
+                    else:
+                        logger.debug(f"BALL COLLISION: hit {label} (+{score_value} points, total: {self.score})")
                 else:
                     logger.debug(f"BALL COLLISION: hit {label}")
                 
@@ -93,6 +155,26 @@ class PymunkEngine:
 
             return True
         handler.begin = begin_collision
+        
+        # Explicit handler for rail collisions
+        rail_handler = self.space.add_collision_handler(COLLISION_TYPE_BALL, COLLISION_TYPE_RAIL)
+        def rail_collision(arbiter, space, data):
+            logger.debug("!!! RAIL COLLISION DETECTED !!!")
+            ball_shape = arbiter.shapes[0] if arbiter.shapes[0].collision_type == COLLISION_TYPE_BALL else arbiter.shapes[1]
+            logger.debug(f"Ball position: {ball_shape.body.position}, velocity: {ball_shape.body.velocity}")
+            return True
+        rail_handler.begin = rail_collision
+        
+        # Bumper Collision Handler
+        bumper_handler = self.space.add_collision_handler(COLLISION_TYPE_BALL, COLLISION_TYPE_BUMPER)
+        def bumper_collision(arbiter, space, data):
+            # Find the bumper shape
+            bumper_shape = arbiter.shapes[0] if arbiter.shapes[0].collision_type == COLLISION_TYPE_BUMPER else arbiter.shapes[1]
+            if bumper_shape in self.bumper_shape_map:
+                idx = self.bumper_shape_map[bumper_shape]
+                self.bumper_states[idx] = 1.0 # Flash for 1.0 (decay unit)
+            return True
+        bumper_handler.begin = bumper_collision
         
     def _setup_static_geometry(self):
         # Walls
@@ -120,10 +202,15 @@ class PymunkEngine:
         self._add_static_triangle(left_tri_p1, left_tri_p2, left_tri_p3)
             
         # Bumpers
-        for b in self.layout.bumpers:
+        # Bumpers
+        self.bumper_states = []
+        self.bumper_shape_map = {}
+        for i, b in enumerate(self.layout.bumpers):
             pos = (b['x'] * self.width, b['y'] * self.height)
             radius = 20.0 # Pixels
-            self._add_static_circle(pos, radius, elasticity=1.5)
+            shape = self._add_static_circle(pos, radius, elasticity=1.5)
+            self.bumper_states.append(0.0)
+            self.bumper_shape_map[shape] = i
             
         # Drop Targets
         for t in self.layout.drop_targets:
@@ -147,41 +234,46 @@ class PymunkEngine:
         #     cy = y + h/2
         #     self._add_static_box((cx, cy), (w, h), elasticity=0.2)
             
-        # Inlane Guides (Funnel to flippers)
-        # Prevent side drains by guiding ball from wall to flipper
-        guide_y_start = self.layout.guide_lines_y * self.height
-        
-        # Define Plunger Lanes first
-        lane_x = self.width * 0.85 # Right Plunger Lane Wall
-        left_lane_x = self.width * 0.15 # Left Plunger Lane Wall
-        
-        # Left Guide
-        # From (l_flipper_x - 5, guide_y_start) to (l_flipper_x - 5, l_flipper_y_max)
-        # Vertical guide above flipper pivot
-        l_flipper_x = self.layout.left_flipper_x_min * self.width
-        l_flipper_y = self.layout.left_flipper_y_max * self.height
-        
-        # Gap Adjustment:
-        # Align guide X with flipper pivot to prevent wedging
-        # Reduce vertical gap to 10px for smoother transition
-        guide_l_x = l_flipper_x
-        self._add_static_segment((guide_l_x, guide_y_start), (guide_l_x, l_flipper_y - 10), thickness=15.0)
-        
-        # Right Guide
-        # From (r_flipper_x, guide_y_start) to (r_flipper_x, right_flipper_y_max)
-        # Vertical guide above flipper pivot
-        r_flipper_x = self.layout.right_flipper_x_max * self.width
-        r_flipper_y = self.layout.right_flipper_y_max * self.height
-        # Make vertical: Start X = End X
-        guide_r_x = r_flipper_x
-        self._add_static_segment((guide_r_x, guide_y_start), (guide_r_x, r_flipper_y - 10), thickness=15.0)
 
         # Plunger Lane
         # Vertical wall separating plunger from playfield
+        lane_x = self.width * 0.85
+        # self._add_static_segment((lane_x, self.height * 0.3), (lane_x, self.height), thickness=5.0)
+        logger.info(f"Plunger Wall: x={lane_x}")
+        
+        self._setup_plunger()
+
+
+
+        # Setup Slingshots (Triangular bumpers above flippers)
+        self._setup_slingshots()
+        
+        # Setup Rails (as Polygons for robust collision)
+        if hasattr(self.layout, 'rails'):
+            logger.info(f"Setting up {len(self.layout.rails)} rails from layout")
+            for i, rail in enumerate(self.layout.rails):
+                p1 = (rail['p1']['x'] * self.width, rail['p1']['y'] * self.height)
+                p2 = (rail['p2']['x'] * self.width, rail['p2']['y'] * self.height)
+                logger.info(f"Adding Rail (Poly) {i}: {p1} -> {p2}")
+                
+                # Create thick polygon instead of segment
+                vertices = self._create_thick_line_poly(p1, p2, thickness=self.rail_thickness)
+                if vertices:
+                    shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.8, collision_type=COLLISION_TYPE_RAIL)
+                    self.rail_shapes.append(shape)
+                    logger.info(f"  Rail {i} vertices: {vertices}")
+
+
+
+
+    def _setup_plunger(self):
+        """Setup plunger physics bodies and shapes."""
+        # Plunger Lane
+        # Vertical wall separating plunger from playfield
+        lane_x = self.width * 0.85
         # self._add_static_segment((lane_x, self.height * 0.3), (lane_x, self.height), thickness=5.0)
         logger.info(f"Plunger Wall: x={lane_x}")
 
-        
         # Plunger (Kinematic Body)
         # It starts at a resting position (holding the ball)
         # When pulled, it moves down. When released, it shoots up.
@@ -206,22 +298,8 @@ class PymunkEngine:
         # Lips to center the ball
         lip_w = 10.0
         lip_h = 20.0 # Stick up above base
-        # Offsets relative to body center
-        # Body center is at (cx, cy)
-        # Left Lip: x = -width/2 + lip_w/2, y = -base_h/2 - lip_h/2 (Up is negative Y relative to body?)
-        # Wait, Pymunk local coords: Y is down?
-        # If body is at Y=970. Top surface is 950.
-        # We want lips at 940 (sticking up).
-        # So relative Y should be negative.
-        
-        # Let's define shapes manually relative to (0,0) center of body
-        # Box: (-w/2, -h/2) to (w/2, h/2)
         
         # Left Lip
-        # Define vertices manually relative to body center
-        # Top-Left, Top-Right, Bottom-Right, Bottom-Left
-        # Base Top Y is -self.plunger_height/2
-        # Lip goes up by lip_h
         ll_x1 = -self.plunger_width/2
         ll_x2 = -self.plunger_width/2 + lip_w
         ll_y1 = -self.plunger_height/2 - lip_h
@@ -411,6 +489,7 @@ class PymunkEngine:
         shape.friction = 0.5
         shape.collision_type = collision_type
         self.space.add(shape)
+        return shape
         
     def _add_static_circle(self, pos, radius, elasticity=0.8, collision_type=COLLISION_TYPE_BUMPER):
         body = self.space.static_body
@@ -419,6 +498,45 @@ class PymunkEngine:
         shape.friction = 0.5
         shape.collision_type = collision_type
         self.space.add(shape)
+        return shape
+    
+    def _create_thick_line_poly(self, p1, p2, thickness):
+        """Create a polygon representing a thick line between p1 and p2."""
+        # Calculate direction vector
+        dx = p2[0] - p1[0]
+        dy = p2[1] - p1[1]
+        length = np.sqrt(dx*dx + dy*dy)
+        
+        if length == 0:
+            return []
+        
+        # Unit vector along line
+        ux = dx / length
+        uy = dy / length
+        
+        # Perpendicular vector (rotate 90 degrees)
+        px = -uy
+        py = ux
+        
+        # Half thickness
+        r = thickness / 2.0
+        
+        # Four corners (CCW winding)
+        c1 = (p1[0] + px*r, p1[1] + py*r)  # Start + perp
+        c2 = (p2[0] + px*r, p2[1] + py*r)  # End + perp
+        c3 = (p2[0] - px*r, p2[1] - py*r)  # End - perp
+        c4 = (p1[0] - px*r, p1[1] - py*r)  # Start - perp
+        
+        return [c1, c2, c3, c4]
+        
+    def _add_static_poly(self, vertices, elasticity=0.5, friction=0.5, collision_type=COLLISION_TYPE_WALL):
+        """Add a static polygon to the physics space."""
+        shape = pymunk.Poly(self.space.static_body, vertices)
+        shape.elasticity = elasticity
+        shape.friction = friction
+        shape.collision_type = collision_type
+        self.space.add(shape)
+        return shape
         
     def _add_static_box(self, pos, size, elasticity=0.5, collision_type=COLLISION_TYPE_DROP_TARGET):
         body = self.space.static_body
@@ -429,6 +547,37 @@ class PymunkEngine:
         shape.collision_type = collision_type
         self.space.add(shape)
         return shape
+
+
+
+    def _setup_slingshots(self):
+        """Create triangular slingshot bumpers above the flippers."""
+        # Left Slingshot
+        l_pivot_x = self.layout.left_flipper_x_min * self.width
+        l_pivot_y = self.layout.left_flipper_y_max * self.height
+        
+        # Define triangle points relative to flipper pivot
+        # P1: Bottom-Left (near pivot)
+        # P2: Top-Right (Inner)
+        # P3: Top-Left (Outer/Inlane side)
+        
+        # Offset slightly to the right of the pivot (since pivot is the heel)
+        l_p1 = (l_pivot_x + 25, l_pivot_y - 20)
+        l_p2 = (l_pivot_x + 70, l_pivot_y - 120)
+        l_p3 = (l_pivot_x + 25, l_pivot_y - 120)
+        
+        self._add_static_triangle(l_p1, l_p2, l_p3, elasticity=1.5, collision_type=COLLISION_TYPE_BUMPER)
+        
+        # Right Slingshot
+        r_pivot_x = self.layout.right_flipper_x_max * self.width
+        r_pivot_y = self.layout.right_flipper_y_max * self.height
+        
+        # Mirror of Left
+        r_p1 = (r_pivot_x - 25, r_pivot_y - 20)
+        r_p2 = (r_pivot_x - 70, r_pivot_y - 120)
+        r_p3 = (r_pivot_x - 25, r_pivot_y - 120)
+        
+        self._add_static_triangle(r_p1, r_p2, r_p3, elasticity=1.5, collision_type=COLLISION_TYPE_BUMPER)
 
     def _setup_flippers(self):
         # Left Flipper - pivot at BOTTOM-left to match visuals
@@ -542,14 +691,14 @@ class PymunkEngine:
             for side in ['left', 'right']:
                 self.actuate_flipper(side, False) # Pass False to deactivate
 
-    def _add_static_triangle(self, p1, p2, p3):
+    def _add_static_triangle(self, p1, p2, p3, elasticity=0.5, collision_type=COLLISION_TYPE_WALL):
         """Add a static triangular shape to the space."""
         body = self.space.static_body
         verts = [p1, p2, p3]
         shape = pymunk.Poly(body, verts)
-        shape.elasticity = 0.5
+        shape.elasticity = elasticity
         shape.friction = 0.5
-        shape.collision_type = COLLISION_TYPE_WALL
+        shape.collision_type = collision_type
         self.space.add(shape)
         return shape
 
@@ -581,6 +730,16 @@ class PymunkEngine:
         return launched
 
     def update(self, dt):
+        # Update bumper flash timers
+        for i in range(len(self.bumper_states)):
+            if self.bumper_states[i] > 0:
+                self.bumper_states[i] -= dt * 5.0 # Decay speed
+                if self.bumper_states[i] < 0:
+                    self.bumper_states[i] = 0.0
+
+        # Update combo timer
+        self.update_combo_timer(dt)
+        
         # Remove lost balls (below height + margin)
         # Iterate copy to modify list
         for b in self.balls[:]:
@@ -715,3 +874,92 @@ class PymunkEngine:
             'plunger': plunger_data,
             'left_plunger': left_plunger_data
         }
+
+    def update_combo_timer(self, dt):
+        """Update combo timer and reset combo if expired."""
+        if self.combo_count > 0:
+            self.combo_timer -= dt
+            if self.combo_timer <= 0:
+                logger.info(f"Combo expired! Final combo: x{self.combo_count}")
+                self.combo_count = 0
+                self.combo_timer = 0.0
+                self.score_multiplier = 1.0
+    
+    def get_combo_status(self):
+        """Return current combo state."""
+        return {
+            'combo_count': self.combo_count,
+            'combo_timer': max(0.0, self.combo_timer),
+            'combo_active': self.combo_count > 0
+        }
+    
+    def get_multiplier(self):
+        """Return current score multiplier."""
+        return self.score_multiplier
+    
+    def update_rail_params(self, thickness=None, length_scale=None, angle_offset=None):
+        """Update rail parameters and rebuild rails."""
+        if thickness is not None:
+            self.rail_thickness = thickness
+        if length_scale is not None:
+            self.rail_length_scale = length_scale
+        if angle_offset is not None:
+            self.rail_angle_offset = angle_offset
+            
+        self._rebuild_rails()
+        
+    def _rebuild_rails(self):
+        """Remove and recreate rails with current parameters."""
+        # Remove existing rail shapes
+        for shape in self.rail_shapes:
+            self.space.remove(shape)
+        self.rail_shapes = []
+        
+        logger.info(f"Rebuilding rails with: thickness={self.rail_thickness}, length_scale={self.rail_length_scale}, angle_offset={self.rail_angle_offset}")
+        
+        # Recreate rails from layout with current parameters
+        if hasattr(self.layout, 'rails'):
+            for i, rail in enumerate(self.layout.rails):
+                p1 = (rail['p1']['x'] * self.width + self.rail_x_offset * self.width, 
+                      rail['p1']['y'] * self.height + self.rail_y_offset * self.height)
+                p2 = (rail['p2']['x'] * self.width + self.rail_x_offset * self.width, 
+                      rail['p2']['y'] * self.height + self.rail_y_offset * self.height)
+                
+                logger.info(f"Rail {i} base positions: p1={p1}, p2={p2}")
+                
+                # Apply length scale and angle offset
+                dx = p1[0] - p2[0]
+                dy = p1[1] - p2[1]
+                length = np.sqrt(dx*dx + dy*dy)
+                scaled_length = length * self.rail_length_scale
+                
+                if length > 0:
+                    ux = dx / length
+                    uy = dy / length
+                    p1_scaled = (p2[0] + ux * scaled_length, p2[1] + uy * scaled_length)
+                    
+                    # Apply angle offset (rotate around p2)
+                    if abs(self.rail_angle_offset) > 0.01:
+                        angle_rad = np.radians(self.rail_angle_offset)
+                        dx_new = p1_scaled[0] - p2[0]
+                        dy_new = p1_scaled[1] - p2[1]
+                        p1_rotated = (
+                            p2[0] + dx_new * np.cos(angle_rad) - dy_new * np.sin(angle_rad),
+                            p2[1] + dx_new * np.sin(angle_rad) + dy_new * np.cos(angle_rad)
+                        )
+                        p1_final = p1_rotated
+                    else:
+                        p1_final = p1_scaled
+                else:
+                    p1_final = p1
+                
+                logger.info(f"Rail {i} final positions: p1_final={p1_final}, p2={p2}")
+                
+                # Create polygon with current thickness
+                vertices = self._create_thick_line_poly(p1_final, p2, thickness=self.rail_thickness)
+                if vertices:
+                    logger.info(f"Rail {i} polygon vertices: {vertices}")
+                    shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.8, collision_type=COLLISION_TYPE_RAIL)
+                    self.rail_shapes.append(shape)
+                    
+        logger.info(f"Rails rebuilt: {len(self.rail_shapes)} rails created")

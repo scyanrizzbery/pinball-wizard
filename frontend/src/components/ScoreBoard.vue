@@ -13,6 +13,18 @@
           <div class="score-comma" v-else>,</div>
         </template>
       </div>
+      
+      <!-- Combo & Multiplier Display -->
+      <div v-if="comboActive" class="combo-anchor">
+        <div class="combo-container" :class="{ 'pulse': comboActive }">
+          <span class="combo-badge" :style="getComboBadgeStyle()">
+            {{ comboCount }}x COMBO!
+          </span>
+          <span class="multiplier-badge" v-if="scoreMultiplier > 1">
+            {{ scoreMultiplier.toFixed(1) }}x
+          </span>
+        </div>
+      </div>
     </div>
     
     <!-- High Score -->
@@ -37,7 +49,10 @@ import { computed } from 'vue'
 
 const props = defineProps({
   score: { type: Number, default: 0 },
-  highScore: { type: Number, default: 0 }
+  highScore: { type: Number, default: 0 },
+  comboCount: { type: Number, default: 0 },
+  scoreMultiplier: { type: Number, default: 1.0 },
+  comboActive: { type: Boolean, default: false }
 })
 
 const getReelItems = (num, minDigits) => {
@@ -60,6 +75,21 @@ const getReelItems = (num, minDigits) => {
     if (char === ',') return { type: 'comma' };
     return { type: 'digit', value: parseInt(char) };
   });
+}
+
+const getComboBadgeStyle = () => {
+  // Dynamic gradient based on combo count
+  const count = props.comboCount;
+  if (count >= 5) {
+    // Gold gradient for high combos
+    return { background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)' };
+  } else if (count >= 3) {
+    // Purple gradient for medium combos
+    return { background: 'linear-gradient(135deg, #9D50BB 0%, #6E48AA 100%)' };
+  } else {
+    // Blue gradient for starting combos
+    return { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' };
+  }
 }
 
 const scoreReels = computed(() => getReelItems(props.score, 7))
@@ -85,6 +115,7 @@ const highScoreReels = computed(() => getReelItems(props.highScore, 7))
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: relative;
 }
 
 .main-score {
@@ -161,6 +192,74 @@ const highScoreReels = computed(() => getReelItems(props.highScore, 7))
     gap: 10px;
     padding: 5px 10px;
     transform: scale(0.9); /* Slight overall scale down on mobile */
+  }
+}
+
+/* Combo Display Styles */
+.combo-anchor {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  z-index: 10;
+}
+
+.combo-container {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.combo-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 0.75em;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.5px;
+}
+
+.multiplier-badge {
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.65em;
+  font-weight: bold;
+  color: #FFD700;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid #FFD700;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.8);
+}
+
+.pulse {
+  animation: pulse 0.5s ease-in-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
   }
 }
 </style>

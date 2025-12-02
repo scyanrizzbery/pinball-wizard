@@ -13,25 +13,36 @@
             <ScoreBoard 
               :score="stats.score" 
               :highScore="stats.high_score" 
-              :balls="stats.balls" 
+              :balls="stats.balls"
+              :comboCount="stats.combo_count || 0"
+              :scoreMultiplier="stats.score_multiplier || 1.0"
+              :comboActive="stats.combo_active || false"
             />
           </div>
 
-          <VideoFeed v-if="viewMode === 'video'" :videoSrc="videoSrc" :isTilted="isTilted" :stats="stats" :nudgeEvent="nudgeEvent" :physics="physics" :socket="socket"
+          <VideoFeed v-if="viewMode === 'video'" :videoSrc="videoSrc" :isTilted="isTilted" :stats="stats" :nudgeEvent="nudgeEvent" :physics="physics" :socket="sockets.game" :configSocket="sockets.config"
             @update-zone="handleZoneUpdate" @reset-zones="handleResetZones" @toggle-view="toggleViewMode" />
           
           <Pinball3D 
           v-if="viewMode === '3d'"
-          :socket="socket"
+          :socket="sockets.game"
+          :configSocket="sockets.config"
           :config="layoutConfig"
           :nudgeEvent="nudgeEvent"
           :cameraMode="viewMode === '3d' ? 'perspective' : 'top-down'"
           @toggle-view="toggleViewMode"
         />
+          <ComboDisplay 
+            :comboCount="stats.combo_count || 0"
+            :comboTimer="stats.combo_timer || 0"
+            :comboActive="stats.combo_active || false"
+            :maxTimer="physics.combo_window || 3.0"
+          />
         </div>
 
         <Controls :buttonStates="buttonStates" :toggles="toggles" @input="handleInput" @toggle-ai="toggleAI"
           @toggle-auto-start="toggleAutoStart" :disabled="stats.is_training" />
+
 
 
       </div>
@@ -40,9 +51,11 @@
 
       <Settings :physics="physics" :stats="stats" :cameraPresets="cameraPresets" :models="models" :layouts="layouts"
         v-model:selectedModel="selectedModel" v-model:selectedLayout="selectedLayout"
-        v-model:selectedPreset="selectedPreset" @update-physics="updatePhysics" @apply-preset="applyPreset"
+        v-model:selectedPreset="selectedPreset" :selectedDifficulty="selectedDifficulty"
+        @update-physics="updatePhysics" @apply-preset="applyPreset"
         @save-preset="savePreset" @delete-preset="deletePreset" @load-model="loadModel"
-        @change-layout="changeLayout" @start-training="startTraining" @stop-training="stopTraining" />
+        @change-layout="changeLayout" @start-training="startTraining" @stop-training="stopTraining"
+        @update-difficulty="updateDifficulty" />
 
       <Logs :logs="logs" />
     </div>
@@ -83,6 +96,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import io from 'socket.io-client'
 import Header from './components/Header.vue'
 import ScoreBoard from './components/ScoreBoard.vue'
+import ComboDisplay from './components/ComboDisplay.vue'
 import VideoFeed from './components/VideoFeed.vue'
 import Pinball3D from './components/Pinball3D.vue'
 import Controls from './components/Controls.vue'
@@ -90,7 +104,12 @@ import Settings from './components/Settings.vue'
 import GameHistory from './components/GameHistory.vue'
 import Logs from './components/Logs.vue'
 
-const socket = io()
+const sockets = {
+  game: io('/game'),
+  control: io('/control'),
+  config: io('/config'),
+  training: io('/training')
+}
 const connected = ref(false)
 const videoSrc = ref('')
 const logs = ref([])
@@ -135,7 +154,11 @@ const stats = reactive({
   current_step: 0,
   total_steps: 0,
   eta_seconds: 0,
-  is_simulation: false
+  is_simulation: false,
+  combo_count: 0,
+  combo_timer: 0.0,
+  score_multiplier: 1.0,
+  combo_active: true,
 })
 
 const isSimulation = computed(() => stats.is_simulation || false)
@@ -163,6 +186,7 @@ const physics = reactive({
   camera_y: 1.5,
   camera_z: 1.5,
   camera_zoom: 1.0,
+  combo_window: 3.0,
   zones: []
 })
 
@@ -183,9 +207,9 @@ const applyPreset = () => {
     if (preset.camera_z !== undefined) physics.camera_z = preset.camera_z
     if (preset.camera_zoom !== undefined) physics.camera_zoom = preset.camera_zoom
 
-    socket.emit('apply_preset', { name: selectedPreset.value })
+    sockets.config.emit('apply_preset', { name: selectedPreset.value })
 
-    socket.emit('update_physics_v2', {
+    sockets.config.emit('update_physics_v2', {
       camera_pitch: physics.camera_pitch,
       camera_x: physics.camera_x,
       camera_y: physics.camera_y,
@@ -201,11 +225,11 @@ const applyPresetFromSettings = (name) => {
 }
 
 const savePreset = (name) => {
-  socket.emit('save_preset', { name: name })
+  sockets.config.emit('save_preset', { name: name })
 }
 
 const deletePreset = (name) => {
-  socket.emit('delete_preset', { name: name })
+  sockets.config.emit('delete_preset', { name: name })
   if (selectedPreset.value === name) {
     selectedPreset.value = ''
   }
@@ -213,13 +237,20 @@ const deletePreset = (name) => {
 
 const layouts = ref([])
 const selectedLayout = ref('default')
+const selectedDifficulty = ref('medium')
 const gameHistory = ref([])
+
+const updateDifficulty = (difficulty) => {
+  selectedDifficulty.value = difficulty
+  sockets.training.emit('update_difficulty', { difficulty })
+  addLog(`Set difficulty to: ${difficulty}`)
+}
 
 const handleInput = (key, type) => {
   if (type === 'down') {
     if (!activeKeys.has(key)) {
       activeKeys.add(key)
-      socket.emit('input_event', { key, type: 'down' })
+      sockets.control.emit('input_event', { key, type: 'down' })
 
       if (key === 'KeyZ') buttonStates.left = true
       else if (key === 'Slash') buttonStates.right = true
@@ -230,7 +261,7 @@ const handleInput = (key, type) => {
   } else {
     if (activeKeys.has(key)) {
       activeKeys.delete(key)
-      socket.emit('input_event', { key, type: 'up' })
+      sockets.control.emit('input_event', { key, type: 'up' })
 
       if (key === 'KeyZ') buttonStates.left = false
       else if (key === 'Slash') buttonStates.right = false
@@ -245,8 +276,8 @@ const updatePhysics = (param, value) => {
   physics[param] = value // Update local state immediately
   if (debounceTimers[param]) clearTimeout(debounceTimers[param])
   debounceTimers[param] = setTimeout(() => {
-    socket.emit('update_physics_v2', { [param]: physics[param] })
-    socket.emit('save_physics')
+    sockets.config.emit('update_physics_v2', { [param]: physics[param] })
+    sockets.config.emit('save_physics')
     delete debounceTimers[param]
   }, 300)
 }
@@ -260,48 +291,50 @@ const handleZoneUpdate = (newZones) => {
   if (debounceTimers[timerKey]) clearTimeout(debounceTimers[timerKey])
   
   debounceTimers[timerKey] = setTimeout(() => {
-    socket.emit('update_zones', newZones)
-    socket.emit('save_physics')
+    sockets.config.emit('update_zones', newZones)
+    sockets.config.emit('save_physics')
     delete debounceTimers[timerKey]
     delete debounceTimers[timerKey]
   }, 100)
 }
 
 const handleResetZones = () => {
-  socket.emit('reset_zones')
+  sockets.config.emit('reset_zones')
 }
 
 const resetConfig = () => {
-  socket.emit('reset_physics')
+  sockets.config.emit('reset_physics')
 }
 
 const loadModel = () => {
   if (selectedModel.value) {
-    socket.emit('load_model', { model: selectedModel.value })
+    sockets.training.emit('load_model', { model: selectedModel.value })
   }
 }
 
 const toggleAI = () => {
-  socket.emit('toggle_ai', { enabled: !toggles.ai })
+  sockets.training.emit('toggle_ai', { enabled: !toggles.ai })
 }
 
 const toggleAutoStart = () => {
-  socket.emit('toggle_auto_start', { enabled: !toggles.autoStart })
+  sockets.training.emit('toggle_auto_start', { enabled: !toggles.autoStart })
 }
+
+
 
 const changeLayout = () => {
   addLog(`Loading layout: ${selectedLayout.value}`)
-  socket.emit('load_layout_by_name', { name: selectedLayout.value })
+  sockets.config.emit('load_layout_by_name', { name: selectedLayout.value })
 }
 
 const startTraining = (config) => {
   try {
     addLog(`Starting training: ${config.modelName}`)
-    if (!socket.connected) {
+    if (!sockets.training.connected) {
       addLog("Error: Socket not connected")
       return
     }
-    socket.emit('start_training', {
+    sockets.training.emit('start_training', {
       model_name: config.modelName,
       total_timesteps: config.timesteps,
       learning_rate: config.learningRate,
@@ -316,7 +349,7 @@ const startTraining = (config) => {
 const stopTraining = () => {
   try {
     addLog('Stopping training...')
-    socket.emit('stop_training')
+    sockets.training.emit('stop_training')
   } catch (e) {
     addLog(`Error stopping training: ${e.message}`)
   }
@@ -339,7 +372,7 @@ const handleKeyup = (e) => {
 }
 
 onMounted(() => {
-  socket.on('physics_config_loaded', (config) => {
+  sockets.config.on('physics_config_loaded', (config) => {
     console.log('Physics Config Loaded:', config)
     if (config) {
       window.__PHYSICS__ = config // Expose for E2E testing
@@ -366,33 +399,44 @@ onMounted(() => {
         selectedPreset.value = config.last_preset
         addLog(`Restored last camera preset: ${config.last_preset}`)
       }
+      if (config.current_layout_id) {
+        selectedLayout.value = config.current_layout_id
+        addLog(`Restored last layout: ${config.current_layout_id}`)
+      }
     }
   })
 
-  socket.on('presets_updated', (presets) => {
+  sockets.config.on('presets_updated', (presets) => {
     cameraPresets.value = presets
     if (!selectedPreset.value && 'Default' in presets) {
       selectedPreset.value = 'Default'
     }
   })
 
-  socket.on('connect', () => {
+  sockets.game.on('connect', () => {
     connected.value = true
-    addLog('Connected to server')
-    socket.emit('load_physics')
+    addLog('Connected to game server')
   })
 
-  socket.on('disconnect', () => {
+  sockets.config.on('connect', () => {
+    addLog('Connected to config server')
+    sockets.config.emit('load_physics')
+  })
+
+  sockets.game.on('disconnect', () => {
     connected.value = false
     addLog('Disconnected from server')
   })
 
-  socket.on('video_frame', (data) => {
+  sockets.game.on('video_frame', (data) => {
     videoSrc.value = 'data:image/jpeg;base64,' + data.image
   })
 
-  socket.on('stats_update', (data) => {
+  sockets.game.on('stats_update', (data) => {
     Object.assign(stats, data)
+    if (data.combo_count > 0) {
+       // console.log('Combo Update:', data.combo_count, data.combo_active)
+    }
     if (data.game_history) {
       gameHistory.value = data.game_history
     }
@@ -401,48 +445,53 @@ onMounted(() => {
     }
   })
   
-  socket.on('layout_loaded', (data) => {
+  sockets.config.on('layout_loaded', (data) => {
     console.log('Layout loaded:', data)
     if (data.status === 'success') {
       // Request the new physics config to update 3D view
-      socket.emit('load_physics')
+      sockets.config.emit('load_physics')
     }
   })
 
-  socket.on('ai_status', (data) => {
+  sockets.training.on('ai_status', (data) => {
     toggles.ai = data.enabled
     addLog(`AI Enabled: ${data.enabled}`)
   })
 
-  socket.on('model_selected', (data) => {
+  sockets.training.on('model_selected', (data) => {
     addLog(`Auto-selected model: ${data.model}`)
     selectedModel.value = data.model
     // Refresh model list to ensure the new model is in the dropdown
-    socket.emit('get_models')
+    sockets.training.emit('get_models')
   })
 
-  socket.on('auto_start_status', (data) => {
+  sockets.training.on('auto_start_status', (data) => {
     toggles.autoStart = data.enabled
     addLog(`Auto-Start: ${data.enabled}`)
   })
 
-  socket.on('layouts_list', (data) => {
+  sockets.training.on('difficulty_status', (data) => {
+    selectedDifficulty.value = data.difficulty
+    addLog(`Difficulty updated: ${data.difficulty}`)
+  })
+
+  sockets.config.on('layouts_list', (data) => {
     layouts.value = data
     // Check if selectedLayout exists in list
-    const exists = layouts.value.some(l => l.filename === selectedLayout.value)
+    const exists = layouts.value.some(l => l.id === selectedLayout.value)
     if (!exists) {
-        // Try 'Default' (Capitalized)
-        const defaultExists = layouts.value.some(l => l.filename === 'Default')
+        // Try 'default' (lowercase)
+        const defaultExists = layouts.value.some(l => l.id === 'default')
         if (defaultExists) {
-            selectedLayout.value = 'Default'
+            selectedLayout.value = 'default'
         } else if (layouts.value.length > 0) {
             // Fallback to first
-            selectedLayout.value = layouts.value[0].filename
+            selectedLayout.value = layouts.value[0].id
         }
     }
   })
 
-  socket.on('layout_loaded', (data) => {
+  sockets.config.on('layout_loaded', (data) => {
     if (data.status === 'success') {
       addLog('Layout loaded successfully')
     } else {
@@ -450,20 +499,20 @@ onMounted(() => {
     }
   })
 
-  socket.emit('get_layouts')
-  socket.emit('get_models')
+  sockets.config.emit('get_layouts')
+  sockets.training.emit('get_models')
 
-  socket.on('log_message', (data) => {
+  sockets.game.on('log_message', (data) => {
     addLog(data.message)
   })
 
-  socket.on('models_list', (data) => {
+  sockets.training.on('models_list', (data) => {
     models.value = data
     if (data.length > 0 && !selectedModel.value) {
       selectedModel.value = data[0].filename
     }
   })
-  socket.on('model_loaded', (data) => {
+  sockets.training.on('model_loaded', (data) => {
     if (data.status === 'success') {
       addLog(`Model loaded: ${data.model}`)
     } else {
@@ -474,10 +523,10 @@ onMounted(() => {
 
 
   // If already connected, trigger load
-  if (socket.connected) {
+  if (sockets.config.connected) {
     connected.value = true
     addLog('Connected to server (existing)')
-    socket.emit('load_physics')
+    sockets.config.emit('load_physics')
   }
 
   window.addEventListener('keydown', handleKeydown)
@@ -485,20 +534,23 @@ onMounted(() => {
 
   window.addEventListener('blur', () => {
     activeKeys.clear()
-    socket.emit('input_event', { key: 'KeyZ', type: 'up' })
-    socket.emit('input_event', { key: 'Slash', type: 'up' })
-    socket.emit('input_event', { key: 'Space', type: 'up' })
-    socket.emit('input_event', { key: 'ShiftLeft', type: 'up' })
-    socket.emit('input_event', { key: 'ShiftRight', type: 'up' })
+    sockets.control.emit('input_event', { key: 'KeyZ', type: 'up' })
+    sockets.control.emit('input_event', { key: 'Slash', type: 'up' })
+    sockets.control.emit('input_event', { key: 'Space', type: 'up' })
+    sockets.control.emit('input_event', { key: 'ShiftLeft', type: 'up' })
+    sockets.control.emit('input_event', { key: 'ShiftRight', type: 'up' })
   })
+
+  // Expose stats for Cypress testing
+  if (window.Cypress || import.meta.env.DEV) {
+    window.__APP_STATS__ = stats
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('keyup', handleKeyup)
-  if (socket) {
-    socket.disconnect()
-  }
+  Object.values(sockets).forEach(s => s.disconnect())
 })
 </script>
 
