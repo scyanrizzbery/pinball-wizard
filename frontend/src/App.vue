@@ -22,8 +22,6 @@
           
           <Pinball3D 
           v-if="viewMode === '3d' || (viewMode === 'video' && isSimulation)"
-          :width="400" 
-          :height="711" 
           :socket="socket"
           :config="layoutConfig"
           :nudgeEvent="nudgeEvent"
@@ -184,6 +182,8 @@ const applyPreset = () => {
     if (preset.camera_z !== undefined) physics.camera_z = preset.camera_z
     if (preset.camera_zoom !== undefined) physics.camera_zoom = preset.camera_zoom
 
+    socket.emit('apply_preset', { name: selectedPreset.value })
+
     socket.emit('update_physics_v2', {
       camera_pitch: physics.camera_pitch,
       camera_x: physics.camera_x,
@@ -191,8 +191,6 @@ const applyPreset = () => {
       camera_z: physics.camera_z,
       camera_zoom: physics.camera_zoom
     })
-
-    socket.emit('apply_preset', { name: selectedPreset.value })
   }
 }
 
@@ -704,9 +702,13 @@ body {
 
 .game-view-wrapper {
   position: relative;
-  width: fit-content;
+  width: 100%;
+  max-width: 450px; /* Match standard table width */
+  aspect-ratio: 450 / 800; /* Maintain aspect ratio */
+  min-height: 300px; /* Prevent total collapse */
   display: flex;
   justify-content: center;
+  margin: 0 auto; /* Center it */
 }
 
 .scoreboard-overlay {

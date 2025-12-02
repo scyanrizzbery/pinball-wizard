@@ -342,7 +342,6 @@ const resetZones = () => {
 <style scoped>
 #video-container {
   margin-bottom: 20px;
-  border: 2px solid #444;
   display: inline-block;
   max-width: 100%;
   background: #000;

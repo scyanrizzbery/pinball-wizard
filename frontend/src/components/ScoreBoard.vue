@@ -6,7 +6,7 @@
       <div class="score-board">
         <template v-for="(item, index) in scoreReels" :key="index">
           <div class="score-reel" v-if="item.type === 'digit'">
-            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 26}px)` }">
+            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 22}px)` }">
               <div class="reel-number" v-for="n in 10" :key="n">{{ n - 1 }}</div>
             </div>
           </div>
@@ -21,7 +21,7 @@
       <div class="score-board">
         <template v-for="(item, index) in highScoreReels" :key="index">
           <div class="score-reel" v-if="item.type === 'digit'">
-            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 26}px)` }">
+            <div class="score-strip" :style="{ transform: `translateY(-${item.value * 22}px)` }">
               <div class="reel-number" v-for="n in 10" :key="n">{{ n - 1 }}</div>
             </div>
           </div>

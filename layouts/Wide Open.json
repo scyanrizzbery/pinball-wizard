@@ -1,14 +1,14 @@
 {
     "width": 0.6,
     "height": 1.2,
-    "left_flipper_x_min": 0.25,
-    "left_flipper_x_max": 0.4,
-    "left_flipper_y_min": 0.85,
-    "left_flipper_y_max": 0.95,
-    "right_flipper_x_min": 0.6,
-    "right_flipper_x_max": 0.75,
-    "right_flipper_y_min": 0.85,
-    "right_flipper_y_max": 0.95,
+    "left_flipper_x_min": 0.1,
+    "left_flipper_x_max": 0.25,
+    "left_flipper_y_min": 0.8,
+    "left_flipper_y_max": 0.9,
+    "right_flipper_x_min": 0.75,
+    "right_flipper_x_max": 0.9,
+    "right_flipper_y_min": 0.8,
+    "right_flipper_y_max": 0.9,
     "zones": [
         {
             "id": "default_left",
@@ -57,58 +57,14 @@
             ]
         }
     ],
-    "bumpers": [
-        {
-            "x": 0.5,
-            "y": 0.3,
-            "radius_ratio": 0.05,
-            "value": 100
-        },
-        {
-            "x": 0.3,
-            "y": 0.4,
-            "radius_ratio": 0.04,
-            "value": 50
-        },
-        {
-            "x": 0.7,
-            "y": 0.4,
-            "radius_ratio": 0.04,
-            "value": 50
-        },
-        {
-            "x": 0.4,
-            "y": 0.5,
-            "radius_ratio": 0.04,
-            "value": 50
-        },
-        {
-            "x": 0.6,
-            "y": 0.5,
-            "radius_ratio": 0.04,
-            "value": 50
-        },
-        {
-            "x": 0.5,
-            "y": 0.6,
-            "radius_ratio": 0.05,
-            "value": 100
-        }
-    ],
+    "bumpers": [],
     "drop_targets": [
         {
-            "x": 0.2,
-            "y": 0.2,
-            "width": 0.03,
-            "height": 0.01,
-            "value": 500
-        },
-        {
-            "x": 0.8,
-            "y": 0.2,
-            "width": 0.03,
-            "height": 0.01,
-            "value": 500
+            "x": 0.5,
+            "y": 0.05,
+            "width": 0.1,
+            "height": 0.02,
+            "value": 100
         }
     ],
     "captures": [],

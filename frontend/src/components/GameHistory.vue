@@ -251,7 +251,11 @@ watch(showChart, (newVal) => {
   if (newVal) {
     nextTick(() => {
       if (chartRef.value && chartRef.value.chart) {
-        chartRef.value.chart.reflow()
+        // Safeguard against negative height
+        const container = chartRef.value.$el.closest('.sparkline-container')
+        if (container && container.clientHeight > 0) {
+           chartRef.value.chart.reflow()
+        }
       }
     })
   }
@@ -325,6 +329,7 @@ watch(showChart, (newVal) => {
   padding: 10px;
   position: relative;
   height: 100%;
+  min-height: 150px;
   overflow: hidden;
   display: flex;
   flex-direction: column;

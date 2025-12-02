@@ -69,9 +69,9 @@ class PymunkEngine:
                 score_value = SCORE_VALUES.get(other, 0)
                 if score_value > 0:
                     self.score += score_value
-                    logger.info(f"BALL COLLISION: hit {label} (+{score_value} points, total: {self.score})")
+                    logger.debug(f"BALL COLLISION: hit {label} (+{score_value} points, total: {self.score})")
                 else:
-                    logger.info(f"BALL COLLISION: hit {label}")
+                    logger.debug(f"BALL COLLISION: hit {label}")
                 
                 # Add random horizontal deflection to prevent stuck bouncing
                 ball_shape = shapes[0] if type_a == COLLISION_TYPE_BALL else shapes[1]
@@ -83,12 +83,12 @@ class PymunkEngine:
 
                 # Auto-launch if hitting plunger while it's resting
                 if other == COLLISION_TYPE_PLUNGER and self.plunger_state == 'resting':
-                    logger.info("Ball touched plunger while resting - AUTO LAUNCH")
+                    logger.debug("Ball touched plunger while resting - AUTO LAUNCH")
                     self.release_plunger()
 
                 # Auto-launch for left plunger (Kickback)
                 if other == COLLISION_TYPE_LEFT_PLUNGER and self.left_plunger_state == 'resting':
-                    logger.info("Ball touched left plunger - KICKBACK")
+                    logger.debug("Ball touched left plunger - KICKBACK")
                     self.fire_left_plunger()
 
             return True
@@ -584,7 +584,7 @@ class PymunkEngine:
         # Debug Log
         if self.balls and np.random.random() < 0.02: # ~2% chance
             b = self.balls[0]
-            logger.info(f"Ball Pos: {b.position}, Vel: {b.velocity}")
+            logger.debug(f"Ball Pos: {b.position}, Vel: {b.velocity}")
 
     def _update_single_flipper(self, flipper, dt, l_rest, l_up, r_rest, r_up):
         body = flipper['body']
@@ -599,7 +599,7 @@ class PymunkEngine:
 
         # Debug Log
         if np.random.random() < 0.01:
-             logger.info(f"Phys Flip: Side={side}, Active={flipper.get('active')}, Target={np.degrees(target):.1f}, Current={np.degrees(body.angle):.1f}")
+             logger.debug(f"Phys Flip: Side={side}, Active={flipper.get('active')}, Target={np.degrees(target):.1f}, Current={np.degrees(body.angle):.1f}")
 
         # Simple P-controller for angle
         current = body.angle

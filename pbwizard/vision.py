@@ -432,10 +432,6 @@ class SimulatedFrameCapture:
         # Initialize zone contours (requires camera params)
         self._update_zone_contours()
 
-        # Load saved configuration (including zones and camera settings)
-        # This ensures flippers work immediately on startup
-        self.load_config()
-
         self.camera_presets = {
             "Default": {
                 "camera_pitch": 73.0,
@@ -480,6 +476,10 @@ class SimulatedFrameCapture:
                 "camera_zoom": 0.7
             }
         }
+
+        # Load saved configuration (including zones and camera settings)
+        # This ensures flippers work immediately on startup
+        self.load_config()
 
     def _update_flipper_rects(self):
         # Update flipper rectangles based on current flipper_length
@@ -1103,7 +1103,7 @@ class SimulatedFrameCapture:
                     # Check if we have balls remaining
                     if self.balls_remaining > 0:
                          self.balls_remaining -= 1
-                         logger.info(f"Sim: Ball {1 - self.balls_remaining} of 1")
+                         logger.debug(f"Sim: Ball {1 - self.balls_remaining} of 1")
                     else:
                         # Game Over Logic
                         if self.score > 0:
@@ -1129,7 +1129,7 @@ class SimulatedFrameCapture:
                             self.physics_engine.set_tilt(False)
                         self.balls_remaining = 1 # Reset for new game
                         self.balls_remaining -= 1 # Use first ball
-                        logger.info("Sim: Score Reset (New Game)")
+                        logger.debug("Sim: Score Reset (New Game)")
                         # Reset targets
                         self.drop_target_states = [True] * len(self.layout.drop_targets)
                 
@@ -1137,7 +1137,7 @@ class SimulatedFrameCapture:
                 ball_x = 0.9 * self.width
                 ball_y = 0.9 * self.height
                 self.physics_engine.add_ball((ball_x, ball_y))
-                logger.info(f"Sim: Ball spawned in plunger lane ({ball_x}, {ball_y})")
+                logger.debug(f"Sim: Ball spawned in plunger lane ({ball_x}, {ball_y})")
                 
             else:
                 logger.info("Sim: Max balls reached, cannot add more")
@@ -1162,7 +1162,7 @@ class SimulatedFrameCapture:
         # But let's append a placeholder to increment count immediately?
         # No, let the loop handle it.
         
-        logger.info(f"Sim: Ball Added to Physics Engine at {pos}")
+        logger.debug(f"Sim: Ball Added to Physics Engine at {pos}")
 
     @property
     def left_flipper_active(self):
@@ -1240,6 +1240,9 @@ class SimulatedFrameCapture:
 
     def pull_plunger(self, strength=1.0):
         if self.physics_engine:
+            # Auto-load ball if none exist
+            if len(self.physics_engine.balls) == 0:
+                self.add_ball()
             self.physics_engine.pull_plunger(strength)
 
     def release_plunger(self):
@@ -1395,19 +1398,19 @@ class SimulatedFrameCapture:
                 
                 # Hit!
                 self.drop_target_states[i] = False
-                logger.info(f"DROP TARGET {i} HIT! Ball pos: ({bx}, {by}), Target: ({tx}, {ty})")
-                logger.info(f"Drop Target States: {self.drop_target_states}")
+                logger.debug(f"DROP TARGET {i} HIT! Ball pos: ({bx}, {by}), Target: ({tx}, {ty})")
+                logger.debug(f"Drop Target States: {self.drop_target_states}")
                 self.score += target['value']
                 ball['vel'][1] *= -1 # Bounce back
                 
                 # Remove from physics engine if using physics
                 if self.physics_engine and hasattr(self.physics_engine, 'drop_target_shapes'):
-                    logger.info(f"Physics engine has {len(self.physics_engine.drop_target_shapes)} drop target shapes")
+                    logger.debug(f"Physics engine has {len(self.physics_engine.drop_target_shapes)} drop target shapes")
                     if i < len(self.physics_engine.drop_target_shapes):
                         shape = self.physics_engine.drop_target_shapes[i]
                         if shape in self.physics_engine.space.shapes:
                             self.physics_engine.space.remove(shape)
-                            logger.info(f"✓ Removed drop target {i} shape from physics space")
+                            logger.debug(f"✓ Removed drop target {i} shape from physics space")
                         else:
                             logger.warning(f"✗ Drop target {i} shape NOT in physics space (already removed?)")
                     else:
@@ -1421,7 +1424,7 @@ class SimulatedFrameCapture:
                     
                     # Check cooldown
                     if time.time() > self.multiball_cooldown_timer:
-                        logger.info("MULTIBALL ACTIVATED!")
+                        logger.debug("MULTIBALL ACTIVATED!")
                         self.add_ball()
                         self.multiball_cooldown_timer = time.time() + 5.0 # 5 second cooldown
                     else:
@@ -1433,7 +1436,7 @@ class SimulatedFrameCapture:
                         for j, shape in enumerate(self.physics_engine.drop_target_shapes):
                             if shape not in self.physics_engine.space.shapes:
                                 self.physics_engine.space.add(shape)
-                                logger.info(f"Re-added drop target {j} to physics space")
+                                logger.debug(f"Re-added drop target {j} to physics space")
 
     def _check_capture_collision(self, ball):
         if ball['lost'] or ball.get('captured', False): return

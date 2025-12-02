@@ -1,5 +1,5 @@
 <template>
-  <div ref="container" class="pinball-container" :style="{ width: width + 'px', height: height + 'px' }">
+  <div ref="container" class="pinball-container">
     <button @click="$emit('toggle-view')" class="switch-view-btn">
       {{ cameraMode === 'perspective' ? 'Switch to 2D' : 'Switch to 3D' }}
     </button>
@@ -16,9 +16,6 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import * as THREE from 'three'
 
   const props = defineProps({
-  width: Number,
-  height: Number,
-  socket: Object,
   socket: Object,
   config: Object,
   nudgeEvent: Object,
@@ -29,6 +26,7 @@ const emit = defineEmits(['toggle-view'])
 
 const container = ref(null)
 let scene, camera, renderer
+let resizeObserver
 // let socket // Use props.socket
 let balls = [] // Array of mesh objects
 let flippers = {} // { left: mesh, right: mesh, upper: [] }
@@ -159,6 +157,35 @@ const createTable = (config = null) => {
 
 
 
+    // Zones
+    if (config.zones) {
+      config.zones.forEach(zone => {
+        if (!zone.points || zone.points.length < 3) return
+
+        const shape = new THREE.Shape()
+        const first = zone.points[0]
+        shape.moveTo(mapX(first.x), mapY(first.y))
+        
+        for (let i = 1; i < zone.points.length; i++) {
+          const p = zone.points[i]
+          shape.lineTo(mapX(p.x), mapY(p.y))
+        }
+        shape.closePath()
+
+        const geometry = new THREE.ShapeGeometry(shape)
+        const color = zone.type === 'left' ? 0x00ff00 : 0x0000ff
+        const material = new THREE.MeshBasicMaterial({ 
+          color: color, 
+          transparent: true, 
+          opacity: 0.2,
+          side: THREE.DoubleSide
+        })
+        
+        const mesh = new THREE.Mesh(geometry, material)
+        mesh.position.z = 0.01 // Slightly above floor
+        tableGroup.add(mesh)
+      })
+    }
   }
   // Flippers
   // Flippers
@@ -331,12 +358,12 @@ const updateFlippers = (state) => {
   if (flippers.plunger && state.plunger) {
       // Physics Y is in pixels (0 to height)
       // MapY expects normalized 0-1
-      const normalizedY = state.plunger.y / props.height
+      const normalizedY = state.plunger.y / 800 // Use fixed physics height for normalization
       flippers.plunger.position.y = mapY(normalizedY)
   }
 
   if (flippers.leftPlunger && state.left_plunger) {
-      const normalizedY = state.left_plunger.y / props.height
+      const normalizedY = state.left_plunger.y / 800
       flippers.leftPlunger.position.y = mapY(normalizedY)
   }
 }
@@ -364,13 +391,17 @@ const initThree = () => {
   scene = new THREE.Scene()
   scene.background = new THREE.Color(0x111111)
 
-  const aspect = props.width / props.height
+  // Initial size (will be updated by ResizeObserver)
+  const width = container.value.clientWidth
+  const height = container.value.clientHeight
+  const aspect = width / height
+
   camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 100)
   camera.position.set(0, -1.5, 0.9) 
   camera.lookAt(0, 0, 0)
 
   renderer = new THREE.WebGLRenderer({ antialias: true })
-  renderer.setSize(props.width, props.height)
+  renderer.setSize(width, height)
   renderer.shadowMap.enabled = true
   container.value.appendChild(renderer.domElement)
 
@@ -395,6 +426,21 @@ const initThree = () => {
 onMounted(() => {
   initThree()
   
+  // Setup ResizeObserver
+  resizeObserver = new ResizeObserver(entries => {
+    for (let entry of entries) {
+      const { width, height } = entry.contentRect
+      if (camera && renderer) {
+        camera.aspect = width / height
+        camera.updateProjectionMatrix()
+        renderer.setSize(width, height)
+      }
+    }
+  })
+  if (container.value) {
+    resizeObserver.observe(container.value)
+  }
+
   // Use shared socket from props
   const socket = props.socket
   
@@ -571,6 +617,9 @@ onUnmounted(() => {
       renderer.dispose()
       // Dispose scene...
   }
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
 })
 
 const handleKeydown = (e) => {
@@ -628,7 +677,9 @@ const handleKeydown = (e) => {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  position: relative;
+  position: absolute; /* Fill the aspect-ratio parent */
+  top: 0;
+  left: 0;
 }
 
 .debug-overlay {
