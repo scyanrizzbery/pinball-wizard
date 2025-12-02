@@ -276,6 +276,7 @@ def main():
         vision_wrapper.agent = agnt
     
     # 5. Bot Controller (Manages Play/Train modes)
+    # 5. Bot Controller (Manages Play/Train modes)
     class BotController:
         def __init__(self):
             self.mode = 'PLAY' # 'PLAY' or 'TRAIN'
@@ -283,10 +284,11 @@ def main():
             self.stop_training_flag = False
             self.lock = threading.Lock()
             
-            # Multiprocessing queues
-            self.state_queue = multiprocessing.Queue(maxsize=10)
-            self.command_queue = multiprocessing.Queue()
-            self.status_queue = multiprocessing.Queue()
+            # Multiprocessing queues (Use Manager for eventlet compatibility)
+            self.manager = multiprocessing.Manager()
+            self.state_queue = self.manager.Queue(maxsize=10)
+            self.command_queue = self.manager.Queue()
+            self.status_queue = self.manager.Queue()
             self.training_process = None
 
         def start_training(self, config):

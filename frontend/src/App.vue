@@ -44,7 +44,7 @@
         v-model:selectedModel="selectedModel" v-model:selectedLayout="selectedLayout"
         v-model:selectedPreset="selectedPreset" @update-physics="updatePhysics" @apply-preset="applyPreset"
         @save-preset="savePreset" @delete-preset="deletePreset" @load-model="loadModel"
-        @change-layout="changeLayout" />
+        @change-layout="changeLayout" @start-training="startTraining" @stop-training="stopTraining" />
 
       <Logs :logs="logs" />
     </div>
@@ -116,7 +116,7 @@ const buttonStates = reactive({
 const addLog = (message) => {
   const timestamp = new Date().toLocaleTimeString()
   logs.value.push(`[${timestamp}] ${message}`)
-  if (logs.value.length > 100) logs.value.shift()
+  if (logs.value.length > 50) logs.value.shift()
 }
 
 
@@ -540,9 +540,8 @@ body {
   bottom: 0;
   left: 0;
   width: 100%;
-  background: rgba(20, 20, 20, 0.95);
+  background: rgba(20, 20, 20, 0.1);
   border-top: 1px solid #333;
-  padding: 15px 0;
   z-index: 2000;
   display: none;
   justify-content: center;
@@ -619,6 +618,24 @@ body {
   transform: scale(0.95);
 }
 
+.switch-view-btn {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: 1px solid #555;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  z-index: 30;
+  font-size: 12px;
+}
+
+.switch-view-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
 /* Responsive Design */
 @media (max-width: 1200px) {
   #main-layout {
@@ -647,14 +664,41 @@ body {
   }
 }
 
+@media (min-width: 600px) and (max-width: 900px) {
+  #main-layout {
+    grid-template-columns: 1fr minmax(auto, 400px) 1fr;
+    grid-template-areas:
+      "history game settings"
+      "logs logs logs";
+  }
+  
+  /* Hide controls in this specific layout if desired, or let them flow? 
+     User didn't specify controls, but "Game in middle of History and Settings" implies 3 columns.
+     The "Controls" component is usually part of the grid. 
+     If we don't define "controls" in grid-areas, it might auto-place or disappear if display:none isn't set.
+     However, the Controls component is inside #game-area in the HTML structure!
+     Wait, let's check the HTML structure.
+  */
+}
+
 @media (max-width: 690px) {
   .controls-container {
     margin-top: 0;
+    padding: 8px; /* Reduced padding further */
   }
 
   #app-container {
-    padding-bottom: 180px;
+    padding: 0 4px 160px; /* Reduced side padding and bottom padding */
     margin-bottom: 0;
+  }
+
+  #main-layout {
+    gap: 5px; /* Reduced gap */
+    margin: 5px 0; /* Reduced margin */
+  }
+  
+  body {
+    padding: 0; /* Removed body padding */
   }
 }
 
@@ -670,29 +714,52 @@ body {
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 100;
-  width: 90%;
-  max-width: 400px;
-  pointer-events: none; /* Let clicks pass through to game */
+  z-index: 50;
+  width: 100%;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
 }
 
+@media (max-width: 600px) {
+  /* Header visibility handled in Header.vue now */
 
-.switch-view-btn {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  border: 1px solid #555;
-  padding: 5px 10px;
-  cursor: pointer;
-  border-radius: 4px;
-  font-size: 0.8em;
-  z-index: 100;
-  transition: background 0.2s;
+  #input-area {
+    padding: 5px;
+    gap: 5px;
+  }
+
+  .input-btn {
+    min-height: 60px;
+    font-size: 14px;
+    padding: 10px;
+  }
+
+  .input-btn.launch {
+    width: 60px;
+    height: 60px;
+    font-size: 0.8em;
+  }
 }
 
-.switch-view-btn:hover {
-  background: rgba(0, 0, 0, 0.8);
+@media (max-width: 1200px) {
+  .switch-view-btn {
+    /* Keep default for Pinball3D, but VideoFeed uses .video-controls */
+    bottom: auto;
+    top: 82px;
+    right: 10px;
+  }
+
+  /* Position the grouped controls in VideoFeed */
+  .video-controls {
+    bottom: auto !important;
+    top: 82px !important;
+    right: 10px !important;
+  }
+
+  /* Override scoped styles from VideoFeed.vue */
+  .add-controls {
+    bottom: 130px !important;
+  }
 }
 </style>

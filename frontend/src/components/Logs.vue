@@ -33,7 +33,6 @@ watch(() => props.logs.length, () => {
 
 .game-log-container {
   flex: 0 0 auto;
-  max-height: 150px;
   overflow-y: auto;
   background: #0a0a0a;
   border: 1px solid #333;
@@ -44,7 +43,7 @@ watch(() => props.logs.length, () => {
   text-align: left;
   height: 100%;
   width: 100%;
-  max-height: 20em;
+  max-height: 15em;
   box-sizing: border-box;
 }
 

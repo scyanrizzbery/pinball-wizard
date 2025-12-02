@@ -60,14 +60,15 @@
         </div>
       </div>
       
-      <button class="edit-btn" @click="showZones = !showZones" :class="{ active: showZones }">
-        {{ showZones ? 'Hide Zones' : 'Edit Zones' }}
-      </button>
+      <div class="video-controls">
+        <button class="edit-btn" @click="showZones = !showZones" :class="{ active: showZones }">
+          {{ showZones ? 'Hide Zones' : 'Edit Zones' }}
+        </button>
 
-      <button @click="$emit('toggle-view')" class="switch-view-btn">
-        Simulator
-      </button>
-
+        <button @click="$emit('toggle-view')" class="switch-view-btn">
+          Simulator
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -517,18 +518,24 @@ img {
   background: rgba(0, 0, 0, 0.9);
 }
 
-.edit-btn {
+.video-controls {
   position: absolute;
   bottom: 10px;
-  left: 10px;
+  right: 10px;
+  display: flex;
+  gap: 10px;
+  z-index: 30;
+}
+
+.edit-btn {
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   border: 1px solid #555;
   padding: 5px 10px;
   border-radius: 4px;
   cursor: pointer;
-  z-index: 30;
   font-size: 12px;
+  /* Removed absolute positioning */
 }
 
 .edit-btn:hover {
@@ -538,6 +545,11 @@ img {
 .edit-btn.active {
   background: #4caf50;
   border-color: #4caf50;
+}
+
+/* Ensure switch-view-btn inside controls is static */
+.video-controls .switch-view-btn {
+  position: static;
 }
 
 .loading-placeholder {

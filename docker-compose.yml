@@ -49,7 +49,7 @@ services:
       - .:/app
     env_file:
       - .env
-    command: python -m unittest discover tests
+    command: python -m pytest tests/ -v
     networks:
       - pbwizard-network
 

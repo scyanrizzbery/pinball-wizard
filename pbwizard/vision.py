@@ -3,6 +3,7 @@ import time
 import os
 import logging
 import json
+import random
 
 import cv2
 import numpy as np
@@ -228,10 +229,7 @@ class PinballLayout:
                     "y_max": self.right_flipper_y_max
                 }
             },
-            "zones": {
-                "left": self.left_zone,
-                "right": self.right_zone
-            },
+            "zones": self.zones,
             "bumpers": self.bumpers,
             "drop_targets": self.drop_targets,
             "guide_lines": {
@@ -429,6 +427,7 @@ class SimulatedFrameCapture:
         self.pitch = np.radians(73.0)
         
         self.last_nudge = None
+        self.multiball_cooldown_timer = 0.0 # Cooldown for multiball trigger
 
         # Initialize zone contours (requires camera params)
         self._update_zone_contours()
@@ -1419,8 +1418,14 @@ class SimulatedFrameCapture:
                 # Check if all targets hit
                 if not any(self.drop_target_states):
                     logger.info("ALL DROP TARGETS DOWN!")
-                    logger.info("MULTIBALL ACTIVATED!")
-                    self.add_ball()
+                    
+                    # Check cooldown
+                    if time.time() > self.multiball_cooldown_timer:
+                        logger.info("MULTIBALL ACTIVATED!")
+                        self.add_ball()
+                        self.multiball_cooldown_timer = time.time() + 5.0 # 5 second cooldown
+                    else:
+                        logger.info(f"Multiball cooldown active. Remaining: {self.multiball_cooldown_timer - time.time():.1f}s")
                     
                     # Reset targets - add them back to physics
                     self.drop_target_states = [True] * len(self.layout.drop_targets)
@@ -2260,6 +2265,18 @@ class ZoneManager:
     def __init__(self, frame_width, frame_height, layout: PinballLayout = None):
         self.layout = layout if layout else PinballLayout()
         self.contours = []
+        
+        # Initialize contours from layout
+        for zone in self.layout.zones:
+            points = []
+            for p in zone['points']:
+                points.append([int(p['x'] * frame_width), int(p['y'] * frame_height)])
+            
+            cnt = np.array(points, dtype=np.int32)
+            self.contours.append({
+                'type': zone['type'],
+                'cnt': cnt
+            })
 
     def get_zone_status(self, x, y):
         """

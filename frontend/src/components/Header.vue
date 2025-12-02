@@ -6,7 +6,7 @@
 
     <div class="connection-status" style="font-size: 0.8em; color: #888;">
       <span class="status-dot" :class="connected ? 'status-connected' : 'status-disconnected'"></span>
-      {{ connected ? 'Connected' : 'Disconnected' }}
+      <span class="status-text">{{ connected ? 'Connected' : 'Disconnected' }}</span>
     </div>
 
     <div id="stats-container">
@@ -34,10 +34,9 @@ defineProps({
 }
 
 .connection-status {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  order: 1;
+  position: fixed;
+  top: 5px;
+  right: 5px;
 }
 
 .status-dot {
@@ -65,32 +64,29 @@ defineProps({
   font-size: 1em;
 }
 
+@media (max-width: 1200px) {
+  .header-text {
+    display: none;
+  }
+}
+
 @media (max-width: 690px) {
-  .app-header {
-    flex-direction: row;
-    gap: 10px;
-  }
-
-  .app-header h1 {
-    margin: 5px 0;
-    font-size: 1.5em;
-  }
-
-  .connection-status {
-    font-size: 0.7em;
-    margin-top: 5px;
-    order: 0;
-  }
-
   #stats-container {
-    flex-direction: row;
-    flex-wrap: nowrap;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 2px;
-    width: 100%;
-    padding: 0 2px;
-    box-sizing: border-box;
+    display: none;
+  }
+
+  .status-text {
+    display: none;
+  }
+
+  .app-header {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    margin: 0;
+    z-index: 1000;
+    width: auto;
+    padding: 0;
   }
 }
 </style>

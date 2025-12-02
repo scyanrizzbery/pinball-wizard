@@ -13,17 +13,24 @@ describe('Pinball Wizard Basic Tests', () => {
         // Open Settings
         cy.get('.tab').contains('Settings').should('be.visible').click()
 
-        // Check for Physics Settings
-        cy.contains('Physics Settings').should('be.visible').click()
+        // Check for Ball Physics
+        cy.contains('.group-header', 'Ball Physics').as('ballHeader')
+        cy.get('@ballHeader').should('be.visible').click()
 
-        // Check for Launch Angle slider
-        cy.contains('Launch Angle').should('be.visible')
+        // Verify expansion
+        cy.get('@ballHeader').find('.arrow').should('have.class', 'rotated')
+
+        // Check first item to ensure expansion worked
+        cy.contains('Table Tilt').should('be.visible')
+
+        // Check for Launch Angle slider (scroll if needed)
+        cy.contains('Launch Angle').scrollIntoView().should('be.visible')
 
         // Interact with slider (basic check)
         cy.contains('Launch Angle')
-            .parent()
+            .parents('.slider-container')
             .find('input[type="range"]')
-            .should('exist')
+            .should('be.visible')
     })
 
     it('can toggle 3D view', () => {

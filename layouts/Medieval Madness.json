@@ -59,56 +59,38 @@
     ],
     "bumpers": [
         {
-            "x": 0.5,
-            "y": 0.3,
+            "x": 0.2,
+            "y": 0.25,
             "radius_ratio": 0.05,
-            "value": 100
+            "value": 2000
         },
         {
             "x": 0.3,
-            "y": 0.4,
-            "radius_ratio": 0.04,
-            "value": 50
-        },
-        {
-            "x": 0.7,
-            "y": 0.4,
-            "radius_ratio": 0.04,
-            "value": 50
-        },
-        {
-            "x": 0.4,
-            "y": 0.5,
-            "radius_ratio": 0.04,
-            "value": 50
-        },
-        {
-            "x": 0.6,
-            "y": 0.5,
-            "radius_ratio": 0.04,
-            "value": 50
-        },
-        {
-            "x": 0.5,
-            "y": 0.6,
+            "y": 0.15,
             "radius_ratio": 0.05,
-            "value": 100
+            "value": 2000
+        },
+        {
+            "x": 0.8,
+            "y": 0.25,
+            "radius_ratio": 0.05,
+            "value": 2000
         }
     ],
     "drop_targets": [
         {
-            "x": 0.2,
-            "y": 0.2,
+            "x": 0.45,
+            "y": 0.1,
             "width": 0.03,
             "height": 0.01,
-            "value": 500
+            "value": 10000
         },
         {
-            "x": 0.8,
-            "y": 0.2,
+            "x": 0.55,
+            "y": 0.1,
             "width": 0.03,
             "height": 0.01,
-            "value": 500
+            "value": 10000
         }
     ],
     "captures": [],
@@ -118,13 +100,13 @@
     "upper_flippers": [],
     "physics": {
         "gravity": 436.3101609320878,
-        "friction": 0.3,
+        "friction": 0.5,
         "restitution": 0.7,
         "flipper_speed": 15.0,
         "flipper_resting_angle": -30.0,
         "flipper_stroke_angle": 50.0,
         "flipper_length": 0.15,
-        "plunger_release_speed": 1700.0,
+        "plunger_release_speed": 2500.0,
         "launch_angle": 0.0,
         "tilt_threshold": 1.0,
         "nudge_cost": 10.0,

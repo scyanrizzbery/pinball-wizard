@@ -60,7 +60,10 @@ watch(() => props.gameHistory, (newVal) => {
 }, { deep: true, immediate: true })
 
 const updateOrientation = () => {
-  isVertical.value = window.innerWidth >= 1200
+  // Vertical layout if desktop (>1200px) OR medium/square viewport (600px-1200px)
+  // Basically, horizontal only on very small screens (<600px) or if we decide otherwise.
+  // User requested vertical on medium viewport.
+  isVertical.value = window.innerWidth >= 600
 }
 
 window.addEventListener('resize', updateOrientation)
@@ -332,6 +335,14 @@ watch(showChart, (newVal) => {
     height: auto;
     min-height: 250px;
     max-height: 300px;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 900px) {
+  #history-container {
+    height: 100%;
+    min-height: 600px;
+    max-height: 850px;
   }
 }
 
