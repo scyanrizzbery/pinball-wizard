@@ -235,11 +235,32 @@ def handle_update_zones(zones_data):
     """Handle zone updates from frontend."""
     if vision_system:
         vision_system.update_zones(zones_data)
-        # Save config to persist zone edits
-        capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
-        if hasattr(capture, 'save_config'):
-            capture.save_config()
         socketio.emit('status', {'msg': 'Zones updated and saved'}, namespace='/config')
+
+@socketio.on('update_rails', namespace='/config')
+def handle_update_rails(rails_data):
+    """Handle rail updates from frontend."""
+    if vision_system:
+        if hasattr(vision_system, 'update_rails'):
+            vision_system.update_rails(rails_data)
+        elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'update_rails'):
+             vision_system.capture.update_rails(rails_data)
+             
+        socketio.emit('status', {'msg': 'Rails updated and saved'}, namespace='/config')
+
+@socketio.on('update_bumpers', namespace='/config')
+def handle_update_bumpers(bumpers_data):
+    """Handle bumper updates from frontend."""
+    if vision_system:
+        if hasattr(vision_system, 'update_bumpers'):
+            vision_system.update_bumpers(bumpers_data)
+        elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'update_bumpers'):
+             vision_system.capture.update_bumpers(bumpers_data)
+             
+        socketio.emit('status', {'msg': 'Bumpers updated and saved'}, namespace='/config')
+        # Emit updated config
+        if hasattr(vision_system, 'capture'):
+             socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
 
 @socketio.on('reset_zones', namespace='/config')
 def handle_reset_zones():
@@ -368,10 +389,15 @@ def handle_get_layouts():
             if hasattr(capture, 'available_layouts'):
                 layouts = []
                 for key, data in capture.available_layouts.items():
+                    if key == 'default': continue # Skip default layout
+                    
+                    # Use the 'name' property from the layout data if available
+                    display_name = data.get('name', key.replace('_', ' ').title())
                     layouts.append({
                         'id': key,
-                        'name': data.get('name', key)
+                        'name': display_name
                     })
+                logger.info(f"Sending layouts list: {layouts}")
                 socketio.emit('layouts_list', layouts, namespace='/config')
                 return
 

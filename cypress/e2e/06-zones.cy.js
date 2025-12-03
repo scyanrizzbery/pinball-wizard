@@ -10,7 +10,7 @@ describe('Multi-Zone Support', () => {
 
     it('should render default zones', () => {
         // Open Zone Editor
-        cy.contains('Edit Zones').click()
+        cy.contains('Edit').click()
 
         // Check for zone polygons
         cy.get('.zone-poly').should('have.length.at.least', 2)
@@ -19,7 +19,7 @@ describe('Multi-Zone Support', () => {
     })
 
     it('should allow adding and removing zones', () => {
-        cy.contains('Edit Zones').click()
+        cy.contains('Edit').click()
 
         // Count initial zones
         cy.get('.zone-poly').then($zones => {
@@ -41,7 +41,7 @@ describe('Multi-Zone Support', () => {
     })
 
     it('should handle zone dragging', () => {
-        cy.contains('Edit Zones').click()
+        cy.contains('Edit').click()
 
         // Get the first zone polygon
         cy.get('.zone-poly').first().then($poly => {
@@ -61,7 +61,7 @@ describe('Multi-Zone Support', () => {
     })
 
     it('should reset zones to default', () => {
-        cy.contains('Edit Zones').click()
+        cy.contains('Edit').click()
 
         // Add a zone to modify state
         cy.contains('+ Left Zone').click()

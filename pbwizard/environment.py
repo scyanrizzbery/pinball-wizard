@@ -165,6 +165,25 @@ class PinballEnv(gym.Env):
                 reward += combo_reward
                 if combo_status['combo_count'] > 3:
                     logger.debug(f"Combo reward bonus: +{combo_reward:.2f} for {combo_status['combo_count']}x combo")
+
+        # Event-based Reward (Explicit feedback for hitting targets)
+        events = []
+        if hasattr(self.vision, 'get_events'):
+            events = self.vision.get_events()
+        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'get_events'):
+            events = self.vision.capture.get_events()
+            
+        for event in events:
+            if event['type'] == 'collision':
+                # Base rewards for hitting features (independent of score/combo)
+                if 'bumper' in event['label']:
+                    reward += 0.1 # Small reward for bumpers
+                    logger.debug("Reward: Bumper Hit (+0.1)")
+                elif 'drop_target' in event['label']:
+                    reward += 5.0 # Strong reward for targets
+                    logger.debug("Reward: Drop Target Hit (+5.0)")
+                elif 'rail' in event['label']:
+                    reward += 0.2 # Small reward for hitting rails (flow)
         
         # Debug logging for start of episode
         # Debug logging for start of episode (only first step)
@@ -306,6 +325,12 @@ class PinballEnv(gym.Env):
         self.steps_without_ball = 0
         self.holding_steps = 0
         self.last_time = time.time()
+        
+        # Call reset_game on vision system
+        if hasattr(self.vision, 'reset_game'):
+            self.vision.reset_game()
+        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'reset_game'):
+            self.vision.capture.reset_game()
         
         if self.random_layouts and hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'layout'):
              # Only randomize if it's a simulated capture with a layout

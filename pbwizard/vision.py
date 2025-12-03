@@ -55,7 +55,7 @@ class PinballLayout:
         # Default values
         self.width = 0.6  # 60cm
         self.height = 1.2 # 120cm
-        self.name = 'Default'
+        self.name = 'Custom'
         
         # Flipper Configuration (Normalized 0-1)
         # Widened to match 3D view aesthetics (was 0.35/0.65)
@@ -224,9 +224,19 @@ class PinballLayout:
             
         if 'physics' in config:
             self.physics_params = config['physics']
+            # Load rail offsets from physics params (preferred location)
+            if 'rail_x_offset' in self.physics_params:
+                self.rail_x_offset = self.physics_params['rail_x_offset']
+            if 'rail_y_offset' in self.physics_params:
+                self.rail_y_offset = self.physics_params['rail_y_offset']
+            # Load table_tilt from physics params
+            if 'table_tilt' in self.physics_params:
+                self.table_tilt = self.physics_params['table_tilt']
+                
         if 'rails' in config:
             self.rails = config['rails']
             
+        # Fallback to root level for backward compatibility
         if 'rail_x_offset' in config:
             self.rail_x_offset = config['rail_x_offset']
         if 'rail_y_offset' in config:
@@ -338,7 +348,7 @@ class SimulatedFrameCapture:
         self.headless = headless
         self.last_model = None  # Track last loaded model
         self.last_preset = None  # Track last selected camera preset
-        self.current_layout_id = 'default' # Track current layout ID
+        self.current_layout_id = 'pinball_wizard' # Track current layout ID
         self.layout = PinballLayout() # Removed 'layout' parameter from init, so always create new
         if layout_config:
             self.layout.load(layout_config)
@@ -367,6 +377,16 @@ class SimulatedFrameCapture:
                         logger.error(f"Failed to load layout {filename}: {e}")
                         
             logger.info(f"Loaded {len(self.available_layouts)} layouts from {layouts_dir}")
+            
+            # Ensure current_layout_id is valid
+            if self.current_layout_id not in self.available_layouts:
+                if 'pinball_wizard' in self.available_layouts:
+                    self.current_layout_id = 'pinball_wizard'
+                elif self.available_layouts:
+                    self.current_layout_id = next(iter(self.available_layouts))
+                else:
+                    logger.warning("No layouts found!")
+                    
         except Exception as e:
             logger.error(f"Failed to scan layouts directory: {e}")
 
@@ -398,6 +418,10 @@ class SimulatedFrameCapture:
         # Table Tilt (Degrees)
         self.table_tilt = 6.0 # Standard pinball tilt
         
+        # Rail Offsets (Initialize from layout or defaults)
+        self.rail_x_offset = getattr(self.layout, 'rail_x_offset', -0.61)
+        self.rail_y_offset = getattr(self.layout, 'rail_y_offset', -0.11)
+        
         # Flipper Angles (Symmetric Control)
         self.flipper_resting_angle = -30.0
         self.flipper_stroke_angle = 50.0
@@ -421,8 +445,11 @@ class SimulatedFrameCapture:
         self.rail_right_p2_y = 0.83
         
         # Rail translation offsets
-        self.rail_x_offset = -0.61
-        self.rail_y_offset = -0.11
+        self.rail_angle_offset = 0.0
+        self.rail_x_offset = 0.0
+        self.rail_y_offset = 0.0
+        self.rail_visual_calibration_x = 0.0
+        self.rail_visual_calibration_y = 0.011
         
         self.plunger_release_speed = 1500.0 # Default
 
@@ -775,7 +802,34 @@ class SimulatedFrameCapture:
                 self.launch_angle = val
                 if self.physics_engine:
                     self.physics_engine.launch_angle = val
+                if self.physics_engine:
+                    self.physics_engine.launch_angle = val
                 changes.append(f"Launch Angle: {val}°")
+        
+        # Combo Settings
+        if 'combo_window' in params:
+            val = float(params['combo_window'])
+            if self.physics_engine:
+                self.physics_engine.combo_window = val
+            changes.append(f"Combo Window: {val}s")
+            
+        if 'multiplier_max' in params:
+            val = float(params['multiplier_max'])
+            if self.physics_engine:
+                self.physics_engine.multiplier_max = val
+            changes.append(f"Max Multiplier: {val}x")
+            
+        if 'base_combo_bonus' in params:
+            val = int(params['base_combo_bonus'])
+            if self.physics_engine:
+                self.physics_engine.base_combo_bonus = val
+            changes.append(f"Combo Bonus: {val}")
+            
+        if 'combo_multiplier_enabled' in params:
+            val = bool(params['combo_multiplier_enabled'])
+            if self.physics_engine:
+                self.physics_engine.combo_multiplier_enabled = val
+            changes.append(f"Multiplier Enabled: {val}")
         if 'camera_pitch' in params:
             val = float(params['camera_pitch'])
             # Convert degrees to radians for internal use if needed, but self.pitch seems to be radians in _project_3d
@@ -946,6 +1000,15 @@ class SimulatedFrameCapture:
             self.physics_engine.rail_y_offset = self.rail_y_offset
             self.physics_engine._rebuild_rails()
 
+        # Visual Calibration
+        if 'rail_visual_calibration_x' in params:
+            self.rail_visual_calibration_x = float(params['rail_visual_calibration_x'])
+            changes.append(f"Visual Cal X: {self.rail_visual_calibration_x}")
+            
+        if 'rail_visual_calibration_y' in params:
+            self.rail_visual_calibration_y = float(params['rail_visual_calibration_y'])
+            changes.append(f"Visual Cal Y: {self.rail_visual_calibration_y}")
+
         # Zones are now updated via update_zones, not physics params
         
         if 'show_rail_debug' in params:
@@ -978,17 +1041,22 @@ class SimulatedFrameCapture:
                 # We have the current values in self.gravity, etc.
                 
                 physics_keys = [
-                    'gravity', 'friction', 'restitution', 'flipper_speed', 
+                    'table_tilt', 'gravity', 'friction', 'restitution', 'flipper_speed', 
                     'flipper_resting_angle', 'flipper_stroke_angle', 'flipper_length',
                     'plunger_release_speed', 'launch_angle', 'tilt_threshold', 
-                    'nudge_cost', 'tilt_decay'
+                    'nudge_cost', 'tilt_decay', 'rail_x_offset', 'rail_y_offset'
                 ]
                 
                 for key in physics_keys:
                     if hasattr(self, key):
                         self.layout.physics_params[key] = getattr(self, key)
                 
-                self.save_layout()
+                logger.debug(f"Updated layout physics params: {self.layout.physics_params}")
+                
+                # Only save layout if we are not in the middle of loading it
+                # We can check if we have a valid layout path or name that isn't just the default init
+                if self.layout.name != 'Default' or hasattr(self, 'layout_path'):
+                     self.save_layout()
 
             self.save_config()
             
@@ -1041,6 +1109,61 @@ class SimulatedFrameCapture:
         self.layout.zones = zones_data
         # Update contours in ZoneManager
         self._update_zone_contours()
+        
+        # Save changes
+        self.save_layout()
+
+    def update_bumpers(self, bumpers_data):
+        """Update bumper configuration from frontend."""
+        # Update layout bumpers
+        self.layout.bumpers = bumpers_data
+        
+        # Update local drawing list
+        self.bumpers = []
+        for b in self.layout.bumpers:
+            self.bumpers.append({
+                'pos': np.array([self.width * b['x'], self.height * b['y']]),
+                'radius': int(self.width * b['radius_ratio']),
+                'value': b['value']
+            })
+        
+        # Update physics engine
+        if self.physics_engine:
+            self.physics_engine.update_bumpers(bumpers_data)
+            
+        # Save changes
+        self.save_layout()
+
+    def update_rails(self, rails_data):
+        """Update rails from frontend editor."""
+        if self.layout:
+            self.layout.rails = rails_data
+            self.save_layout()
+            
+        if self.physics_engine:
+            self.physics_engine._rebuild_rails()
+
+    def get_score(self):
+        """Return current score from physics engine."""
+        return self.score
+
+    def get_events(self):
+        """Return recent events from physics engine."""
+        if self.physics_engine:
+            return self.physics_engine.get_events()
+        return []
+
+    def reset_game(self):
+        """Reset the game state (score, balls, physics)."""
+        if self.physics_engine:
+            self.physics_engine.reset()
+            
+        self.score = 0
+        self.balls = []
+        self.is_tilted = False
+        self.tilt_value = 0.0
+        
+        logger.info("Game reset.")
 
     def reset_zones(self):
         """Reset zones to default configuration."""
@@ -1097,17 +1220,76 @@ class SimulatedFrameCapture:
             'upper_flippers': self.layout.upper_flippers,
             'rails': self.layout.rails,
             'rail_x_offset': self.rail_x_offset,
-            'rail_y_offset': self.rail_y_offset
+            'rail_y_offset': self.rail_y_offset,
+            
+            # Combo Settings
+            'combo_window': self.physics_engine.combo_window if self.physics_engine else 3.0,
+            'multiplier_max': self.physics_engine.multiplier_max if self.physics_engine else 5.0,
+            'base_combo_bonus': self.physics_engine.base_combo_bonus if self.physics_engine else 50,
+            'combo_multiplier_enabled': self.physics_engine.combo_multiplier_enabled if self.physics_engine else True
         }
         
         return config
 
+    def get_persistent_config(self):
+        """Return only the configuration that should be saved to config.json.
+        
+        Note: Layout-specific settings (table_tilt, gravity, friction, restitution, 
+        rail_x_offset, rail_y_offset) are NOT saved here - they are saved in 
+        individual layout files via save_layout().
+        """
+        config = {
+            # Global physics settings (not layout-specific)
+            'flipper_speed': self.flipper_speed,
+            'flipper_resting_angle': self.flipper_resting_angle,
+            'flipper_stroke_angle': self.flipper_stroke_angle,
+            'flipper_length': self.flipper_length,
+            'flipper_width': self.flipper_width,
+            'plunger_release_speed': self.plunger_release_speed,
+            'launch_angle': self.launch_angle,
+            'tilt_threshold': self.tilt_threshold,
+            'nudge_cost': self.nudge_cost,
+            'tilt_decay': self.tilt_decay,
+            
+            # Camera settings (global)
+            'camera_pitch': np.degrees(self.pitch), # Save as degrees
+            'camera_x': self.cam_x / self.width,
+            'camera_y': self.cam_y / self.height,
+            'camera_z': self.cam_z / self.width,
+            'camera_zoom': self.focal_length / (self.width * 1.2), # Save as multiplier
+            'camera_presets': self.camera_presets,
+            
+            # Application state
+            'last_model': getattr(self, 'last_model', None),
+            'last_preset': getattr(self, 'last_preset', None),
+            'current_layout_id': self.current_layout_id,
+            
+            # Combo Settings (global)
+            'combo_window': self.physics_engine.combo_window if self.physics_engine else 3.0,
+            'multiplier_max': self.physics_engine.multiplier_max if self.physics_engine else 5.0,
+            'base_combo_bonus': self.physics_engine.base_combo_bonus if self.physics_engine else 50,
+            'combo_multiplier_enabled': self.physics_engine.combo_multiplier_enabled if self.physics_engine else True,
+            
+            # Visual calibration (global)
+            'rail_visual_calibration_x': self.rail_visual_calibration_x,
+            'rail_visual_calibration_y': self.rail_visual_calibration_y
+        }
+        return config
+
     def save_config(self, filepath="config.json"):
-        config = self.get_config()
+        config = self.get_persistent_config()
         try:
             with open(filepath, 'w') as f:
                 json.dump(config, f, indent=4)
             logger.info(f"Physics config saved to {filepath}")
+            
+            # Also save physics to current layout file
+            if self.current_layout_id:
+                layout_filepath = os.path.join(os.getcwd(), 'layouts', f'{self.current_layout_id}.json')
+                if self.layout:
+                    self.layout.save_to_file(layout_filepath)
+                    logger.info(f"Saved physics params to layout: {self.current_layout_id}")
+            
             return True
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
@@ -1134,7 +1316,24 @@ class SimulatedFrameCapture:
                 self.camera_presets.update(config['camera_presets'])
             
             # Load layout configuration
-            if self.layout:
+            # Priority: Load from specific layout file if ID is known, or default to 'pinball_wizard'
+            layout_id = config.get('current_layout_id')
+            
+            # If layout_id is missing or not in available layouts, try to find a valid one
+            if not layout_id or layout_id not in self.available_layouts:
+                if 'pinball_wizard' in self.available_layouts:
+                    layout_id = 'pinball_wizard'
+                elif self.available_layouts:
+                    layout_id = next(iter(self.available_layouts))
+                else:
+                    layout_id = 'default' # Fallback if nothing else
+            
+            if layout_id in self.available_layouts:
+                logger.info(f"Loading layout: {layout_id}")
+                self.load_layout(layout_id)
+            elif self.layout:
+                # Fallback: Load from config directly (legacy or if layout file missing)
+                logger.warning("Layout file not found, falling back to config data")
                 self.layout.load(config)
                 # Ensure zones are updated (projected) after loading layout
                 self._update_zone_contours()
@@ -1214,10 +1413,19 @@ class SimulatedFrameCapture:
                     return False
                 layout_config = self.available_layouts[layout_source]
                 logger.info(f"Loading layout from name: {layout_source}")
+                
+                # Set layout path for saving
+                safe_name = layout_source.lower().replace(' ', '_')
+                safe_name = "".join([c for c in safe_name if c.isalnum() or c == '_'])
+                self.layout_path = os.path.join(os.getcwd(), 'layouts', f"{safe_name}.json")
             else:
                 layout_config = layout_source
+                self.layout_path = None # Unknown source
                 
             self.layout.load(layout_config)
+            logger.info(f"Loaded rails: {len(self.layout.rails)}")
+            if self.layout.rails:
+                logger.info(f"First rail p1: {self.layout.rails[0]['p1']}")
             
             # Re-initialize components dependent on layout
             self.zone_manager = ZoneManager(self.width, self.height, self.layout)
@@ -1268,6 +1476,11 @@ class SimulatedFrameCapture:
             if len(self.game_history) > 50:
                 self.game_history.pop()
                 
+            # Update current layout ID
+            if isinstance(layout_source, str):
+                self.current_layout_id = layout_source
+                logger.info(f"Updated current_layout_id to: {layout_source}")
+                
             self.save_config() # Persist new layout to config.json
             
             # Apply layout physics if present
@@ -1275,24 +1488,57 @@ class SimulatedFrameCapture:
                 logger.info(f"Applying physics from layout: {self.layout.physics_params}")
                 self.update_physics_params(self.layout.physics_params)
                 
+                # Re-sync rail offsets and table_tilt after applying physics params
+                # This ensures layout-specific values are not overwritten
+                if hasattr(self.layout, 'rail_x_offset'):
+                    self.rail_x_offset = self.layout.rail_x_offset
+                    if self.physics_engine:
+                        self.physics_engine.rail_x_offset = self.rail_x_offset
+                        
+                if hasattr(self.layout, 'rail_y_offset'):
+                    self.rail_y_offset = self.layout.rail_y_offset
+                    if self.physics_engine:
+                        self.physics_engine.rail_y_offset = self.rail_y_offset
+                        
+                if hasattr(self.layout, 'table_tilt'):
+                    self.table_tilt = self.layout.table_tilt
+                    # Recalculate gravity based on table_tilt
+                    BASE_GRAVITY = 25000.0
+                    self.gravity = BASE_GRAVITY * np.sin(np.radians(self.table_tilt))
+                    if self.physics_engine:
+                        self.physics_engine.gravity = self.gravity
+                        self.physics_engine.space.gravity = (0, self.gravity)
+                        
+                logger.info(f"Re-synced settings after physics params: table_tilt={self.table_tilt}, rail_x={self.rail_x_offset}, rail_y={self.rail_y_offset}")
+                
             return True
 
     def save_layout(self):
         """Save the current layout to its file."""
         if self.layout and self.layout.name:
-            # Sanitize name to create filename (snake_case preference)
-            # If we loaded from a file, we might want to preserve that filename
-            # But here we construct it from the name
+            # Always calculate safe_name for updating available_layouts
             safe_name = self.layout.name.lower().replace(' ', '_')
             safe_name = "".join([c for c in safe_name if c.isalnum() or c == '_'])
-            
-            filename = f"{safe_name}.json"
-            filepath = os.path.join(os.getcwd(), 'layouts', filename)
+
+            # Use existing path if available to overwrite the correct file
+            if hasattr(self, 'layout_path') and self.layout_path:
+                filepath = self.layout_path
+            else:
+                # Fallback to constructing from name
+                filename = f"{safe_name}.json"
+                filepath = os.path.join(os.getcwd(), 'layouts', filename)
             
             # Ensure directory exists
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
             
+            import traceback
+            logger.info(f"Saving layout to {filepath}. Rails: {len(self.layout.rails)}")
+            if self.layout.rails:
+                logger.info(f"First rail p1: {self.layout.rails[0]['p1']}")
+            # logger.info(f"Stack trace: {''.join(traceback.format_stack())}")
+            
             self.layout.save_to_file(filepath)
+            logger.info(f"Layout saved to {filepath}")
             
             # Update available_layouts with new data
             self.available_layouts[safe_name] = self.layout.to_dict()
@@ -2290,10 +2536,12 @@ class SimulatedFrameCapture:
                 p2_base = rail['p2']
                 
                 # Apply length scale and angle offset (same as physics)
-                p1_x = p1_base['x'] * self.width
-                p1_y = p1_base['y'] * self.height
-                p2_x = p2_base['x'] * self.width
-                p2_y = p2_base['y'] * self.height
+                # NOTE: We do NOT apply rail_x/y_offset here because the user wants to control physics offset independently
+                # Visual calibration is applied if needed
+                p1_x = (p1_base['x'] + self.rail_visual_calibration_x) * self.width
+                p1_y = (p1_base['y'] + self.rail_visual_calibration_y) * self.height
+                p2_x = (p2_base['x'] + self.rail_visual_calibration_x) * self.width
+                p2_y = (p2_base['y'] + self.rail_visual_calibration_y) * self.height
                 
                 dx = p1_x - p2_x
                 dy = p1_y - p2_y

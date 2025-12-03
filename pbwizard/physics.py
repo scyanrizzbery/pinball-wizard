@@ -60,9 +60,13 @@ class PymunkEngine:
         self.rail_shapes = []
         self.rail_thickness = 10.0
         self.rail_length_scale = 1.0
-        self.rail_angle_offset = 0.0
-        self.rail_x_offset = 0.0
-        self.rail_y_offset = 0.0
+        self.rail_angle_offset = getattr(layout, 'rail_angle_offset', 0.0)
+        self.rail_x_offset = getattr(layout, 'rail_x_offset', 0.0)
+        self.rail_y_offset = getattr(layout, 'rail_y_offset', 0.0)
+        logger.info(f"PymunkEngine initialized with rail offsets: x={self.rail_x_offset}, y={self.rail_y_offset}")
+        
+        # Event tracking for RL
+        self.events = []
         
         self._setup_static_geometry()
         self._setup_flippers()
@@ -72,7 +76,7 @@ class PymunkEngine:
         """Setup collision handlers to log what ball hits and award scores"""
         # Score values for different features
         SCORE_VALUES = {
-            COLLISION_TYPE_BUMPER: 100,
+            COLLISION_TYPE_BUMPER: 10,
             COLLISION_TYPE_DROP_TARGET: 500
         }
         
@@ -132,6 +136,23 @@ class PymunkEngine:
                         logger.info(f"BALL COLLISION: hit {label} (+{score_value} x{self.score_multiplier:.1f} = {final_score} points, total: {self.score})")
                     else:
                         logger.debug(f"BALL COLLISION: hit {label} (+{score_value} points, total: {self.score})")
+                    
+                    # Record event for RL
+                    self.events.append({
+                        'type': 'collision',
+                        'label': label,
+                        'score': score_value,
+                        'total_score': final_score,
+                        'combo_count': self.combo_count
+                    })
+                    
+                    # Flash Bumper if hit
+                    if other == COLLISION_TYPE_BUMPER:
+                        bumper_shape = shapes[0] if type_a == COLLISION_TYPE_BUMPER else shapes[1]
+                        if bumper_shape in self.bumper_shape_map:
+                            idx = self.bumper_shape_map[bumper_shape]
+                            self.bumper_states[idx] = 1.0
+                            
                 else:
                     logger.debug(f"BALL COLLISION: hit {label}")
                 
@@ -165,18 +186,11 @@ class PymunkEngine:
             return True
         rail_handler.begin = rail_collision
         
-        # Bumper Collision Handler
-        bumper_handler = self.space.add_collision_handler(COLLISION_TYPE_BALL, COLLISION_TYPE_BUMPER)
-        def bumper_collision(arbiter, space, data):
-            # Find the bumper shape
-            bumper_shape = arbiter.shapes[0] if arbiter.shapes[0].collision_type == COLLISION_TYPE_BUMPER else arbiter.shapes[1]
-            if bumper_shape in self.bumper_shape_map:
-                idx = self.bumper_shape_map[bumper_shape]
-                self.bumper_states[idx] = 1.0 # Flash for 1.0 (decay unit)
-            return True
-        bumper_handler.begin = bumper_collision
+        # Bumper handler removed - handled in default handler for scoring
+
         
     def _setup_static_geometry(self):
+        print("DEBUG: Entering _setup_static_geometry")
         # Walls
         thickness = 10.0
         # Left
@@ -211,7 +225,8 @@ class PymunkEngine:
             shape = self._add_static_circle(pos, radius, elasticity=1.5)
             self.bumper_states.append(0.0)
             self.bumper_shape_map[shape] = i
-            
+
+
         # Drop Targets
         for t in self.layout.drop_targets:
             x = t['x'] * self.width
@@ -244,16 +259,18 @@ class PymunkEngine:
         self._setup_plunger()
 
 
-
         # Setup Slingshots (Triangular bumpers above flippers)
+        print("DEBUG: Calling _setup_slingshots")
         self._setup_slingshots()
         
         # Setup Rails (as Polygons for robust collision)
         if hasattr(self.layout, 'rails'):
-            logger.info(f"Setting up {len(self.layout.rails)} rails from layout")
+            print(f"DEBUG: Setting up {len(self.layout.rails)} rails")
             for i, rail in enumerate(self.layout.rails):
-                p1 = (rail['p1']['x'] * self.width, rail['p1']['y'] * self.height)
-                p2 = (rail['p2']['x'] * self.width, rail['p2']['y'] * self.height)
+                p1 = (rail['p1']['x'] * self.width + self.rail_x_offset * self.width, 
+                      rail['p1']['y'] * self.height + self.rail_y_offset * self.height)
+                p2 = (rail['p2']['x'] * self.width + self.rail_x_offset * self.width, 
+                      rail['p2']['y'] * self.height + self.rail_y_offset * self.height)
                 logger.info(f"Adding Rail (Poly) {i}: {p1} -> {p2}")
                 
                 # Create thick polygon instead of segment
@@ -265,6 +282,23 @@ class PymunkEngine:
 
 
 
+
+    def update_bumpers(self, bumpers_data):
+        """Update bumper positions dynamically."""
+        # Remove existing bumper shapes
+        for shape in list(self.bumper_shape_map.keys()):
+            self.space.remove(shape)
+            
+        self.bumper_states = []
+        self.bumper_shape_map = {}
+        
+        # Re-create bumpers
+        for i, b in enumerate(bumpers_data):
+            pos = (b['x'] * self.width, b['y'] * self.height)
+            radius = 20.0
+            shape = self._add_static_circle(pos, radius, elasticity=1.5)
+            self.bumper_states.append(0.0)
+            self.bumper_shape_map[shape] = i
 
     def _setup_plunger(self):
         """Setup plunger physics bodies and shapes."""
@@ -728,6 +762,30 @@ class PymunkEngine:
                 logger.info(f"PLUNGER LAUNCH! Angle: {self.launch_angle}°, Impulse: {impulse}, Pos: {b.position}, Vel: {b.velocity}")
         
         return launched
+
+    def get_events(self):
+        """Return and clear recent events."""
+        events = self.events[:]
+        self.events = []
+        return events
+
+    def reset(self):
+        """Reset the physics simulation to initial state."""
+        self.score = 0
+        self.combo_count = 0
+        self.combo_timer = 0.0
+        self.last_hit_time = 0.0
+        self.score_multiplier = 1.0
+        
+        # Remove all balls
+        for ball in self.balls:
+            self.space.remove(ball, *ball.shapes)
+        self.balls = []
+        
+        # Reset bumper states
+        self.bumper_states = [0.0] * len(self.bumper_states)
+        
+        logger.info("Physics engine reset.")
 
     def update(self, dt):
         # Update bumper flash timers

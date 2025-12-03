@@ -2,10 +2,10 @@
     "width": 0.6,
     "height": 1.2,
     "left_flipper_x_min": 0.3,
-    "left_flipper_x_max": 0.44999999999999996,
+    "left_flipper_x_max": 0.52,
     "left_flipper_y_min": 0.8,
     "left_flipper_y_max": 0.9,
-    "right_flipper_x_min": 0.5499999999999999,
+    "right_flipper_x_min": 0.48,
     "right_flipper_x_max": 0.7,
     "right_flipper_y_min": 0.8,
     "right_flipper_y_max": 0.9,
@@ -60,46 +60,44 @@
     "bumpers": [
         {
             "x": 0.5,
+            "y": 0.3,
+            "radius_ratio": 0.05,
+            "value": 100
+        },
+        {
+            "x": 0.3,
             "y": 0.4,
-            "radius_ratio": 0.08,
-            "value": 500
+            "radius_ratio": 0.04,
+            "value": 50
+        },
+        {
+            "x": 0.7,
+            "y": 0.4,
+            "radius_ratio": 0.04,
+            "value": 50
         }
     ],
     "drop_targets": [
-        {
-            "x": 0.3,
-            "y": 0.1,
-            "width": 0.03,
-            "height": 0.01,
-            "value": 200
-        },
         {
             "x": 0.4,
             "y": 0.1,
             "width": 0.03,
             "height": 0.01,
-            "value": 200
+            "value": 500
         },
         {
             "x": 0.5,
             "y": 0.1,
             "width": 0.03,
             "height": 0.01,
-            "value": 200
+            "value": 500
         },
         {
             "x": 0.6,
             "y": 0.1,
             "width": 0.03,
             "height": 0.01,
-            "value": 200
-        },
-        {
-            "x": 0.7,
-            "y": 0.1,
-            "width": 0.03,
-            "height": 0.01,
-            "value": 200
+            "value": 500
         }
     ],
     "captures": [],
@@ -110,59 +108,42 @@
     "rails": [
         {
             "p1": {
-                "x": 0.2,
-                "y": 0.2
+                "x": 0.18,
+                "y": 0.4
             },
             "p2": {
-                "x": 0.2,
-                "y": 0.6
+                "x": 0.36,
+                "y": 0.83
             }
         },
         {
             "p1": {
-                "x": 0.8,
-                "y": 0.2
+                "x": 0.82,
+                "y": 0.5
             },
             "p2": {
-                "x": 0.8,
-                "y": 0.6
-            }
-        },
-        {
-            "p1": {
-                "x": 0.2,
-                "y": 0.6
-            },
-            "p2": {
-                "x": 0.4,
-                "y": 0.8
-            }
-        },
-        {
-            "p1": {
-                "x": 0.8,
-                "y": 0.6
-            },
-            "p2": {
-                "x": 0.6,
-                "y": 0.8
+                "x": 0.64,
+                "y": 0.83
             }
         }
     ],
-    "rail_x_offset": -0.73,
-    "rail_y_offset": -0.1,
+    "rail_x_offset": -0.61,
+    "rail_y_offset": -0.11,
     "physics": {
-        "gravity": 523.5604970839239,
-        "friction": 0.27,
+        "table_tilt": 6.0,
+        "gravity": 2613.211581691337,
+        "friction": 0.5,
         "restitution": 0.7,
-        "flipper_speed": 15.0,
+        "flipper_speed": 11.3,
         "flipper_resting_angle": -30.0,
         "flipper_stroke_angle": 50.0,
-        "flipper_length": 0.15,
-        "plunger_release_speed": 2000.0,
-        "launch_angle": 0.0,
-        "tilt_threshold": 1.0,
-        "nudge_cost": 10.0,
-        "tilt_decay": 0.117
+        "flipper_length": 0.22,
+        "plunger_release_speed": 1270.0,
+        "launch_angle": 12.0,
+        "tilt_threshold": 6.0,
+        "nudge_cost": 3.0,
+        "tilt_decay": 0.05,
+        "rail_x_offset": 0.0,
+        "rail_y_offset": 0.0
     }
 }

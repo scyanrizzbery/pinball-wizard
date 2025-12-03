@@ -20,8 +20,8 @@
             />
           </div>
 
-          <VideoFeed v-if="viewMode === 'video'" :videoSrc="videoSrc" :isTilted="isTilted" :stats="stats" :nudgeEvent="nudgeEvent" :physics="physics" :socket="sockets.game" :configSocket="sockets.config"
-            @update-zone="handleZoneUpdate" @reset-zones="handleResetZones" @toggle-view="toggleViewMode" />
+          <VideoFeed v-if="viewMode === 'video'" :videoSrc="videoSrc" :isTilted="isTilted" :stats="stats" :nudgeEvent="nudgeEvent" :physics="physics" :socket="sockets.game" :configSocket="sockets.config" :hasUnsavedChanges="hasUnsavedChanges"
+            @update-zone="handleZoneUpdate" @update-rail="handleRailUpdate" @update-bumper="handleBumperUpdate" @save-layout="saveChanges" @reset-zones="handleResetZones" @toggle-view="toggleViewMode" />
           
           <Pinball3D 
           v-if="viewMode === '3d'"
@@ -120,6 +120,8 @@ const debounceTimers = {}
 const nudgeEvent = ref(null)
 const viewMode = ref('video')
 const layoutConfig = ref(null)
+const isLoadingLayout = ref(false)
+const hasUnsavedChanges = ref(false)
 
 // Track button pressed states for visual feedback
 const buttonStates = reactive({
@@ -187,7 +189,15 @@ const physics = reactive({
   camera_z: 1.5,
   camera_zoom: 1.0,
   combo_window: 3.0,
-  zones: []
+  multiplier_max: 5.0,
+  base_combo_bonus: 50,
+  combo_multiplier_enabled: true,
+  combo_multiplier_enabled: true,
+  zones: [],
+  rails: [],
+  bumpers: [],
+  rail_x_offset: 0,
+  rail_y_offset: 0
 })
 
 const toggles = reactive({
@@ -283,19 +293,32 @@ const updatePhysics = (param, value) => {
 }
 
 const handleZoneUpdate = (newZones) => {
-  // Update local state immediately
   physics.zones = newZones
+  if (layoutConfig.value) layoutConfig.value.zones = newZones
+  hasUnsavedChanges.value = true
+}
 
-  // Debounce socket emission
-  const timerKey = `zones_update`
-  if (debounceTimers[timerKey]) clearTimeout(debounceTimers[timerKey])
+const handleRailUpdate = (newRails) => {
+  physics.rails = newRails
+  if (layoutConfig.value) layoutConfig.value.rails = newRails
+  hasUnsavedChanges.value = true
+}
+
+const handleBumperUpdate = (newBumpers) => {
+  physics.bumpers = newBumpers
+  if (layoutConfig.value) layoutConfig.value.bumpers = newBumpers
+  hasUnsavedChanges.value = true
+}
+
+const saveChanges = () => {
+  if (!layoutConfig.value) return
   
-  debounceTimers[timerKey] = setTimeout(() => {
-    sockets.config.emit('update_zones', newZones)
-    sockets.config.emit('save_physics')
-    delete debounceTimers[timerKey]
-    delete debounceTimers[timerKey]
-  }, 100)
+  sockets.config.emit('update_zones', physics.zones)
+  sockets.config.emit('update_rails', physics.rails)
+  sockets.config.emit('update_bumpers', physics.bumpers)
+  
+  hasUnsavedChanges.value = false
+  addLog('Layout saved manually')
 }
 
 const handleResetZones = () => {
@@ -323,6 +346,7 @@ const toggleAutoStart = () => {
 
 
 const changeLayout = () => {
+  isLoadingLayout.value = true
   addLog(`Loading layout: ${selectedLayout.value}`)
   sockets.config.emit('load_layout_by_name', { name: selectedLayout.value })
 }
@@ -399,7 +423,7 @@ onMounted(() => {
         selectedPreset.value = config.last_preset
         addLog(`Restored last camera preset: ${config.last_preset}`)
       }
-      if (config.current_layout_id) {
+      if (config.current_layout_id && !isLoadingLayout.value) {
         selectedLayout.value = config.current_layout_id
         addLog(`Restored last layout: ${config.current_layout_id}`)
       }
@@ -448,8 +472,11 @@ onMounted(() => {
   sockets.config.on('layout_loaded', (data) => {
     console.log('Layout loaded:', data)
     if (data.status === 'success') {
+      isLoadingLayout.value = false
       // Request the new physics config to update 3D view
       sockets.config.emit('load_physics')
+    } else {
+      isLoadingLayout.value = false
     }
   })
 
@@ -507,8 +534,19 @@ onMounted(() => {
   })
 
   sockets.training.on('models_list', (data) => {
+    const currentSelection = selectedModel.value
     models.value = data
-    if (data.length > 0 && !selectedModel.value) {
+    
+    // Preserve selection if it exists in new list
+    if (currentSelection) {
+      const exists = data.some(m => m.filename === currentSelection)
+      if (exists) {
+        // Force reactivity by reassigning
+        selectedModel.value = currentSelection
+      } else if (data.length > 0) {
+        selectedModel.value = data[0].filename
+      }
+    } else if (data.length > 0) {
       selectedModel.value = data[0].filename
     }
   })
@@ -650,6 +688,7 @@ body {
   min-height: 80px;
   touch-action: manipulation;
   user-select: none;
+  -webkit-user-select: none;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -705,6 +744,8 @@ body {
   cursor: pointer;
   z-index: 30;
   font-size: 12px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .switch-view-btn:hover {
@@ -821,24 +862,19 @@ body {
   }
 }
 
-@media (max-width: 1200px) {
-  .switch-view-btn {
-    /* Keep default for Pinball3D, but VideoFeed uses .video-controls */
-    bottom: auto;
-    top: 82px;
-    right: 10px;
-  }
 
-  /* Position the grouped controls in VideoFeed */
-  .video-controls {
-    bottom: auto !important;
-    top: 82px !important;
-    right: 10px !important;
-  }
 
-  /* Override scoped styles from VideoFeed.vue */
-  .add-controls {
-    bottom: 130px !important;
-  }
+
+.save-btn {
+  background: #ff9800;
+  color: white;
+  font-weight: bold;
+  animation: pulse-save 2s infinite;
+}
+
+@keyframes pulse-save {
+  0% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(255, 152, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0); }
 }
 </style>

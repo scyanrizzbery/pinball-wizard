@@ -97,7 +97,7 @@
             <span>Launch Angle</span>
             <span>{{ formatNumber(physics.launch_angle, 1) }}°</span>
           </div>
-          <input type="range" min="0" max="12" step="0.1" v-model.number="physics.launch_angle"
+          <input type="range" min="-90" max="90" step="1" v-model.number="physics.launch_angle"
             @input="updatePhysics('launch_angle')" :disabled="stats.is_training">
         </div>
       </div>
@@ -315,6 +315,45 @@
           </div>
           <input type="range" min="-45.0" max="45.0" step="1.0" v-model.number="physics.guide_angle_offset"
             @input="updatePhysics('guide_angle_offset')" :disabled="stats.is_training">
+        </div>
+      </div>
+
+      <!-- Combo Group -->
+      <div class="group-header" @click="toggleGroup('combo')">
+        <span>Combo Settings</span>
+        <span class="arrow" :class="{ rotated: groupsExpanded.combo }">▼</span>
+      </div>
+      <div v-if="groupsExpanded.combo" class="group-content">
+        <div class="slider-container" style="justify-content: space-between; align-items: center;">
+          <div class="slider-label">
+            <span>Enable Multiplier</span>
+          </div>
+          <input type="checkbox" :checked="physics.combo_multiplier_enabled" 
+            @change="updatePhysics('combo_multiplier_enabled', $event.target.checked)">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Combo Window</span>
+            <span>{{ formatNumber(physics.combo_window, 1) }}s</span>
+          </div>
+          <input type="range" min="0.5" max="10.0" step="0.1" v-model.number="physics.combo_window"
+            @input="updatePhysics('combo_window')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Max Multiplier</span>
+            <span>{{ formatNumber(physics.multiplier_max, 1) }}x</span>
+          </div>
+          <input type="range" min="1.0" max="20.0" step="0.5" v-model.number="physics.multiplier_max"
+            @input="updatePhysics('multiplier_max')" :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Base Bonus</span>
+            <span>{{ formatNumber(physics.base_combo_bonus, 0) }}</span>
+          </div>
+          <input type="range" min="0" max="1000" step="10" v-model.number="physics.base_combo_bonus"
+            @input="updatePhysics('base_combo_bonus')" :disabled="stats.is_training">
         </div>
       </div>
 
@@ -539,6 +578,7 @@ const groupsExpanded = reactive({
   flipper: false,
   rails: false,
   zones: false,
+  combo: false,
   tilt: false,
   camera: false
 })
@@ -780,6 +820,8 @@ const stopTraining = () => {
   cursor: pointer;
   font-size: 14px;
   transition: all 0.2s;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .tab.active {
@@ -899,6 +941,8 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
   font-size: 14px;
   transition: background-color 0.2s;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .control-btn:disabled {

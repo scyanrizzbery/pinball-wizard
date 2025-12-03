@@ -24,21 +24,40 @@
       <!-- Zone Editor Overlay (Polygon) -->
       <div v-if="showZones" class="zone-overlay">
         <svg viewBox="0 0 1 1" preserveAspectRatio="none" style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; pointer-events: none;">
-          <polygon v-for="(zone, index) in zones" :key="index"
+          <polygon v-for="(zone, index) in zones" :key="'zone-'+index"
                    :points="zone.svgPoints" 
                    class="zone-poly"
                    :class="{ 'left-zone': zone.type === 'left', 'right-zone': zone.type === 'right' }"
-                   @mousedown="startDrag(index, 'body', $event)"
-                   @touchstart="startDrag(index, 'body', $event)" />
+                   @mousedown="startDrag('zone', index, 'body', $event)"
+                   @touchstart="startDrag('zone', index, 'body', $event)" />
+
+          <!-- Rails -->
+          <line v-for="(rail, index) in rails" :key="'rail-'+index"
+                :x1="rail.screenP1.x" :y1="rail.screenP1.y"
+                :x2="rail.screenP2.x" :y2="rail.screenP2.y"
+                class="rail-line"
+                @mousedown="startDrag('rail', index, 'body', $event)"
+                @touchstart="startDrag('rail', index, 'body', $event)" />
+
+          <!-- Bumpers -->
+          <!-- Bumpers -->
+          <circle v-for="(bumper, index) in bumpers" :key="'bumper-'+index"
+                  :cx="bumper.screenPos.x" :cy="bumper.screenPos.y"
+                  r="0.04"
+                  class="bumper-circle"
+                  @mousedown="startDrag('bumper', index, 'body', $event)"
+                  @touchstart="startDrag('bumper', index, 'body', $event)" />
+
+
         </svg>
 
         <!-- Handles for all zones -->
-        <template v-for="(zone, zIndex) in zones" :key="zIndex">
-          <div v-for="(point, pIndex) in zone.screenPoints" :key="zIndex + '-' + pIndex"
+        <template v-for="(zone, zIndex) in zones" :key="'zone-h-'+zIndex">
+          <div v-for="(point, pIndex) in zone.screenPoints" :key="'z-'+zIndex + '-' + pIndex"
                class="handle"
                :style="{ left: (point.x * 100) + '%', top: (point.y * 100) + '%' }"
-               @mousedown.stop="startDrag(zIndex, pIndex, $event)"
-               @touchstart.stop="startDrag(zIndex, pIndex, $event)">
+               @mousedown.stop="startDrag('zone', zIndex, pIndex, $event)"
+               @touchstart.stop="startDrag('zone', zIndex, pIndex, $event)">
           </div>
           
           <!-- Delete Button (Center of zone) -->
@@ -51,18 +70,50 @@
             ×
           </div>
         </template>
+
+        <!-- Handles for Rails -->
+        <template v-for="(rail, rIndex) in rails" :key="'rail-h-'+rIndex">
+          <!-- P1 Handle -->
+          <div class="handle rail-handle"
+               :style="{ left: (rail.screenP1.x * 100) + '%', top: (rail.screenP1.y * 100) + '%' }"
+               @mousedown.stop="startDrag('rail', rIndex, 'p1', $event)"
+               @touchstart.stop="startDrag('rail', rIndex, 'p1', $event)">
+          </div>
+          <!-- P2 Handle -->
+          <div class="handle rail-handle"
+               :style="{ left: (rail.screenP2.x * 100) + '%', top: (rail.screenP2.y * 100) + '%' }"
+               @mousedown.stop="startDrag('rail', rIndex, 'p2', $event)"
+               @touchstart.stop="startDrag('rail', rIndex, 'p2', $event)">
+          </div>
+
+          <!-- Delete Button (Center of rail) -->
+          <div class="delete-btn"
+               :style="{ 
+                 left: ((rail.screenP1.x + rail.screenP2.x)/2 * 100) + '%', 
+                 top: ((rail.screenP1.y + rail.screenP2.y)/2 * 100) + '%' 
+               }"
+               @click.stop="removeRail(rIndex)">
+            ×
+          </div>
+        </template>
+
+
         
         <!-- Add Zone Controls -->
         <div class="add-controls">
           <button @click="addZone('left')">+ Left Zone</button>
           <button @click="addZone('right')">+ Right Zone</button>
+          <button @click="addRail">+ Rail</button>
           <button @click="resetZones" class="reset-btn">Reset Zones</button>
         </div>
       </div>
       
       <div class="video-controls">
         <button class="edit-btn" @click="showZones = !showZones" :class="{ active: showZones }">
-          {{ showZones ? 'Hide Zones' : 'Edit Zones' }}
+          {{ showZones ? 'Hide editor' : 'Edit' }}
+        </button>
+        <button v-if="hasUnsavedChanges" @click="$emit('save-layout')" class="control-btn save-btn">
+          Save Layout
         </button>
 
         <button @click="$emit('toggle-view')" class="switch-view-btn">
@@ -83,10 +134,11 @@ const props = defineProps({
   nudgeEvent: Object,
   physics: Object, // Receive physics config to get zone coords
   socket: Object, // Receive socket instance
-  configSocket: Object // Receive config socket instance
+  configSocket: Object, // Receive config socket instance
+  hasUnsavedChanges: Boolean
 })
 
-const emit = defineEmits(['update-zone', 'reset-zones', 'toggle-view'])
+const emit = defineEmits(['update-zone', 'update-rail', 'update-bumper', 'save-layout', 'reset-zones', 'toggle-view'])
 
 const handleKeydown = (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.code)) {
@@ -109,7 +161,7 @@ const videoElement = ref(null)
 const containerElement = ref(null)
 const lastNudgeTime = ref(props.nudgeEvent?.time || 0)
 const showZones = ref(false)
-const dragging = ref(null) // { zone: 'left'|'right', handle: index (0-3) or 'body' }
+const dragging = ref(null) // { type: 'zone'|'rail', index: int, handle: index|'p1'|'p2'|'body', startPos: {x,y} }
 
 const formatNumber = (num) => {
   if (num === undefined || num === null) return '0'
@@ -148,6 +200,38 @@ const zones = computed(() => {
       ...zone,
       screenPoints: points,
       svgPoints: getPolygonPoints(points)
+    }
+  })
+})
+
+const rails = computed(() => {
+  if (!props.physics || !props.physics.rails) return []
+  
+  // Decoupled: Handles should match Visual Rail (static), not Physics Rail (offset)
+  // const offsetX = props.physics.rail_x_offset || 0
+  // const offsetY = props.physics.rail_y_offset || 0
+  
+  console.log(`VideoFeed rails computed. Rails: ${props.physics.rails.length}`)
+  
+  return props.physics.rails.map(rail => {
+    const p1 = project3D(rail.p1.x, rail.p1.y)
+    const p2 = project3D(rail.p2.x, rail.p2.y)
+    return {
+      ...rail,
+      screenP1: p1,
+      screenP2: p2
+    }
+  })
+})
+
+const bumpers = computed(() => {
+  if (!props.physics || !props.physics.bumpers) return []
+  // console.log('VideoFeed: Computing bumpers', props.physics.bumpers.length)
+  return props.physics.bumpers.map(b => {
+    const pos = project3D(b.x, b.y)
+    return {
+      ...b,
+      screenPos: pos
     }
   })
 })
@@ -261,10 +345,10 @@ const getMousePos = (e) => {
   }
 }
 
-const startDrag = (zoneIndex, handle, e) => {
+const startDrag = (type, index, handle, e) => {
   if (e.cancelable) e.preventDefault()
   // Store start pos in Screen Coords
-  dragging.value = { zoneIndex, handle, startPos: getMousePos(e) }
+  dragging.value = { type, index, handle, startPos: getMousePos(e) }
   window.addEventListener('mousemove', onDrag)
   window.addEventListener('mouseup', stopDrag)
   window.addEventListener('touchmove', onDrag, { passive: false })
@@ -284,33 +368,71 @@ const onDrag = (e) => {
   if (e.cancelable) e.preventDefault()
   
   const pos = getMousePos(e) // Screen Coords
-  const { zoneIndex, handle, startPos } = dragging.value
+  const { type, index, handle, startPos } = dragging.value
   
-  // Clone the entire zones array because we need to emit the full list
-  const newZones = JSON.parse(JSON.stringify(props.physics.zones))
-  const targetZone = newZones[zoneIndex]
-  
-  if (handle === 'body') {
-    // Move entire polygon
-    const tStart = unproject2D(startPos.x, startPos.y)
-    const tCurr = unproject2D(pos.x, pos.y)
+  if (type === 'zone') {
+    // Clone the entire zones array because we need to emit the full list
+    const newZones = JSON.parse(JSON.stringify(props.physics.zones))
+    const targetZone = newZones[index]
     
-    const dx = tCurr.x - tStart.x
-    const dy = tCurr.y - tStart.y
-    
-    for (let p of targetZone.points) {
-      p.x += dx
-      p.y += dy
+    if (handle === 'body') {
+      // Move entire polygon
+      const tStart = unproject2D(startPos.x, startPos.y)
+      const tCurr = unproject2D(pos.x, pos.y)
+      
+      const dx = tCurr.x - tStart.x
+      const dy = tCurr.y - tStart.y
+      
+      for (let p of targetZone.points) {
+        p.x += dx
+        p.y += dy
+      }
+      dragging.value.startPos = pos // Update start pos
+    } else {
+      // Move specific point
+      const tPos = unproject2D(pos.x, pos.y)
+      targetZone.points[handle].x = tPos.x
+      targetZone.points[handle].y = tPos.y
     }
-    dragging.value.startPos = pos // Update start pos
-  } else {
-    // Move specific point
+    emit('update-zone', newZones)
+  } else if (type === 'rail') {
+    const newRails = JSON.parse(JSON.stringify(props.physics.rails))
+    const targetRail = newRails[index]
+    const offsetX = props.physics.rail_x_offset || 0
+    const offsetY = props.physics.rail_y_offset || 0
+    
+    if (handle === 'body') {
+      const tStart = unproject2D(startPos.x, startPos.y)
+      const tCurr = unproject2D(pos.x, pos.y)
+      const dx = tCurr.x - tStart.x
+      const dy = tCurr.y - tStart.y
+      
+      targetRail.p1.x += dx
+      targetRail.p1.y += dy
+      targetRail.p2.x += dx
+      targetRail.p2.y += dy
+      
+      dragging.value.startPos = pos
+    } else if (handle === 'p1') {
+      const tPos = unproject2D(pos.x, pos.y)
+      targetRail.p1.x = tPos.x - offsetX
+      targetRail.p1.y = tPos.y - offsetY
+    } else if (handle === 'p2') {
+      const tPos = unproject2D(pos.x, pos.y)
+      targetRail.p2.x = tPos.x - offsetX
+      targetRail.p2.y = tPos.y - offsetY
+    }
+    emit('update-rail', newRails)
+  } else if (type === 'bumper') {
+    const newBumpers = JSON.parse(JSON.stringify(props.physics.bumpers))
+    const targetBumper = newBumpers[index]
+    
     const tPos = unproject2D(pos.x, pos.y)
-    targetZone.points[handle].x = tPos.x
-    targetZone.points[handle].y = tPos.y
+    targetBumper.x = tPos.x
+    targetBumper.y = tPos.y
+    
+    emit('update-bumper', newBumpers)
   }
-
-  emit('update-zone', newZones)
 }
 
 const addZone = (type) => {
@@ -329,10 +451,25 @@ const addZone = (type) => {
   emit('update-zone', newZones)
 }
 
+const addRail = () => {
+  const newRails = JSON.parse(JSON.stringify(props.physics.rails || []))
+  newRails.push({
+    p1: {x: 0.4, y: 0.4},
+    p2: {x: 0.6, y: 0.6}
+  })
+  emit('update-rail', newRails)
+}
+
 const removeZone = (index) => {
   const newZones = JSON.parse(JSON.stringify(props.physics.zones))
   newZones.splice(index, 1)
   emit('update-zone', newZones)
+}
+
+const removeRail = (index) => {
+  const newRails = JSON.parse(JSON.stringify(props.physics.rails))
+  newRails.splice(index, 1)
+  emit('update-rail', newRails)
 }
 
 const resetZones = () => {
@@ -422,6 +559,15 @@ img {
   animation: shake-right 0.3s ease-in-out;
 }
 
+.shake-right {
+  animation: shake-right 0.3s ease-in-out;
+}
+
+#video-container {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 #video-wrapper {
   position: relative;
   display: inline-block;
@@ -453,6 +599,71 @@ img {
   fill: rgba(76, 175, 80, 0.4);
 }
 
+.rail-line {
+  stroke: #2196F3;
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: move;
+}
+
+.rail-line:hover {
+  stroke: #64B5F6;
+}
+
+.bumper-circle {
+  fill: rgba(255, 170, 0, 0.4);
+  stroke: #ffaa00;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: move;
+}
+
+.bumper-circle:hover {
+  fill: rgba(255, 170, 0, 0.6);
+  stroke: #ffcc00;
+}
+
+
+
+.rail-handle:hover {
+  background: #2196F3;
+}
+
+.bumper-handle {
+  border-color: #ffaa00;
+}
+
+.bumper-handle:hover {
+  background: #ffaa00;
+}
+
+.control-btn {
+  background: #4caf50;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 5px;
+}
+
+.control-btn.active {
+  background: #2196F3;
+}
+
+.control-btn.save-btn {
+  background: #ff9800;
+  animation: pulse-save 2s infinite;
+}
+
+@keyframes pulse-save {
+  0% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(255, 152, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0); }
+}
+
 .handle {
   position: absolute;
   width: 10px;
@@ -469,6 +680,14 @@ img {
 .handle:hover {
   background: #4caf50;
   transform: translate(-50%, -50%) scale(1.2);
+}
+
+.rail-handle {
+  border-color: #2196F3;
+}
+
+.rail-handle:hover {
+  background: #2196F3;
 }
 
 .zone-poly.left-zone { stroke: #4caf50; fill: rgba(76, 175, 80, 0.2); }

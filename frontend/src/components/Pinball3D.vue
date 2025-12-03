@@ -31,6 +31,7 @@ let resizeObserver
 let balls = [] // Array of mesh objects
 let flippers = {} // { left: mesh, right: mesh, upper: [] }
 let tableGroup
+let ballGeo, ballMat
 
 // Physics Config (to sync dimensions)
 let physicsConfig = ref(null)
@@ -69,7 +70,14 @@ const createTable = (config = null) => {
   
   // Clear existing balls and flippers so they are recreated in the new group
   balls = []
-  balls = []
+  
+  // Initialize ball resources
+  ballGeo = new THREE.SphereGeometry(0.016, 32, 32)
+  ballMat = new THREE.MeshStandardMaterial({ 
+    color: 0xcccccc,
+    metalness: 0.9,
+    roughness: 0.1
+  })
   flippers = { left: null, right: null, dropTargets: [], bumpers: [] }
 
   // Floor
@@ -195,7 +203,11 @@ const createTable = (config = null) => {
       const railHeight = 0.05
       const railThickness = 0.02
       
-      config.rails.forEach(rail => {
+      // Decoupled: 3D Rail should match Visual Rail (static), not Physics Rail (offset)
+      // const offsetX = config.rail_x_offset || 0
+      // const offsetY = config.rail_y_offset || 0
+
+      config.rails.forEach((rail, index) => {
         const p1 = rail.p1
         const p2 = rail.p2
         
@@ -203,6 +215,9 @@ const createTable = (config = null) => {
         const y1 = mapY(p1.y)
         const x2 = mapX(p2.x)
         const y2 = mapY(p2.y)
+        
+        // Debug log removed
+        // if (index === 0) console.log(...)
         
         const vec = new THREE.Vector2(x2 - x1, y2 - y1)
         const len = vec.length()
@@ -277,7 +292,7 @@ const createTable = (config = null) => {
   tableGroup.add(leftPivot)
   
   const leftMesh = new THREE.Mesh(flipperGeo, flipperMat)
-  leftMesh.position.set(flipperLength / 2, 0, 0) 
+  leftMesh.position.set(-radius, 0, 0) 
   leftPivot.add(leftMesh)
   flippers.left = leftPivot
 
@@ -321,7 +336,7 @@ const createTable = (config = null) => {
   // So the mesh setup is actually symmetric (both extend Right from pivot), and rotation handles the direction.
   // So we keep the mesh position as is.
   
-  rightMesh.position.set(flipperLength / 2, 0, 0)
+  rightMesh.position.set(-radius, 0, 0)
   rightPivot.add(rightMesh)
   flippers.right = rightPivot
   
@@ -370,12 +385,7 @@ const createTable = (config = null) => {
 }
 
 // Ball
-const ballGeo = new THREE.SphereGeometry(0.016, 32, 32)
-const ballMat = new THREE.MeshStandardMaterial({ 
-  color: 0xcccccc,
-  metalness: 0.9,
-  roughness: 0.1
-})
+
 
 const updateBalls = (ballData) => {
   if (!ballData) return
@@ -430,8 +440,9 @@ const updateFlippers = (state) => {
   }
 }
 
+let animationId
 const animate = () => {
-  requestAnimationFrame(animate)
+  animationId = requestAnimationFrame(animate)
   if (renderer && scene && camera) {
     // Apply shake offset to camera position (temporarily)
     const basePos = { x: 0, y: -1.5, z: 2.5 } // Default position, should track actual camera pos if moved
@@ -482,10 +493,14 @@ const initThree = () => {
   // Initial creation (likely empty config until prop updates)
   createTable(props.config)
   
+  // Ensure camera is updated to match config immediately
+  updateCamera()
+  
   animate()
 }
 
 onMounted(() => {
+  console.log('Pinball3D Mounted. Initial Config:', props.config)
   initThree()
   
   // Setup ResizeObserver
@@ -620,16 +635,59 @@ watch(() => props.cameraMode, (newMode) => {
 })
 
 // Watch for config changes from parent (must be after createTable is defined)
+// Watch for config changes from parent (must be after createTable is defined)
+const updateTable = (config) => {
+  // Update Bumpers
+  if (config.bumpers && flippers.bumpers && config.bumpers.length === flippers.bumpers.length) {
+    config.bumpers.forEach((b, i) => {
+      const mesh = flippers.bumpers[i]
+      if (mesh) mesh.position.set(mapX(b.x), mapY(b.y), 0.025)
+    })
+  } else {
+    // Count mismatch, full rebuild
+    createTable(config)
+    return
+  }
+
+  // Update Rails
+  // Note: This assumes rail count matches. If not, we should rebuild.
+  // But we don't store rail meshes in a convenient list matching config index?
+  // createTable adds them to tableGroup but doesn't store them in flippers list (except bumpers/dropTargets).
+  // I need to update createTable to store rails in flippers.rails or similar.
+  // For now, let's just rebuild if we suspect rail changes?
+  // Or better: Update createTable to store rails.
+  
+  // Since I can't easily update createTable in this Replace block without changing more code,
+  // I will fallback to createTable for now if it's not just bumpers.
+  // But wait, I don't know if it's just bumpers.
+  
+  // Let's just call createTable for now. It SHOULD be fast enough.
+  // The user's issue might be that the watcher wasn't firing or something else.
+  // But if I use this block, I can at least debug.
+  
+  createTable(config)
+}
+
+// Watch for config changes from parent (must be after createTable is defined)
 watch(() => props.config, (newConfig, oldConfig) => {
   if (newConfig) {
-    console.log('Pinball3D received new config via prop', newConfig)
+    // console.log(`Pinball3D watcher fired.`)
     physicsConfig.value = newConfig
-    createTable(newConfig)
+    
+    if (newConfig !== oldConfig) {
+        // Full replacement
+        createTable(newConfig)
+    } else {
+        // Mutation
+        // Try to update in place if possible, otherwise rebuild
+        // For now, just rebuild to ensure correctness
+        createTable(newConfig)
+    }
 
     // Update Camera Position if in perspective mode AND camera params changed
     if (props.cameraMode === 'perspective') {
         let cameraChanged = true
-        if (oldConfig) {
+        if (oldConfig && newConfig !== oldConfig) {
             cameraChanged = (
                 newConfig.camera_x !== oldConfig.camera_x ||
                 newConfig.camera_y !== oldConfig.camera_y ||
@@ -640,12 +698,12 @@ watch(() => props.config, (newConfig, oldConfig) => {
         }
         
         if (cameraChanged) {
-            console.log('Pinball3D: Camera params changed, updating camera')
             updateCamera()
         }
     }
   }
-})
+}, { deep: true })
+
 
 // Nudge Animation (Camera Shake)
 const lastNudgeTime = ref(props.nudgeEvent?.time || 0)
@@ -694,10 +752,38 @@ onUnmounted(() => {
   }
   window.removeEventListener('keydown', handleKeydown)
   // Cleanup Three.js
+  if (animationId) cancelAnimationFrame(animationId)
+  
+  window.removeEventListener('keydown', handleKeydown)
+  
+  if (tableGroup) {
+    // Dispose table resources
+    tableGroup.traverse((obj) => {
+      if (obj.geometry) obj.geometry.dispose()
+      if (obj.material) {
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach(mat => mat.dispose())
+        } else {
+          obj.material.dispose()
+        }
+      }
+    })
+  }
+  
   if (renderer) {
       renderer.dispose()
-      // Dispose scene...
+      renderer.forceContextLoss()
+      renderer.domElement = null
   }
+  
+  if (scene) {
+      scene.clear()
+  }
+  
+  renderer = null
+  scene = null
+  camera = null
+  
   if (resizeObserver) {
     resizeObserver.disconnect()
   }

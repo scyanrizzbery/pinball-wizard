@@ -1,0 +1,177 @@
+{
+    "width": 0.6,
+    "height": 1.2,
+    "left_flipper_x_min": 0.3,
+    "left_flipper_x_max": 0.52,
+    "left_flipper_y_min": 0.8,
+    "left_flipper_y_max": 0.9,
+    "right_flipper_x_min": 0.48,
+    "right_flipper_x_max": 0.7,
+    "right_flipper_y_min": 0.8,
+    "right_flipper_y_max": 0.9,
+    "zones": [
+        {
+            "id": "default_left",
+            "type": "left",
+            "is_screen_space": true,
+            "points": [
+                {
+                    "x": 0.20185185185185175,
+                    "y": 0.7645833333333334
+                },
+                {
+                    "x": 0.5018518518518518,
+                    "y": 0.7645833333333334
+                },
+                {
+                    "x": 0.5018518518518518,
+                    "y": 0.9645833333333333
+                },
+                {
+                    "x": 0.20185185185185175,
+                    "y": 0.9645833333333333
+                }
+            ]
+        },
+        {
+            "id": "default_right",
+            "type": "right",
+            "is_screen_space": true,
+            "points": [
+                {
+                    "x": 0.5111111111111111,
+                    "y": 0.7664062500000001
+                },
+                {
+                    "x": 0.811111111111111,
+                    "y": 0.7664062500000001
+                },
+                {
+                    "x": 0.811111111111111,
+                    "y": 0.96640625
+                },
+                {
+                    "x": 0.5111111111111111,
+                    "y": 0.96640625
+                }
+            ]
+        }
+    ],
+    "bumpers": [
+        {
+            "x": 0.3,
+            "y": 0.25,
+            "radius_ratio": 0.05,
+            "value": 500
+        },
+        {
+            "x": 0.7,
+            "y": 0.25,
+            "radius_ratio": 0.05,
+            "value": 500
+        },
+        {
+            "x": 0.5056712962962964,
+            "y": 0.36689453125,
+            "radius_ratio": 0.05,
+            "value": 1000
+        },
+        {
+            "x": 0.49594907407407407,
+            "y": 0.5327799479166667,
+            "radius_ratio": 0.04,
+            "value": 250
+        },
+        {
+            "x": 0.6190972222222222,
+            "y": 0.6694986979166666,
+            "radius_ratio": 0.04,
+            "value": 250
+        },
+        {
+            "x": 0.3954861111111111,
+            "y": 0.6640299479166667,
+            "radius_ratio": 0.04,
+            "value": 750
+        }
+    ],
+    "drop_targets": [
+        {
+            "x": 0.35,
+            "y": 0.15,
+            "width": 0.03,
+            "height": 0.01,
+            "value": 2000
+        },
+        {
+            "x": 0.5,
+            "y": 0.15,
+            "width": 0.03,
+            "height": 0.01,
+            "value": 5000
+        },
+        {
+            "x": 0.65,
+            "y": 0.15,
+            "width": 0.03,
+            "height": 0.01,
+            "value": 2000
+        }
+    ],
+    "captures": [],
+    "ramps": [],
+    "teleports": [],
+    "upper_deck": null,
+    "upper_flippers": [],
+    "rails": [
+        {
+            "p1": {
+                "x": 0.18,
+                "y": 0.3
+            },
+            "p2": {
+                "x": 0.17696759259259265,
+                "y": 0.6991861979166667
+            }
+        },
+        {
+            "p1": {
+                "x": 0.76,
+                "y": 0.3
+            },
+            "p2": {
+                "x": 0.76,
+                "y": 0.67
+            }
+        },
+        {
+            "p1": {
+                "x": 0.4459490740740742,
+                "y": 0.44944661458333335
+            },
+            "p2": {
+                "x": 0.559375,
+                "y": 0.44944661458333335
+            }
+        }
+    ],
+    "rail_x_offset": -0.65,
+    "rail_y_offset": -0.15,
+    "physics": {
+        "gravity": 654.4237076968288,
+        "friction": 0.45,
+        "restitution": 0.8,
+        "flipper_speed": 11.3,
+        "flipper_resting_angle": -30.0,
+        "flipper_stroke_angle": 50.0,
+        "flipper_length": 0.22,
+        "plunger_release_speed": 1270.0,
+        "launch_angle": 12.0,
+        "tilt_threshold": 6.0,
+        "nudge_cost": 3.0,
+        "tilt_decay": 0.05,
+        "table_tilt": 1.5,
+        "rail_x_offset": -0.65,
+        "rail_y_offset": -0.15
+    }
+}
