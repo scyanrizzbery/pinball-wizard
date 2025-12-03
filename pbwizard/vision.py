@@ -55,17 +55,17 @@ class PinballLayout:
         # Default values
         self.width = 0.6  # 60cm
         self.height = 1.2 # 120cm
-        self.name = 'Custom'
+        self.name = 'Default'
         
         # Flipper Configuration (Normalized 0-1)
         # Widened to match 3D view aesthetics (was 0.35/0.65)
-        self.left_flipper_x_min = 0.3
-        self.left_flipper_x_max = 0.35
+        self.left_flipper_x_min = 0.25
+        self.left_flipper_x_max = 0.30
         self.left_flipper_y_min = 0.8
         self.left_flipper_y_max = 0.9
         
-        self.right_flipper_x_min = 0.65
-        self.right_flipper_x_max = 0.7
+        self.right_flipper_x_min = 0.70
+        self.right_flipper_x_max = 0.75
         self.right_flipper_y_min = 0.8
         self.right_flipper_y_max = 0.9
         
@@ -241,6 +241,27 @@ class PinballLayout:
             self.rail_x_offset = config['rail_x_offset']
         if 'rail_y_offset' in config:
             self.rail_y_offset = config['rail_y_offset']
+            
+        # Bake offsets into rail coordinates
+        if self.rail_x_offset != 0 or self.rail_y_offset != 0:
+            logger.info(f"Baking rail offsets into coordinates: x={self.rail_x_offset}, y={self.rail_y_offset}")
+            for rail in self.rails:
+                if 'p1' in rail:
+                    rail['p1']['x'] += self.rail_x_offset
+                    rail['p1']['y'] += self.rail_y_offset
+                if 'p2' in rail:
+                    rail['p2']['x'] += self.rail_x_offset
+                    rail['p2']['y'] += self.rail_y_offset
+            
+            # Reset offsets to 0 after baking
+            self.rail_x_offset = 0.0
+            self.rail_y_offset = 0.0
+            
+            # Also update physics params if present
+            if 'rail_x_offset' in self.physics_params:
+                self.physics_params['rail_x_offset'] = 0.0
+            if 'rail_y_offset' in self.physics_params:
+                self.physics_params['rail_y_offset'] = 0.0
 
     def to_dict(self):
         return {
@@ -337,8 +358,8 @@ class SimulatedFrameCapture:
     
     # Tilt Settings
     TILT_THRESHOLD = 8.0
-    NUDGE_COST = 4.0
-    TILT_DECAY = 0.05
+    NUDGE_COST = 4.5
+    TILT_DECAY_RATE = 2.0 # Per second
 
     def __init__(self, layout_config=None, width=450, height=800, socketio=None, headless=False):
         self.width = width
@@ -411,7 +432,7 @@ class SimulatedFrameCapture:
         # Tilt Parameters
         self.tilt_threshold = self.TILT_THRESHOLD
         self.nudge_cost = self.NUDGE_COST
-        self.tilt_decay = self.TILT_DECAY
+        self.tilt_decay_rate = self.TILT_DECAY_RATE
         
         self.show_rail_debug = False # Toggle for yellow rail lines
         
@@ -780,14 +801,10 @@ class SimulatedFrameCapture:
                 changes.append(f"Nudge Cost: {val}")
         if 'tilt_decay' in params:
             val = float(params['tilt_decay'])
-            if val != self.tilt_decay:
-                self.tilt_decay = val
+            if val != self.tilt_decay_rate:
+                self.tilt_decay_rate = val
                 changes.append(f"Tilt Decay: {val}")
-        if 'tilt_decay' in params:
-            val = float(params['tilt_decay'])
-            if val != self.tilt_decay:
-                self.tilt_decay = val
-                changes.append(f"Tilt Decay: {val}")
+
 
         if 'plunger_release_speed' in params:
             val = float(params['plunger_release_speed'])
@@ -838,6 +855,24 @@ class SimulatedFrameCapture:
             if rad_val != self.pitch:
                 self.pitch = rad_val
                 changes.append(f"Camera Pitch: {val}°")
+
+        if 'rail_x_offset' in params:
+            val = float(params['rail_x_offset'])
+            if val != self.rail_x_offset:
+                self.rail_x_offset = val
+                if self.physics_engine:
+                    self.physics_engine.rail_x_offset = val
+                    self.physics_engine.update_rail_params(x_offset=val)
+                changes.append(f"Rail X Offset: {val}")
+
+        if 'rail_y_offset' in params:
+            val = float(params['rail_y_offset'])
+            if val != self.rail_y_offset:
+                self.rail_y_offset = val
+                if self.physics_engine:
+                    self.physics_engine.rail_y_offset = val
+                    self.physics_engine.update_rail_params(y_offset=val)
+                changes.append(f"Rail Y Offset: {val}")
 
         if 'camera_y' in params:
             val = float(params['camera_y'])
@@ -948,7 +983,7 @@ class SimulatedFrameCapture:
             changes.append(f"Rail Angle: {val}°")
             
         if rail_changed and self.physics_engine:
-            self.physics_engine.update_rail_params(self.rail_thickness, self.rail_length_scale, self.rail_angle_offset)
+            self.physics_engine.update_rail_params(self.rail_thickness, self.rail_length_scale, self.rail_angle_offset, self.rail_x_offset, self.rail_y_offset)
 
         # Rail endpoint parameters - update layout rails directly
         rail_endpoint_changed = False
@@ -1044,7 +1079,7 @@ class SimulatedFrameCapture:
                     'table_tilt', 'gravity', 'friction', 'restitution', 'flipper_speed', 
                     'flipper_resting_angle', 'flipper_stroke_angle', 'flipper_length',
                     'plunger_release_speed', 'launch_angle', 'tilt_threshold', 
-                    'nudge_cost', 'tilt_decay', 'rail_x_offset', 'rail_y_offset'
+                    'nudge_cost', 'tilt_decay',
                 ]
                 
                 for key in physics_keys:
@@ -1160,6 +1195,7 @@ class SimulatedFrameCapture:
             
         self.score = 0
         self.balls = []
+        self.balls_remaining = 3 # Standard 3-ball game
         self.is_tilted = False
         self.tilt_value = 0.0
         
@@ -1193,7 +1229,7 @@ class SimulatedFrameCapture:
             'launch_angle': self.launch_angle,
             'tilt_threshold': self.tilt_threshold,
             'nudge_cost': self.nudge_cost,
-            'tilt_decay': self.tilt_decay,
+            'tilt_decay': self.tilt_decay_rate,
             'camera_pitch': np.degrees(self.pitch), # Save as degrees
             'camera_x': self.cam_x / self.width,
             'camera_y': self.cam_y / self.height,
@@ -1249,7 +1285,7 @@ class SimulatedFrameCapture:
             'launch_angle': self.launch_angle,
             'tilt_threshold': self.tilt_threshold,
             'nudge_cost': self.nudge_cost,
-            'tilt_decay': self.tilt_decay,
+            'tilt_decay': self.tilt_decay_rate,
             
             # Camera settings (global)
             'camera_pitch': np.degrees(self.pitch), # Save as degrees
@@ -1282,14 +1318,6 @@ class SimulatedFrameCapture:
             with open(filepath, 'w') as f:
                 json.dump(config, f, indent=4)
             logger.info(f"Physics config saved to {filepath}")
-            
-            # Also save physics to current layout file
-            if self.current_layout_id:
-                layout_filepath = os.path.join(os.getcwd(), 'layouts', f'{self.current_layout_id}.json')
-                if self.layout:
-                    self.layout.save_to_file(layout_filepath)
-                    logger.info(f"Saved physics params to layout: {self.current_layout_id}")
-            
             return True
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
@@ -1379,7 +1407,7 @@ class SimulatedFrameCapture:
         
         self.tilt_threshold = self.TILT_THRESHOLD
         self.nudge_cost = self.NUDGE_COST
-        self.tilt_decay = self.TILT_DECAY
+        self.tilt_decay_rate = self.TILT_DECAY_RATE
         
         self._update_flipper_rects()
         logger.info("Physics parameters reset to defaults")
@@ -1401,7 +1429,7 @@ class SimulatedFrameCapture:
             'tilt_threshold': self.tilt_threshold,
             'tilt_threshold': self.tilt_threshold,
             'nudge_cost': self.nudge_cost,
-            'tilt_decay': self.tilt_decay
+            'tilt_decay': self.tilt_decay_rate
         }
 
     def load_layout(self, layout_source):
@@ -1545,6 +1573,72 @@ class SimulatedFrameCapture:
             
             logger.info(f"Layout saved to {filepath}")
 
+    def update_rails(self, rails_data):
+        """Update rail positions from frontend."""
+        if not self.layout:
+            return
+            
+        # If rails_data is a list, replace all rails
+        if isinstance(rails_data, list):
+            self.layout.rails = rails_data
+            logger.info(f"Updated all rails: {len(rails_data)} rails")
+        
+        # Rebuild physics
+        if self.physics_engine:
+            self.physics_engine._rebuild_rails()
+            
+    def create_rail(self, rail_data):
+        """Create a new rail."""
+        if not self.layout:
+            return
+            
+        if not hasattr(self.layout, 'rails'):
+            self.layout.rails = []
+            
+        self.layout.rails.append(rail_data)
+        logger.info(f"Created rail: {rail_data}")
+        
+        if self.physics_engine:
+            self.physics_engine._rebuild_rails()
+            
+    def delete_rail(self, index):
+        """Delete a rail by index."""
+        if not self.layout or not hasattr(self.layout, 'rails'):
+            return
+            
+        if 0 <= index < len(self.layout.rails):
+            removed = self.layout.rails.pop(index)
+            logger.info(f"Deleted rail at index {index}: {removed}")
+            
+            if self.physics_engine:
+                self.physics_engine._rebuild_rails()
+
+    def create_bumper(self, bumper_data):
+        """Create a new bumper."""
+        if not self.layout:
+            return
+        
+        if not hasattr(self.layout, 'bumpers'):
+            self.layout.bumpers = []
+            
+        self.layout.bumpers.append(bumper_data)
+        logger.info(f"Created bumper: {bumper_data}")
+        
+        # Reuse update_bumpers to sync physics and save
+        self.update_bumpers(self.layout.bumpers)
+
+    def delete_bumper(self, index):
+        """Delete a bumper by index."""
+        if not self.layout or not hasattr(self.layout, 'bumpers'):
+            return
+            
+        if 0 <= index < len(self.layout.bumpers):
+            removed = self.layout.bumpers.pop(index)
+            logger.info(f"Deleted bumper at index {index}: {removed}")
+            
+            # Reuse update_bumpers to sync physics and save
+            self.update_bumpers(self.layout.bumpers)
+
     def launch_ball(self):
         with self.lock:
             # 1. Try to launch existing ball in plunger lane
@@ -1574,9 +1668,8 @@ class SimulatedFrameCapture:
                         if len(self.game_history) > 50:
                             self.game_history.pop()
                         
-                        # Reset Score
-                        self.score = 0
-                        self.balls_remaining = 3 # Reset balls
+                        # Full Game Reset (clears physics, combo, score, balls)
+                        self.reset_game()
                         pass
                 
                 # Spawn ball in plunger lane
@@ -1587,6 +1680,14 @@ class SimulatedFrameCapture:
                 
             else:
                 logger.info("Sim: Max balls reached, cannot add more")
+
+    def relaunch_ball(self):
+        """Force relaunch/rescue of ball to plunger lane."""
+        with self.lock:
+            if self.physics_engine:
+                self.physics_engine.rescue_ball()
+                logger.info("Sim: Ball rescued/relaunched via user command")
+
 
 
     def add_ball(self):
@@ -1645,8 +1746,10 @@ class SimulatedFrameCapture:
                 return
 
             # Accumulate Tilt
+            current_time = time.time()
+            time_since_last = current_time - (self.last_nudge['time'] if self.last_nudge else 0)
             self.tilt_value += self.nudge_cost
-            logger.info(f"Nudge! Tilt Value: {self.tilt_value:.2f} / {self.tilt_threshold:.2f} (Cost: {self.nudge_cost:.2f})")
+            logger.info(f"NUDGE PROCESSED! Tilt: {self.tilt_value:.2f}/{self.tilt_threshold:.2f} (+{self.nudge_cost}). Decay Rate: {self.tilt_decay_rate}. Time Delta: {time_since_last:.3f}s")
             if self.tilt_value > self.tilt_threshold:
                 self.is_tilted = True
                 logger.info("TILT! Game Over for this ball.")
@@ -1665,24 +1768,10 @@ class SimulatedFrameCapture:
             logger.debug(f"Sim: Nudge applied ({dx}, {dy})")
 
     def nudge_left(self):
-        if self.physics_engine:
-            self.physics_engine.nudge(-5.0, -2.0)
-            
-        # Record nudge for UI visualization
-        self.last_nudge = {
-            'time': time.time(),
-            'direction': 'left'
-        }
+        self.nudge(-5.0, -2.0)
 
     def nudge_right(self):
-        if self.physics_engine:
-            self.physics_engine.nudge(5.0, -2.0)
-            
-        # Record nudge for UI visualization
-        self.last_nudge = {
-            'time': time.time(),
-            'direction': 'right'
-        }
+        self.nudge(5.0, -2.0)
 
     def pull_plunger(self, strength=1.0):
         if self.physics_engine:
@@ -1939,35 +2028,25 @@ class SimulatedFrameCapture:
                 exit_x, exit_y = teleport['exit_x'] * self.width, teleport['exit_y'] * self.height
                 ball['pos'] = np.array([exit_x, exit_y], dtype=float)
 
-    def nudge_left(self):
-        """Apply nudge force to the left."""
-        if self.physics_engine:
-            self.physics_engine.nudge(-self.nudge_cost, 0)
-            self.last_nudge = {'time': time.time(), 'direction': 'left'}
-            # Emit event for frontend animation
-            if self.socketio:
-                self.socketio.emit('stats_update', {'nudge': self.last_nudge})
 
-    def nudge_right(self):
-        """Apply nudge force to the right."""
-        if self.physics_engine:
-            self.physics_engine.nudge(self.nudge_cost, 0)
-            self.last_nudge = {'time': time.time(), 'direction': 'right'}
-            # Emit event for frontend animation
-            if self.socketio:
-                self.socketio.emit('stats_update', {'nudge': self.last_nudge})
 
     def _simulation_loop(self):
         dt = 1.0 / 60.0 # Fixed time step for 60 FPS physics 
+        last_decay_time = time.time()
 
         while self.running:
             with self.lock:
                 # Remove lost balls
                 self.balls = [b for b in self.balls if not b['lost']]
                 
-                # Decay Tilt
+                # Decay Tilt (Time-based)
+                current_time = time.time()
+                decay_dt = current_time - last_decay_time
+                last_decay_time = current_time
+                
                 if self.tilt_value > 0:
-                    self.tilt_value = max(0, self.tilt_value - self.tilt_decay)
+                    decay_amount = self.tilt_decay_rate * decay_dt
+                    self.tilt_value = max(0, self.tilt_value - decay_amount)
                     if self.tilt_value == 0 and self.is_tilted:
                         self.is_tilted = False
                         if self.physics_engine:
@@ -2010,6 +2089,17 @@ class SimulatedFrameCapture:
                 if self.physics_engine.score != self.score:
                     logger.debug(f"Score sync: {self.score} -> {self.physics_engine.score}")
                 self.score = self.physics_engine.score
+                
+                # Check for physics events (e.g. stuck ball)
+                events = self.physics_engine.get_events()
+                for event in events:
+                    if event['type'] == 'stuck_ball':
+                        logger.info("Emitting stuck_ball event to socket")
+                        if self.socketio:
+                            self.socketio.emit('stuck_ball', {'timestamp': event['timestamp']}, namespace='/game')
+                    elif event['type'] == 'collision':
+                        # Already handled by physics engine score update, but we could emit collision events here if needed
+                        pass
                 
             # Sync with Physics Engine
             state = self.physics_engine.get_state()

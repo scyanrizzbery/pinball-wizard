@@ -205,7 +205,26 @@
             @change="updatePhysics('show_rail_debug', $event.target.checked)">
         </div>
 
-        <div style="margin-bottom: 5px; color: #999; font-size: 0.85em;">Left Rail Position</div>
+          <div style="margin-bottom: 5px; margin-top: 15px; color: #999; font-size: 0.85em; border-top: 1px dashed #333; padding-top: 10px;">Rail Translation</div>
+          <div class="slider-container">
+              <div class="slider-label">
+                  <span>X Offset (Left/Right)</span>
+                  <span>{{ formatNumber(physics.rail_x_offset, 2) }}</span>
+              </div>
+              <input type="range" min="-1.0" max="1.0" step="0.01" v-model.number="physics.rail_x_offset"
+                     @input="updatePhysics('rail_x_offset')" :disabled="stats.is_training">
+          </div>
+          <div class="slider-container">
+              <div class="slider-label">
+                  <span>Y Offset (Up/Down)</span>
+                  <span>{{ formatNumber(physics.rail_y_offset, 2) }}</span>
+              </div>
+              <input type="range" min="-1.0" max="1.0" step="0.01" v-model.number="physics.rail_y_offset"
+                     @input="updatePhysics('rail_y_offset')" :disabled="stats.is_training">
+          </div>
+
+
+          <div style="margin-bottom: 5px; color: #999; font-size: 0.85em;">Left Rail Position</div>
         <div class="slider-container">
           <div class="slider-label">
             <span>Start X</span>
@@ -271,24 +290,6 @@
           </div>
           <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_right_p2_y"
             @input="updatePhysics('rail_right_p2_y')" :disabled="stats.is_training">
-        </div>
-        
-        <div style="margin-bottom: 5px; margin-top: 15px; color: #999; font-size: 0.85em; border-top: 1px dashed #333; padding-top: 10px;">Rail Translation</div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>X Offset (Left/Right)</span>
-            <span>{{ formatNumber(physics.rail_x_offset, 2) }}</span>
-          </div>
-          <input type="range" min="-1.0" max="1.0" step="0.01" v-model.number="physics.rail_x_offset"
-            @input="updatePhysics('rail_x_offset')" :disabled="stats.is_training">
-        </div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>Y Offset (Up/Down)</span>
-            <span>{{ formatNumber(physics.rail_y_offset, 2) }}</span>
-          </div>
-          <input type="range" min="-1.0" max="1.0" step="0.01" v-model.number="physics.rail_y_offset"
-            @input="updatePhysics('rail_y_offset')" :disabled="stats.is_training">
         </div>
         
         <div style="margin-bottom: 5px; margin-top: 15px; color: #999; font-size: 0.85em; border-top: 1px dashed #333; padding-top: 10px;">Rail Transformations</div>

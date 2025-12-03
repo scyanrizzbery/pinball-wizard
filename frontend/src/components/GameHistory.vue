@@ -5,15 +5,15 @@
     <div v-if="historyStats" class="stats-row">
       <div class="stat-item">
         <span class="stat-label">Min</span>
-        <span class="stat-value">{{ historyStats.min.toLocaleString() }}</span>
+        <span class="stat-value">{{ formatScore(historyStats.min) }}</span>
       </div>
       <div class="stat-item">
         <span class="stat-label">Max</span>
-        <span class="stat-value">{{ historyStats.max.toLocaleString() }}</span>
+        <span class="stat-value">{{ formatScore(historyStats.max) }}</span>
       </div>
       <div class="stat-item">
         <span class="stat-label">Avg</span>
-        <span class="stat-value">{{ historyStats.mean.toLocaleString() }}</span>
+        <span class="stat-value">{{ formatScore(historyStats.mean) }}</span>
       </div>
     </div>
     <div v-else class="stats-row" style="justify-content: center; color: #666; font-style: italic; padding: 10px;">
@@ -241,7 +241,18 @@ const chartOptions = computed(() => {
       style: { color: '#fff' },
       headerFormat: '',
       pointFormatter: function () {
-        return `<b>Score: ${this.y.toLocaleString()}</b><br />Time: ${new Date(this.x).toLocaleTimeString()}`
+        // Use the same format logic (replicated here or accessible?)
+        // Highcharts formatter context doesn't easily access component scope functions without binding
+        // We can define the logic inline or bind it.
+        const num = this.y
+        let formatted = num.toLocaleString()
+        if (num >= 1000000) {
+          formatted = (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+        } else if (num >= 1000) {
+          formatted = (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+        }
+        
+        return `<b>Score: ${formatted}</b><br />Time: ${new Date(this.x).toLocaleTimeString()}`
       }
     },
     series: [{
@@ -264,6 +275,17 @@ watch(showChart, (newVal) => {
     })
   }
 })
+
+const formatScore = (num) => {
+  if (num === null || num === undefined) return '0'
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  }
+  return num.toLocaleString()
+}
 </script>
 <style scoped>
 #history-container {

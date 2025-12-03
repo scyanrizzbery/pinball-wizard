@@ -215,6 +215,16 @@ def handle_input(data):
         if hasattr(capture, 'nudge_right'):
             capture.nudge_right()
 
+@socketio.on('relaunch_ball', namespace='/game')
+def handle_relaunch_ball():
+    if not vision_system: return
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    
+    if hasattr(capture, 'relaunch_ball'):
+        capture.relaunch_ball()
+        logger.info("Relaunch ball command received and executed")
+
+
 
 @socketio.on('update_physics_v2', namespace='/config')
 def handle_physics_update(data):
@@ -248,6 +258,36 @@ def handle_update_rails(rails_data):
              
         socketio.emit('status', {'msg': 'Rails updated and saved'}, namespace='/config')
 
+@socketio.on('create_rail', namespace='/config')
+def handle_create_rail(rail_data):
+    """Handle creating a new rail."""
+    if vision_system:
+        if hasattr(vision_system, 'create_rail'):
+            vision_system.create_rail(rail_data)
+        elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'create_rail'):
+             vision_system.capture.create_rail(rail_data)
+        
+        socketio.emit('status', {'msg': 'Rail created'}, namespace='/config')
+        # Emit updated config
+        if hasattr(vision_system, 'capture'):
+             socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
+
+@socketio.on('delete_rail', namespace='/config')
+def handle_delete_rail(data):
+    """Handle deleting a rail."""
+    if vision_system:
+        rail_index = data.get('index')
+        if rail_index is not None:
+            if hasattr(vision_system, 'delete_rail'):
+                vision_system.delete_rail(rail_index)
+            elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'delete_rail'):
+                 vision_system.capture.delete_rail(rail_index)
+            
+            socketio.emit('status', {'msg': 'Rail deleted'}, namespace='/config')
+            # Emit updated config
+            if hasattr(vision_system, 'capture'):
+                 socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
+
 @socketio.on('update_bumpers', namespace='/config')
 def handle_update_bumpers(bumpers_data):
     """Handle bumper updates from frontend."""
@@ -256,6 +296,32 @@ def handle_update_bumpers(bumpers_data):
             vision_system.update_bumpers(bumpers_data)
         elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'update_bumpers'):
              vision_system.capture.update_bumpers(bumpers_data)
+             
+        socketio.emit('status', {'msg': 'Bumpers updated and saved'}, namespace='/config')
+
+@socketio.on('create_bumper', namespace='/config')
+def handle_create_bumper(bumper_data):
+    """Handle creating a new bumper."""
+    if vision_system:
+        if hasattr(vision_system, 'create_bumper'):
+            vision_system.create_bumper(bumper_data)
+        elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'create_bumper'):
+             vision_system.capture.create_bumper(bumper_data)
+        
+        socketio.emit('status', {'msg': 'Bumper created'}, namespace='/config')
+
+@socketio.on('delete_bumper', namespace='/config')
+def handle_delete_bumper(data):
+    """Handle deleting a bumper."""
+    if vision_system:
+        index = data.get('index')
+        if index is not None:
+            if hasattr(vision_system, 'delete_bumper'):
+                vision_system.delete_bumper(index)
+            elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'delete_bumper'):
+                 vision_system.capture.delete_bumper(index)
+            
+            socketio.emit('status', {'msg': 'Bumper deleted'}, namespace='/config')
              
         socketio.emit('status', {'msg': 'Bumpers updated and saved'}, namespace='/config')
         # Emit updated config

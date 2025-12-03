@@ -461,9 +461,6 @@ onMounted(() => {
     if (data.combo_count > 0) {
        // console.log('Combo Update:', data.combo_count, data.combo_active)
     }
-    if (data.game_history) {
-      gameHistory.value = data.game_history
-    }
     if (data.nudge) {
       nudgeEvent.value = data.nudge
     }
@@ -804,7 +801,7 @@ body {
   }
 
   #app-container {
-    padding: 0 4px 160px; /* Reduced side padding and bottom padding */
+    padding: 0 0 160px; /* Removed side padding */
     margin-bottom: 0;
   }
 

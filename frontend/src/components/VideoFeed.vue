@@ -14,6 +14,11 @@
         </div>
       </div>
     </div>
+    
+    <!-- DEBUG OVERLAY -->
+    <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: lime; padding: 5px; z-index: 9999; font-family: monospace; font-size: 12px; pointer-events: none; display: none">
+      Offsets: X={{ physics.rail_x_offset }} Y={{ physics.rail_y_offset }}
+    </div>
     <div id="video-wrapper" ref="containerElement">
       <div v-if="!videoSrc" class="loading-placeholder">
         <div class="spinner"></div>
@@ -207,15 +212,22 @@ const zones = computed(() => {
 const rails = computed(() => {
   if (!props.physics || !props.physics.rails) return []
   
-  // Decoupled: Handles should match Visual Rail (static), not Physics Rail (offset)
-  // const offsetX = props.physics.rail_x_offset || 0
-  // const offsetY = props.physics.rail_y_offset || 0
+  // Apply Rail Translation Offsets
+  // Offsets are already normalized (relative to width/height)
+  const normOffsetX = parseFloat(props.physics.rail_x_offset || 0)
+  const normOffsetY = parseFloat(props.physics.rail_y_offset || 0)
   
-  console.log(`VideoFeed rails computed. Rails: ${props.physics.rails.length}`)
+  // console.log(`VideoFeed rails computed. Rails: ${props.physics.rails.length}, Offsets: ${normOffsetX}, ${normOffsetY}`)
   
   return props.physics.rails.map(rail => {
-    const p1 = project3D(rail.p1.x, rail.p1.y)
-    const p2 = project3D(rail.p2.x, rail.p2.y)
+    // Apply offset to base coordinates
+    const p1x = rail.p1.x + normOffsetX
+    const p1y = rail.p1.y + normOffsetY
+    const p2x = rail.p2.x + normOffsetX
+    const p2y = rail.p2.y + normOffsetY
+    
+    const p1 = project3D(p1x, p1y)
+    const p2 = project3D(p2x, p2y)
     return {
       ...rail,
       screenP1: p1,
@@ -398,8 +410,10 @@ const onDrag = (e) => {
   } else if (type === 'rail') {
     const newRails = JSON.parse(JSON.stringify(props.physics.rails))
     const targetRail = newRails[index]
-    const offsetX = props.physics.rail_x_offset || 0
-    const offsetY = props.physics.rail_y_offset || 0
+    const normOffsetX = parseFloat(props.physics.rail_x_offset || 0)
+    const normOffsetY = parseFloat(props.physics.rail_y_offset || 0)
+    
+    console.log(`Drag Rail: handle=${handle}, startPos=${JSON.stringify(startPos)}, pos=${JSON.stringify(pos)}, offset=${normOffsetX}`)
     
     if (handle === 'body') {
       const tStart = unproject2D(startPos.x, startPos.y)
@@ -415,13 +429,14 @@ const onDrag = (e) => {
       dragging.value.startPos = pos
     } else if (handle === 'p1') {
       const tPos = unproject2D(pos.x, pos.y)
-      targetRail.p1.x = tPos.x - offsetX
-      targetRail.p1.y = tPos.y - offsetY
+      targetRail.p1.x = tPos.x - normOffsetX
+      targetRail.p1.y = tPos.y - normOffsetY
     } else if (handle === 'p2') {
       const tPos = unproject2D(pos.x, pos.y)
-      targetRail.p2.x = tPos.x - offsetX
-      targetRail.p2.y = tPos.y - offsetY
+      targetRail.p2.x = tPos.x - normOffsetX
+      targetRail.p2.y = tPos.y - normOffsetY
     }
+
     emit('update-rail', newRails)
   } else if (type === 'bumper') {
     const newBumpers = JSON.parse(JSON.stringify(props.physics.bumpers))

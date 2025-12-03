@@ -110,14 +110,12 @@ const gradientStyle = computed(() => {
   align-items: center;
   line-height: 1;
   margin-bottom: 10px;
-  padding-right: 10px; /* Extra safety padding for italic text */
 }
 
 .count {
   font-size: 4.5rem; /* Slightly smaller than before but still huge */
   font-weight: 900;
   font-family: 'Arial Black', sans-serif;
-  font-style: italic;
   letter-spacing: -2px;
 }
 
@@ -167,5 +165,42 @@ const gradientStyle = computed(() => {
 .toast-slide-leave-to {
   opacity: 0;
   transform: translate(-50%, -20px) scale(0.9);
+}
+
+@media (max-width: 690px) {
+  .combo-toast {
+    top: 10px;
+    left: auto;
+    right: 10px;
+    transform: none;
+    min-width: 100px;
+    padding: 8px 16px;
+    background: rgba(0, 0, 0, 0.4); /* More transparent */
+    backdrop-filter: blur(2px);
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  }
+
+  .count {
+    font-size: 1.8rem;
+    letter-spacing: -1px;
+  }
+
+  .label {
+    font-size: 0.6rem;
+    letter-spacing: 1px;
+    margin-top: -2px;
+  }
+  
+  .combo-content {
+    margin-bottom: 5px;
+    padding-right: 0;
+  }
+
+  /* Override transition for non-centered state */
+  .toast-slide-enter-from,
+  .toast-slide-leave-to {
+    transform: translateY(-10px) scale(0.9);
+  }
 }
 </style>

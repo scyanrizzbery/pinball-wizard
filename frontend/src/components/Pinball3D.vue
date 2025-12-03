@@ -1,5 +1,11 @@
 <template>
-  <div ref="container" class="pinball-container">
+  <div ref="container" class="pinball-container" 
+       @mousedown="onMouseDown" 
+       @mousemove="onMouseMove" 
+       @mouseup="onMouseUp"
+       @mouseleave="onMouseUp"
+       @dragover.prevent
+       @drop="onDrop">
     <button @click="$emit('toggle-view')" class="switch-view-btn">
       {{ cameraMode === 'perspective' ? 'Switch to 2D' : 'Switch to 3D' }}
     </button>
@@ -7,6 +13,42 @@
       <div>Camera X: {{ cameraDebug.x.toFixed(2) }}</div>
       <div>Camera Y: {{ cameraDebug.y.toFixed(2) }}</div>
       <div>Camera Z: {{ cameraDebug.z.toFixed(2) }}</div>
+    </div>
+    
+    <!-- Rail Editor Controls -->
+    <div class="editor-controls" v-if="cameraMode === 'perspective'">
+        <button @click="toggleEditMode" :class="{ active: isEditMode }">
+            {{ isEditMode ? 'Done Editing' : 'Edit Rails' }}
+        </button>
+        <div v-if="isEditMode" class="edit-actions">
+            <button @click="addRail">Add Rail</button>
+            <button @click="deleteSelectedObject" :disabled="selectedRailIndex === -1 && selectedBumperIndex === -1">Delete Selected</button>
+            <div v-if="selectedRailIndex !== -1" class="selected-info">
+                Selected: {{ selectedRailIndex }}
+            </div>
+            
+            <div class="object-drawer">
+                <div class="drawer-title">Drag to Add:</div>
+                <div class="drawer-item" draggable="true" @dragstart="onDragStart($event, 'rail')">
+                    <span>Rail</span>
+                </div>
+                <div class="drawer-item" draggable="true" @dragstart="onDragStart($event, 'bumper')">
+                    <span>Bumper</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Stuck Ball Dialog -->
+    <div v-if="stuckBallDialog" class="stuck-ball-dialog">
+      <div class="dialog-content">
+        <h2>BALL LOST! RE-LAUNCH?</h2>
+        <div class="timer">{{ stuckBallTimer }}</div>
+        <div class="buttons">
+          <button @click="confirmRelaunch" class="confirm-btn">YES (Enter)</button>
+          <button @click="cancelRelaunch" class="cancel-btn">NO (Esc)</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -17,6 +59,7 @@ import * as THREE from 'three'
 
   const props = defineProps({
   socket: Object,
+  configSocket: Object,
   config: Object,
   nudgeEvent: Object,
   cameraMode: { type: String, default: 'perspective' }
@@ -38,6 +81,338 @@ let physicsConfig = ref(null)
 const cameraDebug = ref({ x: 0, y: 0, z: 0 })
 const showDebug = ref(false)
 let debugTimeout = null
+
+// Stuck Ball State
+const stuckBallDialog = ref(false)
+const stuckBallTimer = ref(20)
+let stuckBallInterval = null
+
+// Rail Editor State
+const isEditMode = ref(false)
+const selectedRailIndex = ref(-1)
+const selectedBumperIndex = ref(-1)
+const selectedType = ref(null) // 'rail' or 'bumper'
+const isDragging = ref(false)
+const dragPoint = ref(null) // 'p1', 'p2', or 'body'
+const dragStartPos = new THREE.Vector2()
+const dragState = { initialP1: null, initialP2: null, initialPos: null }
+const raycaster = new THREE.Raycaster()
+const mouse = new THREE.Vector2()
+const railHandles = [] // Array of mesh handles
+const railMeshes = [] // Array of rail body meshes
+const bumperMeshes = [] // Array of bumper meshes
+let dragPlane = null // Plane for raycasting during drag
+
+const toggleEditMode = () => {
+    isEditMode.value = !isEditMode.value
+    if (!isEditMode.value) {
+        selectedRailIndex.value = -1
+        clearRailHandles()
+    } else {
+        updateRailHandles()
+    }
+}
+
+const addRail = () => {
+    // Add a default rail in the center
+    const newRail = {
+        p1: { x: 0.4, y: 0.4 },
+        p2: { x: 0.6, y: 0.6 }
+    }
+    props.configSocket.emit('create_rail', newRail)
+}
+
+const deleteSelectedObject = () => {
+    if (selectedType.value === 'rail' && selectedRailIndex.value !== -1) {
+        props.configSocket.emit('delete_rail', { index: selectedRailIndex.value })
+        selectedRailIndex.value = -1
+        clearRailHandles()
+    } else if (selectedType.value === 'bumper' && selectedBumperIndex.value !== -1) {
+        props.configSocket.emit('delete_bumper', { index: selectedBumperIndex.value })
+        selectedBumperIndex.value = -1
+    }
+}
+
+const updateRailHandles = () => {
+    clearRailHandles()
+    if (!isEditMode.value || !props.config || !props.config.rails) return
+    
+    props.config.rails.forEach((rail, index) => {
+        // Create handles for p1 and p2
+        const p1 = mapToWorld(rail.p1.x, rail.p1.y)
+        const p2 = mapToWorld(rail.p2.x, rail.p2.y)
+        
+        const createHandle = (pos, pointName) => {
+            const geometry = new THREE.SphereGeometry(0.02, 16, 16)
+            const material = new THREE.MeshBasicMaterial({ 
+                color: index === selectedRailIndex.value ? 0xff0000 : 0x00ff00 
+            })
+            const mesh = new THREE.Mesh(geometry, material)
+            mesh.position.set(pos.x, pos.y, 0.05) // Slightly above rail
+            mesh.userData = { railIndex: index, point: pointName, isHandle: true }
+            scene.add(mesh)
+            railHandles.push(mesh)
+        }
+        
+        createHandle(p1, 'p1')
+        createHandle(p2, 'p2')
+    })
+}
+
+const clearRailHandles = () => {
+    railHandles.forEach(h => scene.remove(h))
+    railHandles.length = 0
+}
+
+const mapToWorld = (x, y) => {
+    // Map normalized (0-1) to world coordinates used in 3D scene
+    // Based on mapX and mapY functions
+    return {
+        x: (x - 0.5) * 0.6,
+        y: (0.5 - y) * 1.2
+    }
+}
+
+const mapFromWorld = (wx, wy) => {
+    // Inverse of mapToWorld
+    return {
+        x: (wx / 0.6) + 0.5,
+        y: 0.5 - (wy / 1.2)
+    }
+}
+
+const onDragStart = (event, type) => {
+    event.dataTransfer.setData('type', type)
+}
+
+const onDrop = (event) => {
+    const type = event.dataTransfer.getData('type')
+    if (!type) return
+    
+    updateMouse(event)
+    raycaster.setFromCamera(mouse, camera)
+    
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
+    const target = new THREE.Vector3()
+    raycaster.ray.intersectPlane(plane, target)
+    
+    if (target) {
+        const normPos = mapFromWorld(target.x, target.y)
+        
+        if (type === 'rail') {
+            const newRail = {
+                p1: { x: normPos.x - 0.1, y: normPos.y - 0.1 },
+                p2: { x: normPos.x + 0.1, y: normPos.y + 0.1 }
+            }
+            props.configSocket.emit('create_rail', newRail)
+        } else if (type === 'bumper') {
+            const newBumper = {
+                x: normPos.x,
+                y: normPos.y,
+                radius_ratio: 0.04,
+                value: 100
+            }
+            props.configSocket.emit('create_bumper', newBumper)
+        }
+    }
+}
+
+const onMouseDown = (event) => {
+    if (!isEditMode.value) return
+    
+    updateMouse(event)
+    raycaster.setFromCamera(mouse, camera)
+    
+    // Check handles first
+    const intersects = raycaster.intersectObjects(railHandles)
+    if (intersects.length > 0) {
+        const hit = intersects[0].object
+        selectedRailIndex.value = hit.userData.railIndex
+        selectedType.value = 'rail'
+        selectedBumperIndex.value = -1
+        dragPoint.value = hit.userData.point
+        isDragging.value = true
+        
+        // Create drag plane at hit height
+        if (!dragPlane) {
+            dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -hit.position.z)
+        }
+        
+        // Disable orbit controls if we had them (we don't seem to use OrbitControls explicitly here?)
+        // If we did, we'd need to disable them.
+        
+        updateRailHandles() // To update selection color
+        return
+    }
+    
+    // Check rails (body selection)
+    const bodyIntersects = raycaster.intersectObjects(railMeshes)
+    if (bodyIntersects.length > 0) {
+        const hit = bodyIntersects[0].object
+        selectedRailIndex.value = hit.userData.railIndex
+        selectedType.value = 'rail'
+        selectedBumperIndex.value = -1
+        dragPoint.value = 'body'
+        isDragging.value = true
+        
+        // Create drag plane
+        if (!dragPlane) {
+            dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -hit.position.z)
+        }
+        
+        // Store start position
+        const target = new THREE.Vector3()
+        raycaster.ray.intersectPlane(dragPlane, target)
+        if (target) {
+            const normPos = mapFromWorld(target.x, target.y)
+            dragStartPos.set(normPos.x, normPos.y)
+            
+            // Store initial rail positions to avoid drift accumulation
+            const rail = props.config.rails[selectedRailIndex.value]
+            if (rail) {
+                // Store as userData on the rail object temporarily? Or separate ref?
+                // Let's use a separate object for drag state
+                dragState.initialP1 = { ...rail.p1 }
+                dragState.initialP2 = { ...rail.p2 }
+            }
+        }
+        
+        updateRailHandles()
+        return
+    }
+    
+    // Check bumpers
+    const bumperIntersects = raycaster.intersectObjects(bumperMeshes)
+    if (bumperIntersects.length > 0) {
+        const hit = bumperIntersects[0].object
+        selectedBumperIndex.value = hit.userData.bumperIndex
+        selectedType.value = 'bumper'
+        selectedRailIndex.value = -1
+        isDragging.value = true
+        
+        if (!dragPlane) {
+            dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -hit.position.z)
+        }
+        
+        const target = new THREE.Vector3()
+        raycaster.ray.intersectPlane(dragPlane, target)
+        if (target) {
+            const normPos = mapFromWorld(target.x, target.y)
+            dragStartPos.set(normPos.x, normPos.y)
+            
+            const bumper = props.config.bumpers[selectedBumperIndex.value]
+            if (bumper) {
+                dragState.initialPos = { x: bumper.x, y: bumper.y }
+            }
+        }
+        
+        updateRailHandles() // Clear rail handles
+        return
+    }
+}
+
+const onMouseMove = (event) => {
+    if (!isDragging.value) return
+    
+    updateMouse(event)
+    raycaster.setFromCamera(mouse, camera)
+    
+    const target = new THREE.Vector3()
+    raycaster.ray.intersectPlane(dragPlane, target)
+    
+    if (target) {
+        // Convert world to normalized
+        const normPos = mapFromWorld(target.x, target.y)
+        
+        // Update local config
+        // Update local config
+        if (selectedType.value === 'rail') {
+            const rail = props.config.rails[selectedRailIndex.value]
+            if (rail) {
+                if (dragPoint.value === 'body') {
+                    // Calculate delta
+                    const dx = normPos.x - dragStartPos.x
+                    const dy = normPos.y - dragStartPos.y
+                    
+                    // Apply to initial positions
+                    rail.p1.x = dragState.initialP1.x + dx
+                    rail.p1.y = dragState.initialP1.y + dy
+                    rail.p2.x = dragState.initialP2.x + dx
+                    rail.p2.y = dragState.initialP2.y + dy
+                } else {
+                    // Handle dragging
+                    rail[dragPoint.value].x = normPos.x
+                    rail[dragPoint.value].y = normPos.y
+                }
+                
+                updateRailHandles()
+            }
+        } else if (selectedType.value === 'bumper') {
+            const bumper = props.config.bumpers[selectedBumperIndex.value]
+            if (bumper) {
+                const dx = normPos.x - dragStartPos.x
+                const dy = normPos.y - dragStartPos.y
+                
+                bumper.x = dragState.initialPos.x + dx
+                bumper.y = dragState.initialPos.y + dy
+                
+                // Update mesh position
+                const mesh = bumperMeshes[selectedBumperIndex.value]
+                if (mesh) {
+                    mesh.position.set(mapX(bumper.x), mapY(bumper.y), 0.025)
+                }
+            }
+        }
+    }
+}
+
+const onMouseUp = () => {
+    if (isDragging.value) {
+        isDragging.value = false
+        // Emit update
+        if (props.config) {
+            if (selectedType.value === 'rail' && props.config.rails) {
+                props.configSocket.emit('update_rails', props.config.rails)
+            } else if (selectedType.value === 'bumper' && props.config.bumpers) {
+                props.configSocket.emit('update_bumpers', props.config.bumpers)
+            }
+        }
+    }
+}
+
+const updateMouse = (event) => {
+    const rect = container.value.getBoundingClientRect()
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+}
+const onStuckBall = (data) => {
+    console.log("Stuck ball detected!", data)
+    if (stuckBallDialog.value) return // Already showing
+    
+    stuckBallDialog.value = true
+    stuckBallTimer.value = 20
+    
+    if (stuckBallInterval) clearInterval(stuckBallInterval)
+    stuckBallInterval = setInterval(() => {
+        stuckBallTimer.value--
+        if (stuckBallTimer.value <= 0) {
+            cancelRelaunch()
+        }
+    }, 1000)
+}
+
+const confirmRelaunch = () => {
+    console.log("Relaunch confirmed")
+    props.socket.emit('relaunch_ball')
+    clearInterval(stuckBallInterval)
+    stuckBallDialog.value = false
+}
+
+const cancelRelaunch = () => {
+    console.log("Relaunch cancelled")
+    clearInterval(stuckBallInterval)
+    stuckBallDialog.value = false
+}
 
 // Watch for config changes from parent
 // Watch moved to after createTable definition
@@ -67,6 +442,8 @@ const createTable = (config = null) => {
   
   tableGroup = new THREE.Group()
   scene.add(tableGroup)
+  railMeshes.length = 0
+  bumperMeshes.length = 0
   
   // Clear existing balls and flippers so they are recreated in the new group
   balls = []
@@ -136,13 +513,15 @@ const createTable = (config = null) => {
     if (config.bumpers) {
       const bumperGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.05, 32)
       const baseMat = new THREE.MeshStandardMaterial({ color: 0xffaa00 })
-      config.bumpers.forEach(b => {
+      config.bumpers.forEach((b, i) => {
          const mat = baseMat.clone() // Clone for individual color control
          const mesh = new THREE.Mesh(bumperGeo, mat)
          mesh.rotation.x = Math.PI / 2
          mesh.position.set(mapX(b.x), mapY(b.y), 0.025)
+         mesh.userData = { bumperIndex: i, type: 'bumper' }
          tableGroup.add(mesh)
          flippers.bumpers.push(mesh)
+         bumperMeshes.push(mesh)
       })
     }
 
@@ -227,6 +606,8 @@ const createTable = (config = null) => {
         mesh.position.set(x1 + vec.x/2, y1 + vec.y/2, railHeight/2)
         mesh.rotation.z = angle
         mesh.scale.set(len, railThickness, 1)
+        mesh.userData = { railIndex: index, type: 'body' }
+        railMeshes.push(mesh)
         tableGroup.add(mesh)
       })
     }
@@ -575,12 +956,14 @@ onMounted(() => {
 
   socket.on('connect', onConnect)
   socket.on('game_state', onGameState)
+  socket.on('stuck_ball', onStuckBall)
   // socket.on('physics_config_loaded', onConfigLoaded) // Removed
   
   // Store cleanup function
   container.value._cleanupSocket = () => {
       socket.off('connect', onConnect)
       socket.off('game_state', onGameState)
+      socket.off('stuck_ball', onStuckBall)
       // socket.off('physics_config_loaded', onConfigLoaded) // Removed
   }
   
@@ -670,6 +1053,7 @@ const updateTable = (config) => {
 
 // Watch for config changes from parent (must be after createTable is defined)
 watch(() => props.config, (newConfig, oldConfig) => {
+  if (isDragging.value) return
   if (newConfig) {
     // console.log(`Pinball3D watcher fired.`)
     physicsConfig.value = newConfig
@@ -861,5 +1245,144 @@ const handleKeydown = (e) => {
   font-size: 12px;
   pointer-events: none;
   z-index: 100;
+}
+
+.stuck-ball-dialog {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+
+.dialog-content {
+  background: #222;
+  border: 2px solid #ff0000;
+  padding: 20px;
+  border-radius: 10px;
+  text-align: center;
+  color: white;
+  box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+}
+
+.dialog-content h2 {
+  margin-top: 0;
+  color: #ff4444;
+}
+
+.timer {
+  font-size: 48px;
+  font-weight: bold;
+  margin: 20px 0;
+  color: #ffaa00;
+}
+
+.buttons {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
+
+.confirm-btn, .cancel-btn {
+  padding: 10px 20px;
+  font-size: 18px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.confirm-btn {
+  background: #4caf50;
+  color: white;
+}
+
+.cancel-btn {
+  background: #f44336;
+  color: white;
+}
+
+.editor-controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 10px;
+    border-radius: 5px;
+}
+
+.edit-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.editor-controls button {
+    background: #333;
+    color: white;
+    border: 1px solid #555;
+    padding: 5px 10px;
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.editor-controls button.active {
+    background: #4caf50;
+    border-color: #4caf50;
+}
+
+.editor-controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.selected-info {
+    color: #aaa;
+    font-size: 12px;
+    text-align: center;
+}
+
+.object-drawer {
+    margin-top: 10px;
+    border-top: 1px solid #555;
+    padding-top: 10px;
+}
+.drawer-title {
+    font-size: 12px;
+    color: #aaa;
+    margin-bottom: 5px;
+}
+.drawer-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: #444;
+    padding: 5px;
+    margin-bottom: 5px;
+    border-radius: 3px;
+    cursor: grab;
+}
+.drawer-item:active {
+    cursor: grabbing;
+}
+.icon {
+    width: 16px;
+    height: 16px;
+    background: #666;
+}
+.rail-icon {
+    background: linear-gradient(45deg, transparent 45%, #fff 45%, #fff 55%, transparent 55%);
+}
+.bumper-icon {
+    border-radius: 50%;
+    background: #ffaa00;
 }
 </style>

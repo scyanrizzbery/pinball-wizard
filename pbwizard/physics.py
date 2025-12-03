@@ -26,7 +26,41 @@ COLLISION_LABELS = {
     8: "rail"
 }
 
-class PymunkEngine:
+
+class Physics:
+
+    def _layout_to_world(self, x_norm: float, y_norm: float) -> tuple[float, float]:
+        px = x_norm * self.width
+        # Use consistent Y mapping (downward-positive) matching other geometry
+        # Previously this inverted Y with (1.0 - y_norm) * height, which mirrored rails.
+        py = y_norm * self.height
+        return px, py
+
+    def _clear_rail_shapes(self):
+        for s in getattr(self, "rail_shapes", []):
+            try:
+                self.space.remove(s)
+            except Exception:
+                pass
+        self.rail_shapes = []
+
+    def _create_thick_line_poly(self, p1, p2, thickness):
+        dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+        length = np.hypot(dx, dy)
+        if length == 0:
+            return []
+        ux, uy = dx / length, dy / length
+        px, py = -uy, ux
+        r = thickness / 2.0
+        return [
+            (p1[0] + px * r, p1[1] + py * r),
+            (p2[0] + px * r, p2[1] + py * r),
+            (p2[0] - px * r, p2[1] - py * r),
+            (p1[0] - px * r, p1[1] - py * r),
+        ]
+
+
+class PymunkEngine(Physics):
     def __init__(self, layout, width, height):
         self.layout = layout
         self.width = width
@@ -35,6 +69,7 @@ class PymunkEngine:
         # Physics Space
         self.space = pymunk.Space()
         self.space.gravity = (0.0, 2500.0) # Pixels/s^2 (Snappy gravity)
+        print(f"DEBUG: Init static_body pos: {self.space.static_body.position}")
         
         self.balls = []
         self.flippers = {}
@@ -55,7 +90,7 @@ class PymunkEngine:
         self.combo_multiplier_enabled = True
         self. base_combo_bonus = 50  # Base points for maintaining combo
         self.multiplier_max = 5.0  # Max multiplier cap
-        
+
         # Rail tracking
         self.rail_shapes = []
         self.rail_thickness = 10.0
@@ -69,8 +104,11 @@ class PymunkEngine:
         self.events = []
         
         self._setup_static_geometry()
+        print(f"DEBUG: After setup_static_geometry static_body pos: {self.space.static_body.position}")
         self._setup_flippers()
+        print(f"DEBUG: After setup_flippers static_body pos: {self.space.static_body.position}")
         self._setup_collision_logging()
+        print(f"DEBUG: After setup_collision_logging static_body pos: {self.space.static_body.position}")
         
     def _setup_collision_logging(self):
         """Setup collision handlers to log what ball hits and award scores"""
@@ -188,7 +226,7 @@ class PymunkEngine:
         
         # Bumper handler removed - handled in default handler for scoring
 
-        
+
     def _setup_static_geometry(self):
         print("DEBUG: Entering _setup_static_geometry")
         # Walls
@@ -262,23 +300,9 @@ class PymunkEngine:
         # Setup Slingshots (Triangular bumpers above flippers)
         print("DEBUG: Calling _setup_slingshots")
         self._setup_slingshots()
-        
+
         # Setup Rails (as Polygons for robust collision)
-        if hasattr(self.layout, 'rails'):
-            print(f"DEBUG: Setting up {len(self.layout.rails)} rails")
-            for i, rail in enumerate(self.layout.rails):
-                p1 = (rail['p1']['x'] * self.width + self.rail_x_offset * self.width, 
-                      rail['p1']['y'] * self.height + self.rail_y_offset * self.height)
-                p2 = (rail['p2']['x'] * self.width + self.rail_x_offset * self.width, 
-                      rail['p2']['y'] * self.height + self.rail_y_offset * self.height)
-                logger.info(f"Adding Rail (Poly) {i}: {p1} -> {p2}")
-                
-                # Create thick polygon instead of segment
-                vertices = self._create_thick_line_poly(p1, p2, thickness=self.rail_thickness)
-                if vertices:
-                    shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.8, collision_type=COLLISION_TYPE_RAIL)
-                    self.rail_shapes.append(shape)
-                    logger.info(f"  Rail {i} vertices: {vertices}")
+        self._rebuild_rails()
 
 
 
@@ -571,7 +595,7 @@ class PymunkEngine:
         shape.collision_type = collision_type
         self.space.add(shape)
         return shape
-        
+
     def _add_static_box(self, pos, size, elasticity=0.5, collision_type=COLLISION_TYPE_DROP_TARGET):
         body = self.space.static_body
         shape = pymunk.Poly.create_box(body, size)
@@ -586,32 +610,35 @@ class PymunkEngine:
 
     def _setup_slingshots(self):
         """Create triangular slingshot bumpers above the flippers."""
-        # Left Slingshot
-        l_pivot_x = self.layout.left_flipper_x_min * self.width
-        l_pivot_y = self.layout.left_flipper_y_max * self.height
-        
-        # Define triangle points relative to flipper pivot
-        # P1: Bottom-Left (near pivot)
-        # P2: Top-Right (Inner)
-        # P3: Top-Left (Outer/Inlane side)
-        
-        # Offset slightly to the right of the pivot (since pivot is the heel)
-        l_p1 = (l_pivot_x + 25, l_pivot_y - 20)
-        l_p2 = (l_pivot_x + 70, l_pivot_y - 120)
-        l_p3 = (l_pivot_x + 25, l_pivot_y - 120)
-        
-        self._add_static_triangle(l_p1, l_p2, l_p3, elasticity=1.5, collision_type=COLLISION_TYPE_BUMPER)
-        
-        # Right Slingshot
-        r_pivot_x = self.layout.right_flipper_x_max * self.width
-        r_pivot_y = self.layout.right_flipper_y_max * self.height
-        
-        # Mirror of Left
-        r_p1 = (r_pivot_x - 25, r_pivot_y - 20)
-        r_p2 = (r_pivot_x - 70, r_pivot_y - 120)
-        r_p3 = (r_pivot_x - 25, r_pivot_y - 120)
-        
-        self._add_static_triangle(r_p1, r_p2, r_p3, elasticity=1.5, collision_type=COLLISION_TYPE_BUMPER)
+        # DISABLED: Slingshots were causing invisible collisions when bumpers removed
+        # TODO: Make slingshots optional or tied to bumper existence in layout
+        pass
+        # # Left Slingshot
+        # l_pivot_x = self.layout.left_flipper_x_min * self.width
+        # l_pivot_y = self.layout.left_flipper_y_max * self.height
+        # 
+        # # Define triangle points relative to flipper pivot
+        # # P1: Bottom-Left (near pivot)
+        # # P2: Top-Right (Inner)
+        # # P3: Top-Left (Outer/Inlane side)
+        # 
+        # # Offset slightly to the right of the pivot (since pivot is the heel)
+        # l_p1 = (l_pivot_x + 25, l_pivot_y - 20)
+        # l_p2 = (l_pivot_x + 70, l_pivot_y - 120)
+        # l_p3 = (l_pivot_x + 25, l_pivot_y - 120)
+        # 
+        # self._add_static_triangle(l_p1, l_p2, l_p3, elasticity=1.5, collision_type=COLLISION_TYPE_BUMPER)
+        # 
+        # # Right Slingshot
+        # r_pivot_x = self.layout.right_flipper_x_max * self.width
+        # r_pivot_y = self.layout.right_flipper_y_max * self.height
+        # 
+        # # Mirror of Left
+        # r_p1 = (r_pivot_x - 25, r_pivot_y - 20)
+        # r_p2 = (r_pivot_x - 70, r_pivot_y - 120)
+        # r_p3 = (r_pivot_x - 25, r_pivot_y - 120)
+        # 
+        # self._add_static_triangle(r_p1, r_p2, r_p3, elasticity=1.5, collision_type=COLLISION_TYPE_BUMPER)
 
     def _setup_flippers(self):
         # Left Flipper - pivot at BOTTOM-left to match visuals
@@ -737,6 +764,12 @@ class PymunkEngine:
         return shape
 
     def launch_plunger(self):
+        # Cooldown check (0.5s)
+        import time
+        current_time = time.time()
+        if hasattr(self, 'last_launch_time') and current_time - self.last_launch_time < 0.5:
+            return False
+            
         # Find ball in plunger lane
         # Lane wall is at 0.75*width, ball should be right of that
         lane_x = self.width * 0.75
@@ -745,8 +778,9 @@ class PymunkEngine:
         for b in self.balls:
             if b.position.x > lane_x and b.position.y > self.height * 0.5:
                 # Apply upward impulse with angle
-                # Reduced from -15000 to -1000 to prevent tunneling (v ~ 1000 px/s)
-                speed = 1000 * b.mass
+                # Use configurable speed (default 1500)
+                base_speed = getattr(self, 'plunger_release_speed', 1500.0)
+                speed = base_speed * b.mass
                 angle_rad = np.radians(self.launch_angle)
                 
                 # 0 degrees = Straight Up (0, -1)
@@ -755,11 +789,18 @@ class PymunkEngine:
                 impulse_x = speed * np.sin(angle_rad)
                 impulse_y = -speed * np.cos(angle_rad)
                 
-                impulse = (impulse_x, impulse_y) 
+                impulse = pymunk.Vec2d(impulse_x, impulse_y)
+                
+                # We want to apply this impulse in WORLD coordinates.
+                # But we only have apply_impulse_at_local_point (which rotates the input).
+                # So we must pre-rotate by -angle to cancel out the body's rotation.
+                impulse_local = impulse.rotated(-b.angle)
+                
                 b.activate() # Force wake up
-                b.apply_impulse_at_local_point(impulse)
+                b.apply_impulse_at_local_point(impulse_local)
                 launched = True
-                logger.info(f"PLUNGER LAUNCH! Angle: {self.launch_angle}°, Impulse: {impulse}, Pos: {b.position}, Vel: {b.velocity}")
+                self.last_launch_time = current_time
+                logger.info(f"PLUNGER LAUNCH! Angle: {self.launch_angle}°, Speed: {base_speed}, Impulse: {impulse}, Pos: {b.position}, Vel: {b.velocity}")
         
         return launched
 
@@ -821,6 +862,10 @@ class PymunkEngine:
                 if b.velocity.length < 10.0:
                     logger.info("Auto-launching resting ball")
                     self.launch_plunger()
+        
+        # Check for stuck balls
+        self.check_stuck_ball(dt)
+
         
         # Configurable angles (degrees)
         # Use stored values or defaults
@@ -955,7 +1000,7 @@ class PymunkEngine:
         """Return current score multiplier."""
         return self.score_multiplier
     
-    def update_rail_params(self, thickness=None, length_scale=None, angle_offset=None):
+    def update_rail_params(self, thickness=None, length_scale=None, angle_offset=None, x_offset=None, y_offset=None):
         """Update rail parameters and rebuild rails."""
         if thickness is not None:
             self.rail_thickness = thickness
@@ -963,61 +1008,88 @@ class PymunkEngine:
             self.rail_length_scale = length_scale
         if angle_offset is not None:
             self.rail_angle_offset = angle_offset
+        if x_offset is not None:
+            self.rail_x_offset = x_offset
+        if y_offset is not None:
+            self.rail_y_offset = y_offset
             
         self._rebuild_rails()
-        
+
     def _rebuild_rails(self):
-        """Remove and recreate rails with current parameters."""
-        # Remove existing rail shapes
-        for shape in self.rail_shapes:
-            self.space.remove(shape)
-        self.rail_shapes = []
+        self._clear_rail_shapes()
+        # Ensure static body is at origin to prevent double offsets
+        self.space.static_body.position = (0, 0)
         
-        logger.info(f"Rebuilding rails with: thickness={self.rail_thickness}, length_scale={self.rail_length_scale}, angle_offset={self.rail_angle_offset}")
-        
-        # Recreate rails from layout with current parameters
+        logger.info(f"Rebuilding rails with: thickness={self.rail_thickness}, length_scale={self.rail_length_scale}, angle_offset={self.rail_angle_offset}, offsets=({self.rail_x_offset}, {self.rail_y_offset})")
         if hasattr(self.layout, 'rails'):
             for i, rail in enumerate(self.layout.rails):
-                p1 = (rail['p1']['x'] * self.width + self.rail_x_offset * self.width, 
-                      rail['p1']['y'] * self.height + self.rail_y_offset * self.height)
-                p2 = (rail['p2']['x'] * self.width + self.rail_x_offset * self.width, 
-                      rail['p2']['y'] * self.height + self.rail_y_offset * self.height)
+                # Apply offsets (normalized coordinates)
+                p1_x = rail['p1']['x'] + self.rail_x_offset
+                p1_y = rail['p1']['y'] + self.rail_y_offset
+                p2_x = rail['p2']['x'] + self.rail_x_offset
+                p2_y = rail['p2']['y'] + self.rail_y_offset
                 
-                logger.info(f"Rail {i} base positions: p1={p1}, p2={p2}")
-                
-                # Apply length scale and angle offset
-                dx = p1[0] - p2[0]
-                dy = p1[1] - p2[1]
-                length = np.sqrt(dx*dx + dy*dy)
-                scaled_length = length * self.rail_length_scale
-                
+                p1 = self._layout_to_world(p1_x, p1_y)
+                p2 = self._layout_to_world(p2_x, p2_y)
+                dx, dy = p1[0] - p2[0], p1[1] - p2[1]
+                length = np.hypot(dx, dy)
                 if length > 0:
-                    ux = dx / length
-                    uy = dy / length
-                    p1_scaled = (p2[0] + ux * scaled_length, p2[1] + uy * scaled_length)
-                    
-                    # Apply angle offset (rotate around p2)
-                    if abs(self.rail_angle_offset) > 0.01:
-                        angle_rad = np.radians(self.rail_angle_offset)
-                        dx_new = p1_scaled[0] - p2[0]
-                        dy_new = p1_scaled[1] - p2[1]
-                        p1_rotated = (
-                            p2[0] + dx_new * np.cos(angle_rad) - dy_new * np.sin(angle_rad),
-                            p2[1] + dx_new * np.sin(angle_rad) + dy_new * np.cos(angle_rad)
-                        )
-                        p1_final = p1_rotated
-                    else:
-                        p1_final = p1_scaled
+                    ux, uy = dx / length, dy / length
+                    scaled_length = length * self.rail_length_scale
+                    p1_final = (p2[0] + ux * scaled_length, p2[1] + uy * scaled_length)
                 else:
                     p1_final = p1
-                
-                logger.info(f"Rail {i} final positions: p1_final={p1_final}, p2={p2}")
-                
-                # Create polygon with current thickness
                 vertices = self._create_thick_line_poly(p1_final, p2, thickness=self.rail_thickness)
                 if vertices:
-                    logger.info(f"Rail {i} polygon vertices: {vertices}")
-                    shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.8, collision_type=COLLISION_TYPE_RAIL)
+                    shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.8, collision_type=8)
                     self.rail_shapes.append(shape)
-                    
         logger.info(f"Rails rebuilt: {len(self.rail_shapes)} rails created")
+
+    def check_stuck_ball(self, dt):
+        """Check if any ball is stuck (low velocity for extended time)."""
+        import time
+        for b in self.balls:
+            speed = b.velocity.length
+            # Threshold: 5.0 pixels/sec (very slow)
+            if speed < 5.0:
+                # Ignore if in plunger lane (x > 0.8 width)
+                if b.position.x > self.width * 0.8:
+                    b.stuck_timer = 0.0
+                    b.stuck_event_sent = False
+                    continue
+                
+                # Increment timer
+                if not hasattr(b, 'stuck_timer'):
+                    b.stuck_timer = 0.0
+                b.stuck_timer += dt
+                
+                # Trigger after 5 seconds
+                if b.stuck_timer > 5.0:
+                    if not getattr(b, 'stuck_event_sent', False):
+                        logger.info(f"Stuck ball detected at {b.position}!")
+                        self.events.append({
+                            'type': 'stuck_ball',
+                            'timestamp': time.time()
+                        })
+                        b.stuck_event_sent = True
+            else:
+                b.stuck_timer = 0.0
+                b.stuck_event_sent = False
+
+    def rescue_ball(self):
+        """Rescue stuck balls by moving them to the plunger lane."""
+        logger.info("Rescuing stuck ball(s)...")
+        # Move all balls to plunger lane
+        # Or just the stuck ones?
+        # Simpler to just reset all balls to plunger to be safe.
+        
+        # Remove existing balls
+        for b in self.balls:
+            self.space.remove(b, *b.shapes)
+        self.balls = []
+        
+        # Add new ball in plunger lane
+        lane_x = self.width * 0.9
+        lane_y = self.height * 0.9
+        self.add_ball((lane_x, lane_y))
+        logger.info("Ball rescued to plunger lane.")
