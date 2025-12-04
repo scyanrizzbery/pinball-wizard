@@ -8,7 +8,7 @@
       <div id="game-area">
 
 
-        <div class="game-view-wrapper">
+        <div class="game-view-wrapper" id="playfield-container">
           <div class="scoreboard-overlay">
             <ScoreBoard 
               :score="stats.score" 
@@ -94,8 +94,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
-import io from 'socket.io-client'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import SoundManager from './utils/SoundManager'
+
+
 import Header from './components/Header.vue'
 import ScoreBoard from './components/ScoreBoard.vue'
 import ComboDisplay from './components/ComboDisplay.vue'
@@ -104,6 +106,7 @@ import Pinball3D from './components/Pinball3D.vue'
 import Controls from './components/Controls.vue'
 import Settings from './components/Settings.vue'
 import GameHistory from './components/GameHistory.vue'
+import io from 'socket.io-client'
 import Logs from './components/Logs.vue'
 
 const sockets = {
@@ -182,6 +185,9 @@ const physics = reactive({
   flipper_stroke_angle: 50,
   flipper_length: 0.2,
   flipper_width: 0.025,
+  flipper_tip_width: 0.025,
+  flipper_elasticity: 0.5,
+  ball_mass: 1.0,
   tilt_threshold: 8.0,
   nudge_cost: 5.0,
   tilt_decay: 0.03,
@@ -264,9 +270,18 @@ const handleInput = (key, type) => {
       activeKeys.add(key)
       sockets.control.emit('input_event', { key, type: 'down' })
 
-      if (key === 'KeyZ') buttonStates.left = true
-      else if (key === 'Slash') buttonStates.right = true
-      else if (key === 'Space') buttonStates.launch = true
+      if (key === 'KeyZ') {
+          buttonStates.left = true
+          SoundManager.playFlipperUp()
+      }
+      else if (key === 'Slash') {
+          buttonStates.right = true
+          SoundManager.playFlipperUp()
+      }
+      else if (key === 'Space') {
+          buttonStates.launch = true
+          SoundManager.playLaunch()
+      }
       else if (key === 'ShiftLeft') buttonStates.nudgeLeft = true
       else if (key === 'ShiftRight') buttonStates.nudgeRight = true
     }
@@ -275,8 +290,14 @@ const handleInput = (key, type) => {
       activeKeys.delete(key)
       sockets.control.emit('input_event', { key, type: 'up' })
 
-      if (key === 'KeyZ') buttonStates.left = false
-      else if (key === 'Slash') buttonStates.right = false
+      if (key === 'KeyZ') {
+          buttonStates.left = false
+          SoundManager.playFlipperDown()
+      }
+      else if (key === 'Slash') {
+          buttonStates.right = false
+          SoundManager.playFlipperDown()
+      }
       else if (key === 'Space') buttonStates.launch = false
       else if (key === 'ShiftLeft') buttonStates.nudgeLeft = false
       else if (key === 'ShiftRight') buttonStates.nudgeRight = false
@@ -284,12 +305,29 @@ const handleInput = (key, type) => {
   }
 }
 
+// Watch all physics properties to trigger updates automatically
+// This avoids race conditions between v-model and @input events
+Object.keys(physics).forEach(key => {
+  watch(() => physics[key], (newVal) => {
+    updatePhysics(key, newVal)
+  })
+})
+
 const updatePhysics = (param, value) => {
-  physics[param] = value // Update local state immediately
+  // If value is undefined (e.g. called from @input without value), use current physics value
+  const val = value !== undefined ? value : physics[param]
+  
+  physics[param] = val // Update local state (redundant if v-model used, but safe)
+  
+  // Also update layoutConfig so Pinball3D sees the change immediately
+  if (layoutConfig.value) {
+    layoutConfig.value[param] = val
+  }
+
   if (debounceTimers[param]) clearTimeout(debounceTimers[param])
   debounceTimers[param] = setTimeout(() => {
-    sockets.config.emit('update_physics_v2', { [param]: physics[param] })
-    sockets.config.emit('save_physics')
+    sockets.config.emit('update_physics_v2', { [param]: val })
+    // sockets.config.emit('save_physics') // Redundant, update_physics_v2 saves automatically
     delete debounceTimers[param]
   }, 300)
 }

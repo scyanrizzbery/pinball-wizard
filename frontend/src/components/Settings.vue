@@ -45,6 +45,11 @@
           </select>
         </div>
       </div>
+      <div class="control-group" style="flex: 0 0 auto; display: flex; align-items: flex-end;">
+        <button @click="toggleFullscreen" class="control-btn" style="height: 36px; padding: 0 15px; font-size: 0.8em; margin-bottom: 1px;">
+          {{ isFullscreen ? 'Exit Full' : 'Playfield Full' }}
+        </button>
+      </div>
     </div>
 
     <div class="tabs">
@@ -65,16 +70,14 @@
             <span>Table Tilt</span>
             <span>{{ formatNumber(physics.table_tilt, 1) }}°</span>
           </div>
-          <input type="range" min="1.0" max="10.0" step="0.1" v-model.number="physics.table_tilt"
-            @input="updatePhysics('table_tilt')">
+          <input type="range" min="1.0" max="10.0" step="0.1" v-model.number="physics.table_tilt">
         </div>
         <div class="slider-container">
           <div class="slider-label">
             <span>Friction</span>
             <span>{{ formatNumber(physics.friction, 3) }}</span>
           </div>
-          <input type="range" min="0.01" max="2.000" step="0.01" v-model.number="physics.friction"
-            @input="updatePhysics('friction')">
+          <input type="range" min="0.01" max="2.000" step="0.01" v-model.number="physics.friction">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -82,7 +85,7 @@
             <span>{{ formatNumber(physics.restitution, 2) }}</span>
           </div>
           <input type="range" min="0.1" max="2.0" step="0.01" v-model.number="physics.restitution"
-            @input="updatePhysics('restitution')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -90,7 +93,7 @@
             <span>{{ formatNumber(physics.plunger_release_speed, 0) }}</span>
           </div>
           <input type="range" min="100" max="2000" step="10" v-model.number="physics.plunger_release_speed"
-            @input="updatePhysics('plunger_release_speed')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -98,7 +101,15 @@
             <span>{{ formatNumber(physics.launch_angle, 1) }}°</span>
           </div>
           <input type="range" min="-90" max="90" step="1" v-model.number="physics.launch_angle"
-            @input="updatePhysics('launch_angle')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Ball Weight</span>
+            <span>{{ formatNumber(physics.ball_mass, 2) }}</span>
+          </div>
+          <input type="range" min="0.1" max="5.0" step="0.1" v-model.number="physics.ball_mass"
+            :disabled="stats.is_training">
         </div>
       </div>
 
@@ -114,7 +125,7 @@
             <span>{{ formatNumber(physics.flipper_speed, 1) }}</span>
           </div>
           <input type="range" min="0" max="60" step="0.1" v-model.number="physics.flipper_speed"
-            @input="updatePhysics('flipper_speed')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -122,7 +133,7 @@
             <span>{{ physics.flipper_resting_angle }}</span>
           </div>
           <input type="range" v-model.number="physics.flipper_resting_angle" min="-60" max="0" step="1"
-            @input="updatePhysics('flipper_resting_angle')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -130,7 +141,7 @@
             <span>{{ physics.flipper_stroke_angle }}</span>
           </div>
           <input type="range" v-model.number="physics.flipper_stroke_angle" min="10" max="90" step="1"
-            @input="updatePhysics('flipper_stroke_angle')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -138,15 +149,31 @@
             <span>{{ formatNumber(physics.flipper_length, 2) }}</span>
           </div>
           <input type="range" min="0.1" max="0.3" step="0.01" v-model.number="physics.flipper_length"
-            @input="updatePhysics('flipper_length')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
-            <span>Width</span>
+            <span>Head Width</span>
             <span>{{ formatNumber(physics.flipper_width, 3) }}</span>
           </div>
           <input type="range" min="0.01" max="0.05" step="0.001" v-model.number="physics.flipper_width"
-            @input="updatePhysics('flipper_width')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Tip Width</span>
+            <span>{{ formatNumber(physics.flipper_tip_width, 3) }}</span>
+          </div>
+          <input type="range" min="0.001" max="0.05" step="0.001" v-model.number="physics.flipper_tip_width"
+            :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Rubber Bounce</span>
+            <span>{{ formatNumber(physics.flipper_elasticity, 2) }}</span>
+          </div>
+          <input type="range" min="0.0" max="1.5" step="0.05" v-model.number="physics.flipper_elasticity"
+            :disabled="stats.is_training">
         </div>
         
         <div style="margin-bottom: 10px; margin-top: 15px; color: #aaa; font-size: 0.8em; border-top: 1px dashed #333; padding-top: 10px;">Left Flipper Position</div>
@@ -156,7 +183,7 @@
             <span>{{ formatNumber(physics.left_flipper_pos_x, 2) }}</span>
           </div>
           <input type="range" min="0.0" max="0.5" step="0.01" v-model.number="physics.left_flipper_pos_x"
-            @input="updatePhysics('left_flipper_pos_x')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -164,7 +191,7 @@
             <span>{{ formatNumber(physics.left_flipper_pos_y, 2) }}</span>
           </div>
           <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.left_flipper_pos_y"
-            @input="updatePhysics('left_flipper_pos_y')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
 
         <div style="margin-bottom: 10px; margin-top: 10px; color: #aaa; font-size: 0.8em;">Right Flipper Position</div>
@@ -174,7 +201,7 @@
             <span>{{ formatNumber(physics.right_flipper_pos_x, 2) }}</span>
           </div>
           <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.right_flipper_pos_x"
-            @input="updatePhysics('right_flipper_pos_x')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -182,7 +209,7 @@
             <span>{{ formatNumber(physics.right_flipper_pos_y, 2) }}</span>
           </div>
           <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.right_flipper_pos_y"
-            @input="updatePhysics('right_flipper_pos_y')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
 
 
@@ -212,7 +239,7 @@
                   <span>{{ formatNumber(physics.rail_x_offset, 2) }}</span>
               </div>
               <input type="range" min="-1.0" max="1.0" step="0.01" v-model.number="physics.rail_x_offset"
-                     @input="updatePhysics('rail_x_offset')" :disabled="stats.is_training">
+                     :disabled="stats.is_training">
           </div>
           <div class="slider-container">
               <div class="slider-label">
@@ -220,7 +247,7 @@
                   <span>{{ formatNumber(physics.rail_y_offset, 2) }}</span>
               </div>
               <input type="range" min="-1.0" max="1.0" step="0.01" v-model.number="physics.rail_y_offset"
-                     @input="updatePhysics('rail_y_offset')" :disabled="stats.is_training">
+                     :disabled="stats.is_training">
           </div>
 
 
@@ -231,7 +258,7 @@
             <span>{{ formatNumber(physics.rail_left_p1_x, 2) }}</span>
           </div>
           <input type="range" min="0.0" max="0.5" step="0.01" v-model.number="physics.rail_left_p1_x"
-            @input="updatePhysics('rail_left_p1_x')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -239,7 +266,7 @@
             <span>{{ formatNumber(physics.rail_left_p1_y, 2) }}</span>
           </div>
           <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_left_p1_y"
-            @input="updatePhysics('rail_left_p1_y')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -247,7 +274,7 @@
             <span>{{ formatNumber(physics.rail_left_p2_x, 2) }}</span>
           </div>
           <input type="range" min="0.0" max="0.5" step="0.01" v-model.number="physics.rail_left_p2_x"
-            @input="updatePhysics('rail_left_p2_x')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -255,7 +282,7 @@
             <span>{{ formatNumber(physics.rail_left_p2_y, 2) }}</span>
           </div>
           <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_left_p2_y"
-            @input="updatePhysics('rail_left_p2_y')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         
         <div style="margin-bottom: 5px; margin-top: 10px; color: #999; font-size: 0.85em;">Right Rail Position</div>
@@ -265,7 +292,7 @@
             <span>{{ formatNumber(physics.rail_right_p1_x, 2) }}</span>
           </div>
           <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.rail_right_p1_x"
-            @input="updatePhysics('rail_right_p1_x')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -273,7 +300,7 @@
             <span>{{ formatNumber(physics.rail_right_p1_y, 2) }}</span>
           </div>
           <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_right_p1_y"
-            @input="updatePhysics('rail_right_p1_y')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -281,7 +308,7 @@
             <span>{{ formatNumber(physics.rail_right_p2_x, 2) }}</span>
           </div>
           <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.rail_right_p2_x"
-            @input="updatePhysics('rail_right_p2_x')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -289,7 +316,7 @@
             <span>{{ formatNumber(physics.rail_right_p2_y, 2) }}</span>
           </div>
           <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_right_p2_y"
-            @input="updatePhysics('rail_right_p2_y')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         
         <div style="margin-bottom: 5px; margin-top: 15px; color: #999; font-size: 0.85em; border-top: 1px dashed #333; padding-top: 10px;">Rail Transformations</div>
@@ -299,7 +326,7 @@
             <span>{{ formatNumber(physics.guide_thickness, 1) }}</span>
           </div>
           <input type="range" min="5.0" max="50.0" step="1.0" v-model.number="physics.guide_thickness"
-            @input="updatePhysics('guide_thickness')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -307,7 +334,7 @@
             <span>{{ formatNumber(physics.guide_length_scale, 2) }}</span>
           </div>
           <input type="range" min="0.5" max="1.5" step="0.05" v-model.number="physics.guide_length_scale"
-            @input="updatePhysics('guide_length_scale')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -315,7 +342,7 @@
             <span>{{ formatNumber(physics.guide_angle_offset, 1) }}°</span>
           </div>
           <input type="range" min="-45.0" max="45.0" step="1.0" v-model.number="physics.guide_angle_offset"
-            @input="updatePhysics('guide_angle_offset')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
       </div>
 
@@ -338,7 +365,7 @@
             <span>{{ formatNumber(physics.combo_window, 1) }}s</span>
           </div>
           <input type="range" min="0.5" max="10.0" step="0.1" v-model.number="physics.combo_window"
-            @input="updatePhysics('combo_window')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -346,7 +373,7 @@
             <span>{{ formatNumber(physics.multiplier_max, 1) }}x</span>
           </div>
           <input type="range" min="1.0" max="20.0" step="0.5" v-model.number="physics.multiplier_max"
-            @input="updatePhysics('multiplier_max')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -354,7 +381,7 @@
             <span>{{ formatNumber(physics.base_combo_bonus, 0) }}</span>
           </div>
           <input type="range" min="0" max="1000" step="10" v-model.number="physics.base_combo_bonus"
-            @input="updatePhysics('base_combo_bonus')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
       </div>
 
@@ -371,7 +398,7 @@
             <span>{{ formatNumber(physics.camera_pitch, 1) }}°</span>
           </div>
           <input type="range" min="0" max="90" step="1" v-model.number="physics.camera_pitch"
-            @input="updatePhysics('camera_pitch')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -379,7 +406,7 @@
             <span>{{ formatNumber(physics.camera_x, 2) }}x</span>
           </div>
           <input type="range" min="0.0" max="1.0" step="0.05" v-model.number="physics.camera_x"
-            @input="updatePhysics('camera_x')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -387,7 +414,7 @@
             <span>{{ formatNumber(physics.camera_y, 2) }}x</span>
           </div>
           <input type="range" min="0.5" max="3.0" step="0.1" v-model.number="physics.camera_y"
-            @input="updatePhysics('camera_y')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -395,7 +422,7 @@
             <span>{{ formatNumber(physics.camera_z, 2) }}x</span>
           </div>
           <input type="range" min="0.5" max="3.0" step="0.1" v-model.number="physics.camera_z"
-            @input="updatePhysics('camera_z')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -403,7 +430,7 @@
             <span>{{ formatNumber(physics.camera_zoom, 2) }}x</span>
           </div>
           <input type="range" min="0.5" max="4.0" step="0.1" v-model.number="physics.camera_zoom"
-            @input="updatePhysics('camera_zoom')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
 
         <div class="setting-group" style="margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
@@ -435,7 +462,7 @@
             <span>{{ formatNumber(physics.tilt_threshold, 1) }}</span>
           </div>
           <input type="range" min="1" max="20" step="0.5" v-model.number="physics.tilt_threshold"
-            @input="updatePhysics('tilt_threshold')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
 
         <div class="slider-container">
@@ -444,7 +471,7 @@
             <span>{{ formatNumber(physics.nudge_cost, 1) }}</span>
           </div>
           <input type="range" min="0.1" max="10" step="0.1" v-model.number="physics.nudge_cost"
-            @input="updatePhysics('nudge_cost')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
 
         <div class="slider-container">
@@ -453,7 +480,7 @@
             <span>{{ formatNumber(physics.tilt_decay, 3) }}</span>
           </div>
           <input type="range" min="0.001" max="0.2" step="0.001" v-model.number="physics.tilt_decay"
-            @input="updatePhysics('tilt_decay')" :disabled="stats.is_training">
+            :disabled="stats.is_training">
         </div>
       </div>
 
@@ -573,6 +600,23 @@ const trainingConfig = reactive({
   modelName: 'ppo_pinball',
   timesteps: 100000,
   learningRate: 0.0003
+})
+
+const isFullscreen = ref(false)
+
+const toggleFullscreen = () => {
+  if (!document.fullscreenElement) {
+    const elem = document.getElementById('playfield-container') || document.documentElement
+    elem.requestFullscreen()
+  } else {
+    document.exitFullscreen()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('fullscreenchange', () => {
+    isFullscreen.value = !!document.fullscreenElement
+  })
 })
 
 const groupsExpanded = reactive({

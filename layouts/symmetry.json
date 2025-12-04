@@ -2,10 +2,10 @@
     "width": 0.6,
     "height": 1.2,
     "left_flipper_x_min": 0.25,
-    "left_flipper_x_max": 0.47,
+    "left_flipper_x_max": 0.45999999999999996,
     "left_flipper_y_min": 0.8,
     "left_flipper_y_max": 0.9,
-    "right_flipper_x_min": 0.53,
+    "right_flipper_x_min": 0.54,
     "right_flipper_x_max": 0.75,
     "right_flipper_y_min": 0.8,
     "right_flipper_y_max": 0.9,
@@ -13,46 +13,46 @@
         {
             "id": "default_left",
             "type": "left",
-            "is_screen_space": true,
+            "is_screen_space": false,
             "points": [
                 {
-                    "x": 0.20101187435154824,
-                    "y": 0.7668112145675262
+                    "x": 0.15,
+                    "y": 0.75
                 },
                 {
-                    "x": 0.5010118743515481,
-                    "y": 0.7668112145675262
+                    "x": 0.45,
+                    "y": 0.75
                 },
                 {
-                    "x": 0.5010118743515481,
-                    "y": 0.9668112145675262
+                    "x": 0.45,
+                    "y": 0.95
                 },
                 {
-                    "x": 0.20101187435154824,
-                    "y": 0.9668112145675262
+                    "x": 0.15,
+                    "y": 0.95
                 }
             ]
         },
         {
             "id": "default_right",
             "type": "right",
-            "is_screen_space": true,
+            "is_screen_space": false,
             "points": [
                 {
-                    "x": 0.5100816429430525,
-                    "y": 0.7653575463671909
+                    "x": 0.55,
+                    "y": 0.75
                 },
                 {
-                    "x": 0.8100816429430524,
-                    "y": 0.7653575463671909
+                    "x": 0.85,
+                    "y": 0.75
                 },
                 {
-                    "x": 0.8100816429430524,
-                    "y": 0.9653575463671908
+                    "x": 0.85,
+                    "y": 0.95
                 },
                 {
-                    "x": 0.5100816429430525,
-                    "y": 0.9653575463671908
+                    "x": 0.55,
+                    "y": 0.95
                 }
             ]
         }
@@ -192,19 +192,19 @@
     "rail_x_offset": 0.0,
     "rail_y_offset": 0.0,
     "physics": {
-        "gravity": 1177.6612677410667,
-        "friction": 2.0,
-        "restitution": 1.88,
+        "gravity": 959.6952271879986,
+        "friction": 0.8,
+        "restitution": 0.91,
         "flipper_speed": 8.9,
         "flipper_resting_angle": -34.0,
         "flipper_stroke_angle": 52.0,
-        "flipper_length": 0.22,
+        "flipper_length": 0.21,
         "plunger_release_speed": 1350.0,
         "launch_angle": 0.0,
         "tilt_threshold": 6.0,
         "nudge_cost": 4.0,
         "tilt_decay": 0.06,
-        "table_tilt": 2.7,
+        "table_tilt": 2.2,
         "rail_x_offset": 0.0,
         "rail_y_offset": 0.0,
         "flipper_width": 0.021

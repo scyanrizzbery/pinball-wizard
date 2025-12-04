@@ -235,9 +235,9 @@ def handle_physics_update(data):
     if hasattr(capture, 'update_physics_params'):
         capture.update_physics_params(data)
         # Emit updated config to sync clients (e.g. Pinball3D view)
-        if hasattr(capture, 'get_config'):
-            config = capture.get_config()
-            socketio.emit('physics_config_loaded', config, namespace='/config')
+        # if hasattr(capture, 'get_config'):
+        #     config = capture.get_config()
+        #     socketio.emit('physics_config_loaded', config, namespace='/config')
 
 
 @socketio.on('update_zones', namespace='/config')

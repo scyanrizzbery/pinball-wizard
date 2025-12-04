@@ -81,6 +81,8 @@ class PymunkEngine(Physics):
         self.drop_target_shapes = [] # Track drop target shapes for removal
         self.launch_angle = 0.0 # Launch angle in degrees (0 = Up)
         self.auto_start_enabled = True # Default to True
+        self.flipper_elasticity = 0.5 # Default rubber bounce
+        self.flipper_friction = 0.8 # Default rubber friction
         
         # Combo System
         self.combo_count = 0
@@ -130,6 +132,17 @@ class PymunkEngine(Physics):
                 
                 # Award score for certain collision types
                 score_value = SCORE_VALUES.get(other, 0)
+                
+                # Record event for RL and Sound
+                self.events.append({
+                    'type': 'collision',
+                    'label': label,
+                    'score': score_value,
+                    'total_score': self.score, # Note: this will be pre-score-update if score > 0, but that's fine
+                    'combo_count': self.combo_count
+                })
+                # logger.info(f"Physics: Added event {label}")
+
                 if score_value > 0:
                     # Combo detection - check if this is a scoring hit
                     import time
@@ -176,15 +189,6 @@ class PymunkEngine(Physics):
                     else:
                         logger.debug(f"BALL COLLISION: hit {label} (+{score_value} points, total: {self.score})")
                     
-                    # Record event for RL
-                    self.events.append({
-                        'type': 'collision',
-                        'label': label,
-                        'score': score_value,
-                        'total_score': final_score,
-                        'combo_count': self.combo_count
-                    })
-                    
                     # Flash Bumper if hit
                     if other == COLLISION_TYPE_BUMPER:
                         bumper_shape = shapes[0] if type_a == COLLISION_TYPE_BUMPER else shapes[1]
@@ -216,18 +220,6 @@ class PymunkEngine(Physics):
 
             return True
         handler.begin = begin_collision
-        
-        # Explicit handler for rail collisions
-        rail_handler = self.space.add_collision_handler(COLLISION_TYPE_BALL, COLLISION_TYPE_RAIL)
-        def rail_collision(arbiter, space, data):
-            logger.debug("!!! RAIL COLLISION DETECTED !!!")
-            ball_shape = arbiter.shapes[0] if arbiter.shapes[0].collision_type == COLLISION_TYPE_BALL else arbiter.shapes[1]
-            logger.debug(f"Ball position: {ball_shape.body.position}, velocity: {ball_shape.body.velocity}")
-            return True
-        rail_handler.begin = rail_collision
-        
-        # Bumper handler removed - handled in default handler for scoring
-
 
     def _setup_static_geometry(self):
         print("DEBUG: Entering _setup_static_geometry")
@@ -663,6 +655,11 @@ class PymunkEngine(Physics):
         self.flipper_width_ratio = width_ratio
         self._rebuild_flippers()
 
+    def update_flipper_tip_width(self, width_ratio):
+        """Update flipper tip width (thickness) and rebuild flippers."""
+        self.flipper_tip_width_ratio = width_ratio
+        self._rebuild_flippers()
+
     def _rebuild_flippers(self):
         """Remove and recreate flippers with current settings."""
         # Remove existing flippers
@@ -687,24 +684,41 @@ class PymunkEngine(Physics):
         
         # Use stored width ratio or default (0.025 ~ 11px)
         width_ratio = getattr(self, 'flipper_width_ratio', 0.025)
-        thickness = self.width * width_ratio
-        radius = thickness / 2.0
+        tip_width_ratio = getattr(self, 'flipper_tip_width_ratio', width_ratio) # Default to base width if not set
         
+        base_width = self.width * width_ratio
+        tip_width = self.width * tip_width_ratio
+        
+        # Poly radius for smoothing (subtract from width to keep visual size accurate)
+        poly_radius = 2.0
+        
+        base_radius = (base_width / 2.0) - poly_radius
+        tip_radius = (tip_width / 2.0) - poly_radius
+        
+        if base_radius < 1.0: base_radius = 1.0
+        if tip_radius < 1.0: tip_radius = 1.0
+
         if side == 'left':
             # Points Right [0, length]
-            # Segment from radius to length-radius
-            p1 = (radius, 0)
-            p2 = (length - radius, 0)
+            vertices = [
+                (0, -base_radius),
+                (0, base_radius),
+                (length, tip_radius),
+                (length, -tip_radius)
+            ]
         else:
             # Points Left [-length, 0]
-            # Segment from -radius to -(length-radius)
-            p1 = (-radius, 0)
-            p2 = (-(length - radius), 0)
+            vertices = [
+                (0, -base_radius),
+                (0, base_radius),
+                (-length, tip_radius),
+                (-length, -tip_radius)
+            ]
             
-        shape = pymunk.Segment(body, p1, p2, thickness)
-        shape.elasticity = 1.2  # High elasticity for strong ball bounce
-        shape.friction = 0.1
-        shape.collision_type = COLLISION_TYPE_FLIPPER  # Re-enabled with fixed positioning
+        shape = pymunk.Poly(body, vertices, radius=poly_radius)
+        shape.elasticity = getattr(self, 'flipper_elasticity', 0.5)
+        shape.friction = getattr(self, 'flipper_friction', 0.8)
+        shape.collision_type = COLLISION_TYPE_FLIPPER
         self.space.add(body, shape)
         
         return {
@@ -809,7 +823,7 @@ class PymunkEngine(Physics):
     def get_events(self):
         """Return and clear recent events."""
         events = self.events[:]
-        self.events = []
+        self.events.clear()
         return events
 
     def reset(self):

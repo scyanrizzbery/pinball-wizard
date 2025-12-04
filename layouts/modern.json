@@ -189,7 +189,7 @@
     "rail_x_offset": 0.0,
     "rail_y_offset": 0.0,
     "physics": {
-        "gravity": 2830.080344197668,
+        "gravity": 1830.954928190792,
         "friction": 0.4,
         "restitution": 0.8,
         "flipper_speed": 15.7,
@@ -201,7 +201,7 @@
         "tilt_threshold": 5.5,
         "nudge_cost": 4.5,
         "tilt_decay": 0.08,
-        "table_tilt": 6.5,
+        "table_tilt": 4.2,
         "rail_x_offset": 0.0,
         "rail_y_offset": 0.0,
         "flipper_width": 0.021

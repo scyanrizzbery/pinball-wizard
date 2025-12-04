@@ -36,7 +36,7 @@
             <button @click="toggleEditMode" :class="{ active: isEditMode }">
                 {{ isEditMode ? 'Done Editing' : 'Edit' }}
             </button>
-            <button @click="$emit('toggle-view')" class="switch-view-btn">
+            <button @click="$emit('toggle-view')">
                 {{ cameraMode === 'perspective' ? 'Switch to 2D' : 'Switch to 3D' }}
             </button>
         </div>
@@ -61,14 +61,24 @@
         </div>
     </div>
     
+    <!-- Sound Settings Overlay -->
+    <div v-if="showSoundSettings" class="sound-settings-overlay">
+        <SoundSettings @close="showSoundSettings = false" />
+    </div>
+
+    <!-- Sound Toggle Button (Top Right) -->
+    <button class="sound-toggle-btn" @click="showSoundSettings = !showSoundSettings">
+        🔊
+    </button>
+    
     <!-- Stuck Ball Dialog -->
     <div v-if="stuckBallDialog" class="stuck-ball-dialog">
       <div class="dialog-content">
         <h2>BALL LOST! RE-LAUNCH?</h2>
         <div class="timer">{{ stuckBallTimer }}</div>
         <div class="buttons">
-          <button @click="confirmRelaunch" class="confirm-btn">YES (Enter)</button>
-          <button @click="cancelRelaunch" class="cancel-btn">NO (Esc)</button>
+          <button @click="confirmRelaunch" class="confirm-btn">Yes</button>
+          <button @click="cancelRelaunch" class="cancel-btn">No</button>
         </div>
       </div>
     </div>
@@ -78,6 +88,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import * as THREE from 'three'
+import SoundManager from '../utils/SoundManager'
+import SoundSettings from './SoundSettings.vue'
 
   const props = defineProps({
   socket: Object,
@@ -103,6 +115,7 @@ let ballGeo, ballMat
 let physicsConfig = ref(null)
 const cameraDebug = ref({ x: 0, y: 0, z: 0 })
 const showDebug = ref(false)
+const showSoundSettings = ref(false)
 let debugTimeout = null
 
 // Stuck Ball State
@@ -251,6 +264,10 @@ const onDrop = (event) => {
 }
 
 const onMouseDown = (event) => {
+    console.log("Container MouseDown", event.button)
+    // Resume Audio Context on first interaction
+    SoundManager.resume()
+
     // Middle mouse button for camera panning
     if (event.button === 1) {
         event.preventDefault()
@@ -679,29 +696,26 @@ const createTable = (config = null) => {
   // Default flipper_length in physics is 0.2. 0.2 * 0.6 = 0.12 (matches previous hardcoded value)
   const flipperLength = (config && config.flipper_length) ? config.flipper_length * 0.6 : 0.12
   const flipperWidth = (config && config.flipper_width) ? config.flipper_width * 0.6 : 0.02
+  const flipperTipWidth = (config && config.flipper_tip_width !== undefined) ? config.flipper_tip_width * 0.6 : flipperWidth
   const flipperHeight = 0.04
   
   // Create rounded flipper shape (Stadium/Capsule 2D shape)
   const flipperShape = new THREE.Shape()
-  const radius = flipperWidth / 2
-  // The physics segment goes from (radius, 0) to (length-radius, 0)
-  // We want to draw the outline of this segment with thickness 'flipperWidth'
-  // Effectively, a rectangle from x=radius to x=length-radius with height=flipperWidth,
-  // plus semicircles at x=radius and x=length-radius.
-  // Actually, simpler: just draw the path.
+  const baseRadius = flipperWidth / 2
+  const tipRadius = flipperTipWidth / 2
   
-  const segLen = flipperLength - flipperWidth // Distance between circle centers
+  const segLen = flipperLength - baseRadius - tipRadius
   
-  // Start at bottom-left of the straight part
-  flipperShape.moveTo(radius, -radius)
-  // Line to bottom-right
-  flipperShape.lineTo(radius + segLen, -radius)
-  // Semicircle at right end
-  flipperShape.absarc(radius + segLen, 0, radius, -Math.PI/2, Math.PI/2, false)
-  // Line to top-left
-  flipperShape.lineTo(radius, radius)
-  // Semicircle at left end
-  flipperShape.absarc(radius, 0, radius, Math.PI/2, -Math.PI/2, false)
+  // Start at bottom of base circle
+  flipperShape.moveTo(baseRadius, -baseRadius)
+  // Line to bottom of tip circle
+  flipperShape.lineTo(baseRadius + segLen, -tipRadius)
+  // Semicircle at right end (tip)
+  flipperShape.absarc(baseRadius + segLen, 0, tipRadius, -Math.PI/2, Math.PI/2, false)
+  // Line to top of base circle
+  flipperShape.lineTo(baseRadius, baseRadius)
+  // Semicircle at left end (base)
+  flipperShape.absarc(baseRadius, 0, baseRadius, Math.PI/2, -Math.PI/2, false)
   
   const flipperGeo = new THREE.ExtrudeGeometry(flipperShape, {
     depth: flipperHeight,
@@ -734,7 +748,7 @@ const createTable = (config = null) => {
   tableGroup.add(leftPivot)
   
   const leftMesh = new THREE.Mesh(flipperGeo, flipperMat)
-  leftMesh.position.set(-radius, 0, 0) 
+  leftMesh.position.set(-baseRadius, 0, 0) 
   leftPivot.add(leftMesh)
   flippers.left = leftPivot
 
@@ -778,7 +792,7 @@ const createTable = (config = null) => {
   // So the mesh setup is actually symmetric (both extend Right from pivot), and rotation handles the direction.
   // So we keep the mesh position as is.
   
-  rightMesh.position.set(-radius, 0, 0)
+  rightMesh.position.set(-baseRadius, 0, 0)
   rightPivot.add(rightMesh)
   flippers.right = rightPivot
   
@@ -970,7 +984,7 @@ onMounted(() => {
   const onConnect = () => {
     console.log('Pinball3D Socket Connected')
   }
-  
+
   
   const updateDropTargets = (dropTargetStates) => {
     if (!flippers.dropTargets || !dropTargetStates) return
@@ -1006,9 +1020,28 @@ onMounted(() => {
     updateFlippers(state)
     updateDropTargets(state.drop_targets)
     updateBumpers(state.bumper_states)
+
+    // Handle Sound Events
+    if (state.events && state.events.length > 0) {
+      // console.log("Received events:", state.events)
+      state.events.forEach(event => {
+        if (event.type === 'collision') {
+          if (event.label === 'bumper') {
+            SoundManager.playBumper()
+          } else if (event.label === 'rail') {
+             SoundManager.playRailHit()
+          } else if (event.label === 'wall') {
+             SoundManager.playWallHit(0.5)
+          } else if (event.label === 'drop_target') {
+            console.log("Playing Drop Target Sound")
+            SoundManager.playDropTarget()
+          } else if (event.label === 'flipper') {
+             SoundManager.playWallHit(0.8) 
+          }
+        }
+      })
+    }
   }
-  
-  // REMOVED: onConfigLoaded listener (handled by prop)
 
   // If already connected
   if (socket.connected) {
@@ -1120,6 +1153,9 @@ const updateTable = (config) => {
   createTable(config)
 }
 
+// Cache last camera config to detect actual changes
+const lastCameraConfig = ref({})
+
 // Watch for config changes from parent (must be after createTable is defined)
 watch(() => props.config, (newConfig, oldConfig) => {
   if (isDragging.value) return
@@ -1127,27 +1163,31 @@ watch(() => props.config, (newConfig, oldConfig) => {
     // console.log(`Pinball3D watcher fired.`)
     physicsConfig.value = newConfig
     
-    if (newConfig !== oldConfig) {
-        // Full replacement
-        createTable(newConfig)
-    } else {
-        // Mutation
-        // Try to update in place if possible, otherwise rebuild
-        // For now, just rebuild to ensure correctness
-        createTable(newConfig)
-    }
+    // Always rebuild table for physics changes (could be optimized later)
+    createTable(newConfig)
 
     // Update Camera Position if in perspective mode AND camera params changed
     if (props.cameraMode === 'perspective') {
-        let cameraChanged = true
-        if (oldConfig && newConfig !== oldConfig) {
-            cameraChanged = (
-                newConfig.camera_x !== oldConfig.camera_x ||
-                newConfig.camera_y !== oldConfig.camera_y ||
-                newConfig.camera_z !== oldConfig.camera_z ||
-                newConfig.camera_pitch !== oldConfig.camera_pitch ||
-                newConfig.camera_zoom !== oldConfig.camera_zoom
-            )
+        let cameraChanged = false
+        
+        // Check against cached config
+        const currentCam = {
+            x: newConfig.camera_x,
+            y: newConfig.camera_y,
+            z: newConfig.camera_z,
+            pitch: newConfig.camera_pitch,
+            zoom: newConfig.camera_zoom
+        }
+        
+        if (
+            currentCam.x !== lastCameraConfig.value.x ||
+            currentCam.y !== lastCameraConfig.value.y ||
+            currentCam.z !== lastCameraConfig.value.z ||
+            currentCam.pitch !== lastCameraConfig.value.pitch ||
+            currentCam.zoom !== lastCameraConfig.value.zoom
+        ) {
+            cameraChanged = true
+            lastCameraConfig.value = currentCam
         }
         
         if (cameraChanged) {
@@ -1387,36 +1427,73 @@ const handleKeydown = (e) => {
     background: rgba(0, 0, 0, 0.7);
     padding: 10px;
     border-radius: 5px;
+    pointer-events: auto; /* Ensure clickable */
 }
 
 .controls-row {
     display: flex;
     gap: 10px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap; /* Allow wrapping */
     align-items: center;
+    justify-content: flex-end; /* Align to right */
+    pointer-events: auto; /* Ensure clickable */
 }
 
 .edit-actions {
     display: flex;
     flex-direction: column;
     gap: 5px;
+    pointer-events: auto;
 }
 
 .editor-controls button, .switch-view-btn {
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.8); /* Darker background */
     color: white;
-    border: 1px solid #555;
-    padding: 5px 10px;
+    border: 1px solid #777;
+    padding: 8px 12px; /* Larger hit area */
     cursor: pointer;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 14px; /* Larger text */
     white-space: nowrap;
     flex-shrink: 0;
     min-width: fit-content;
+    z-index: 1000; /* Ensure on top */
 }
+
+
 
 .editor-controls button:hover, .switch-view-btn:hover {
     background: rgba(0, 0, 0, 0.8);
+}
+
+.sound-toggle-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.6);
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    cursor: pointer;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    transition: background 0.2s;
+}
+
+.sound-toggle-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.sound-settings-overlay {
+    position: absolute;
+    top: 60px;
+    right: 10px;
+    z-index: 200;
 }
 
 .editor-controls button.active {

@@ -371,8 +371,7 @@ class SimulatedFrameCapture:
         self.layout = PinballLayout() # Removed 'layout' parameter from init, so always create new
         if layout_config:
             self.layout.load(layout_config)
-        self.physics_engine = PymunkEngine(self.layout, width, height) # Initialize Physics Engine
-        self.zone_manager = ZoneManager(width, height, self.layout)
+
         
         # Load layouts from layouts directory
         self.available_layouts = {}
@@ -399,15 +398,31 @@ class SimulatedFrameCapture:
             
             # Ensure current_layout_id is valid
             if self.current_layout_id not in self.available_layouts:
-                if 'pinball_wizard' in self.available_layouts:
-                    self.current_layout_id = 'pinball_wizard'
-                elif self.available_layouts:
-                    self.current_layout_id = next(iter(self.available_layouts))
+                if self.available_layouts:
+                    import random
+                    self.current_layout_id = random.choice(list(self.available_layouts.keys()))
+                    logger.info(f"Selected random startup layout: {self.current_layout_id}")
+                    # Load the selected layout data immediately
+                    if self.current_layout_id in self.available_layouts:
+                        self.layout.load(self.available_layouts[self.current_layout_id])
                 else:
                     logger.warning("No layouts found!")
+        
+
                     
         except Exception as e:
             logger.error(f"Failed to scan layouts directory: {e}")
+
+        self.ball_mass = 1.0
+        self.flipper_tip_width = 0.025
+        self.flipper_elasticity = 0.5
+        
+        self.physics_engine = PymunkEngine(self.layout, width, height) # Initialize Physics Engine
+        # Initialize physics properties that aren't passed in __init__
+        self.physics_engine.ball_mass = self.ball_mass
+        self.physics_engine.update_flipper_tip_width(self.flipper_tip_width)
+        
+        self.zone_manager = ZoneManager(width, height, self.layout)
 
 
         
@@ -488,6 +503,10 @@ class SimulatedFrameCapture:
         self.balls = [] # List of dicts: {'pos': np.array, 'vel': np.array, 'lost': bool}
         self.ball_radius = int(width * 0.025) # Scale ball with width
         self.balls_remaining = 1 # Single ball game
+        
+        # Event Buffers
+        self.frontend_events = []
+        self.rl_events = []
         self.last_ball_count = 0 # Track ball count for drain detection
         
         # Tilt State
@@ -787,7 +806,23 @@ class SimulatedFrameCapture:
             # Always update physics engine to ensure it has the correct value
             if self.physics_engine:
                 self.physics_engine.update_flipper_width(val)
-                
+
+        if 'flipper_tip_width' in params:
+            val = float(params['flipper_tip_width'])
+            if val != self.flipper_tip_width:
+                self.flipper_tip_width = val
+                changes.append(f"Flipper Tip Width: {val}")
+            if self.physics_engine:
+                self.physics_engine.update_flipper_tip_width(val)
+
+        if 'ball_mass' in params:
+            val = float(params['ball_mass'])
+            if val != self.ball_mass:
+                self.ball_mass = val
+                if self.physics_engine:
+                    self.physics_engine.ball_mass = val
+                changes.append(f"Ball Mass: {val}")
+
         if 'tilt_threshold' in params:
             val = float(params['tilt_threshold'])
             if val != self.tilt_threshold:
@@ -1012,6 +1047,20 @@ class SimulatedFrameCapture:
             self.physics_engine._rebuild_rails()
 
         # Rail translation offsets - shift both rails
+        if 'flipper_tip_width' in params:
+            val = float(params['flipper_tip_width'])
+            self.flipper_tip_width = val
+            if self.physics_engine:
+                self.physics_engine.update_flipper_tip_width(val)
+            changes.append(f"Flipper Tip Width: {val}")
+
+        if 'flipper_elasticity' in params:
+            val = float(params['flipper_elasticity'])
+            self.flipper_elasticity = val
+            if self.physics_engine:
+                self.physics_engine.update_flipper_elasticity(val)
+            changes.append(f"Flipper Elasticity: {val}")
+
         offset_changed = False
         if 'rail_x_offset' in params:
             val = float(params['rail_x_offset'])
@@ -1077,6 +1126,7 @@ class SimulatedFrameCapture:
                 physics_keys = [
                     'table_tilt', 'gravity', 'friction', 'restitution', 'flipper_speed', 
                     'flipper_resting_angle', 'flipper_stroke_angle', 'flipper_length', 'flipper_width',
+                    'flipper_tip_width', 'ball_mass', 'flipper_elasticity',
                     'plunger_release_speed', 'launch_angle', 'tilt_threshold', 
                     'nudge_cost', 'tilt_decay',
                     'combo_window', 'multiplier_max', 'base_combo_bonus', 'combo_multiplier_enabled'
@@ -1182,11 +1232,22 @@ class SimulatedFrameCapture:
         """Return current score from physics engine."""
         return self.score
 
-    def get_events(self):
-        """Return recent events from physics engine."""
+    def _collect_events(self):
+        """Collect events from physics engine and distribute to buffers."""
         if self.physics_engine:
-            return self.physics_engine.get_events()
+            new_events = self.physics_engine.get_events()
+            if new_events:
+                self.frontend_events.extend(new_events)
+                self.rl_events.extend(new_events)
+            return new_events
         return []
+
+    def get_events(self):
+        """Return recent events from physics engine (for RL)."""
+        self._collect_events()
+        events = self.rl_events[:]
+        self.rl_events.clear()
+        return events
 
     def reset_game(self):
         """Reset the game state (score, balls, physics)."""
@@ -1298,7 +1359,7 @@ class SimulatedFrameCapture:
             # Application state
             'last_model': getattr(self, 'last_model', None),
             'last_preset': getattr(self, 'last_preset', None),
-            'current_layout_id': self.current_layout_id,
+            # 'current_layout_id': self.current_layout_id, # Don't save layout ID to force random on startup
             
             # Combo Settings (global)
             'combo_window': self.physics_engine.combo_window if self.physics_engine else 3.0,
@@ -1347,18 +1408,25 @@ class SimulatedFrameCapture:
             # Priority: Load from specific layout file if ID is known, or default to 'pinball_wizard'
             layout_id = config.get('current_layout_id')
             
+            # If config doesn't specify layout, use the one currently set (e.g. from __init__)
+            if not layout_id and self.current_layout_id:
+                layout_id = self.current_layout_id
+            
             # If layout_id is missing or not in available layouts, try to find a valid one
             if not layout_id or layout_id not in self.available_layouts:
-                if 'pinball_wizard' in self.available_layouts:
-                    layout_id = 'pinball_wizard'
-                elif self.available_layouts:
-                    layout_id = next(iter(self.available_layouts))
+                if self.available_layouts:
+                    import random
+                    layout_id = random.choice(list(self.available_layouts.keys()))
+                    logger.info(f"Selected random layout (fallback): {layout_id}")
                 else:
                     layout_id = 'default' # Fallback if nothing else
             
             if layout_id in self.available_layouts:
-                logger.info(f"Loading layout: {layout_id}")
-                self.load_layout(layout_id)
+                if layout_id != self.current_layout_id:
+                    logger.info(f"Loading layout: {layout_id}")
+                    self.load_layout(layout_id)
+                else:
+                    logger.info(f"Layout {layout_id} already loaded, skipping reload")
             elif self.layout:
                 # Fallback: Load from config directly (legacy or if layout file missing)
                 logger.warning("Layout file not found, falling back to config data")
@@ -1485,6 +1553,11 @@ class SimulatedFrameCapture:
                 self.physics_engine.rail_y_offset = self.rail_y_offset
                 
                 logger.info(f"Physics engine reinitialized with new layout. Rail Offsets: {self.rail_x_offset}, {self.rail_y_offset}")
+            
+            # Apply saved physics parameters from layout
+            if hasattr(self.layout, 'physics_params') and self.layout.physics_params:
+                logger.info(f"Applying saved physics params from layout: {self.layout.physics_params}")
+                self.update_physics_params(self.layout.physics_params)
             
             # Reset game state
             self.score = 0
@@ -2114,7 +2187,7 @@ class SimulatedFrameCapture:
                 self.score = self.physics_engine.score
                 
                 # Check for physics events (e.g. stuck ball)
-                events = self.physics_engine.get_events()
+                events = self._collect_events()
                 for event in events:
                     if event['type'] == 'stuck_ball':
                         logger.info("Emitting stuck_ball event to socket")
@@ -2408,8 +2481,22 @@ class SimulatedFrameCapture:
             'game_history': self.game_history,
             'balls_remaining': self.balls_remaining,
             'is_tilted': self.is_tilted,
-            'nudge': self.last_nudge
+            'nudge': self.last_nudge,
+            'events': []
         }
+        
+        # Collect events from physics engine
+        self._collect_events()
+        
+        # Move events to state
+        state['events'] = self.frontend_events[:]
+        self.frontend_events.clear()
+        
+        if len(state['events']) > 0:
+            logger.debug(f"Vision: Collected {len(state['events'])} events for Frontend")
+            # The original line had a syntax error: `f"DEBUG: Vision collected events: {state['events']}"`
+            # It was missing a comma or concatenation. Assuming it was meant to be a separate debug log.
+            logger.debug(f"Vision collected events: {state['events']}")
         
         for ball in self.balls:
             if not ball['lost']:
