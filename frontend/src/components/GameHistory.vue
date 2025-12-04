@@ -398,7 +398,7 @@ const formatScore = (num) => {
   height: 100%;
   min-height: 600px;
   max-height: 850px;
-  overflow: hidden;
+  overflow-y: scroll;
 }
 
 #history-container h3 {
