@@ -594,11 +594,12 @@ def handle_get_models():
                 model_list.append({
                     'filename': f,
                     'hash': file_hash,
-                    'mod_time': mod_time
+                    'mod_time': mod_time,
+                    'mtime_timestamp': mtime  # Store timestamp for sorting
                 })
         
-        # Sort by filename (version)
-        model_list.sort(key=lambda x: x['filename'])
+        # Sort by modification time (newest first)
+        model_list.sort(key=lambda x: x.get('mtime_timestamp', 0), reverse=True)
         socketio.emit('models_list', model_list, namespace='/training')
     except Exception as e:
         logger.error(f"Error listing models: {e}")

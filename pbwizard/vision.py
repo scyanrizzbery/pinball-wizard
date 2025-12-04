@@ -568,7 +568,7 @@ class SimulatedFrameCapture:
                 "camera_pitch": 0.0,
                 "camera_x": 0.5,
                 "camera_y": 0.6,
-                "camera_z": 1.4,
+                "camera_z": 1.7,
                 "camera_zoom": 0.8
             },
             "Player View": {

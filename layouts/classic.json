@@ -2,10 +2,10 @@
     "width": 0.6,
     "height": 1.2,
     "left_flipper_x_min": 0.25,
-    "left_flipper_x_max": 0.45999999999999996,
+    "left_flipper_x_max": 0.47,
     "left_flipper_y_min": 0.8,
     "left_flipper_y_max": 0.9,
-    "right_flipper_x_min": 0.54,
+    "right_flipper_x_min": 0.53,
     "right_flipper_x_max": 0.75,
     "right_flipper_y_min": 0.8,
     "right_flipper_y_max": 0.9,
@@ -59,26 +59,26 @@
     ],
     "bumpers": [
         {
-            "x": 0.5,
-            "y": 0.25,
+            "x": 0.4756782408699033,
+            "y": 0.23813323138430353,
             "radius_ratio": 0.06,
             "value": 1000
         },
         {
-            "x": 0.4,
-            "y": 0.35,
+            "x": 0.36572941561775285,
+            "y": 0.32846445302720184,
             "radius_ratio": 0.06,
             "value": 1000
         },
         {
-            "x": 0.6,
-            "y": 0.35,
+            "x": 0.6011847581913442,
+            "y": 0.3248256085310074,
             "radius_ratio": 0.06,
             "value": 1000
         },
         {
-            "x": 0.4602067675111218,
-            "y": 0.49202444617324775,
+            "x": 0.4846170663306554,
+            "y": 0.45086943107441785,
             "radius_ratio": 0.04,
             "value": 100
         }
@@ -161,6 +161,26 @@
                 "x": 0.85,
                 "y": 0.1
             }
+        },
+        {
+            "p1": {
+                "x": 0.7870370370370372,
+                "y": 0.7419270833333335
+            },
+            "p2": {
+                "x": 0.7559777693715761,
+                "y": 0.8632969317396233
+            }
+        },
+        {
+            "p1": {
+                "x": 0.19444444444444445,
+                "y": 0.7544270833333333
+            },
+            "p2": {
+                "x": 0.22962962962962974,
+                "y": 0.8749999999999999
+            }
         }
     ],
     "rail_x_offset": 0.0,
@@ -172,7 +192,7 @@
         "flipper_speed": 1.6,
         "flipper_resting_angle": -44.0,
         "flipper_stroke_angle": 50.0,
-        "flipper_length": 0.21,
+        "flipper_length": 0.22,
         "plunger_release_speed": 1200.0,
         "launch_angle": 0.0,
         "tilt_threshold": 8.0,
