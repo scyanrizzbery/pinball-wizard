@@ -1900,11 +1900,21 @@ class SimulatedFrameCapture:
     def _check_drop_target_collision(self, ball):
         if ball['lost']: return
         
+        current_time = time.time()
+        
+        # Initialize invulnerability timer if not exists
+        if not hasattr(self, '_drop_target_invuln_until'):
+            self._drop_target_invuln_until = [0.0] * len(self.layout.drop_targets)
+        
         logger.debug(f"Checking drop target collision for ball at {ball['pos']}")
         
         for i, target in enumerate(self.layout.drop_targets):
             # Skip if already hit
             if i >= len(self.drop_target_states) or not self.drop_target_states[i]:
+                continue
+            
+            # Skip if invulnerable (just reset)
+            if i < len(self._drop_target_invuln_until) and current_time < self._drop_target_invuln_until[i]:
                 continue
             
             # Layout x,y are TOP-LEFT corner (to match physics.py line 127-132)
@@ -1931,47 +1941,58 @@ class SimulatedFrameCapture:
             if (bx > cx - tw_expanded/2 and bx < cx + tw_expanded/2 and
                 by > cy - th_expanded/2 and by < cy + th_expanded/2):
                 
-                # Hit!
+                # Mark as hit
                 self.drop_target_states[i] = False
-                logger.debug(f"DROP TARGET {i} HIT! Ball pos: ({bx}, {by}), Target: ({tx}, {ty})")
-                logger.debug(f"Drop Target States: {self.drop_target_states}")
+                logger.info(f"Drop target {i} hit! States: {self.drop_target_states}")
                 self.score += target['value']
                 ball['vel'][1] *= -1 # Bounce back
                 
                 # Remove from physics engine if using physics
                 if self.physics_engine and hasattr(self.physics_engine, 'drop_target_shapes'):
-                    logger.debug(f"Physics engine has {len(self.physics_engine.drop_target_shapes)} drop target shapes")
                     if i < len(self.physics_engine.drop_target_shapes):
                         shape = self.physics_engine.drop_target_shapes[i]
                         if shape in self.physics_engine.space.shapes:
                             self.physics_engine.space.remove(shape)
-                            logger.debug(f"✓ Removed drop target {i} shape from physics space")
+                            logger.debug(f"Removed drop target {i} from physics")
                         else:
-                            logger.warning(f"✗ Drop target {i} shape NOT in physics space (already removed?)")
+                            logger.debug(f"Drop target {i} already removed")
                     else:
-                        logger.error(f"✗ Drop target {i} index out of range for shapes list")
+                        logger.error(f"Drop target {i} index out of range")
                 else:
-                    logger.warning("✗ Physics engine or drop_target_shapes not available")
+                    logger.warning("Physics engine not available for drop target removal")
                 
                 # Check if all targets hit
-                if not any(self.drop_target_states):
-                    logger.info("ALL DROP TARGETS DOWN!")
+                all_down = not any(self.drop_target_states)
+                
+                # Only trigger multiball/reset once when all targets first go down
+                if all_down and not getattr(self, '_all_targets_down_triggered', False):
+                    logger.info("All drop targets down!")
+                    self._all_targets_down_triggered = True
                     
                     # Check cooldown
                     if time.time() > self.multiball_cooldown_timer:
-                        logger.debug("MULTIBALL ACTIVATED!")
+                        logger.info("Multiball activated!")
                         self.add_ball()
-                        self.multiball_cooldown_timer = time.time() + 5.0 # 5 second cooldown
+                        self.multiball_cooldown_timer = time.time() + 5.0
                     else:
-                        logger.info(f"Multiball cooldown active. Remaining: {self.multiball_cooldown_timer - time.time():.1f}s")
+                        remaining = self.multiball_cooldown_timer - time.time()
+                        logger.info(f"Multiball cooldown: {remaining:.1f}s remaining")
                     
                     # Reset targets - add them back to physics
                     self.drop_target_states = [True] * len(self.layout.drop_targets)
+                    
+                    # Set invulnerability period to prevent immediate re-hits
+                    # Always recreate the list to ensure correct size
+                    self._drop_target_invuln_until = [time.time() + 0.5] * len(self.layout.drop_targets)
+                    
                     if self.physics_engine and hasattr(self.physics_engine, 'drop_target_shapes'):
                         for j, shape in enumerate(self.physics_engine.drop_target_shapes):
                             if shape not in self.physics_engine.space.shapes:
                                 self.physics_engine.space.add(shape)
-                                logger.debug(f"Re-added drop target {j} to physics space")
+                        logger.info(f"Reset {len(self.physics_engine.drop_target_shapes)} drop targets")
+                elif not all_down:
+                    # Reset the trigger flag when targets come back up
+                    self._all_targets_down_triggered = False
 
     def _check_capture_collision(self, ball):
         if ball['lost'] or ball.get('captured', False): return

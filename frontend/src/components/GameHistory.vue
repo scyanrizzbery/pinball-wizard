@@ -20,12 +20,17 @@
       Complete a game to see statistics
     </div>
 
+    <!-- Distribution Chart -->
+    <div v-if="showChart" class="distribution-container">
+      <highcharts :key="'dist-' + gamesPlayed" :options="distributionChartOptions" style="width:100%; height:100%;"></highcharts>
+    </div>
+
     <div class="sparkline-container">
       <div v-if="!showChart"
         style="flex: 1; display: flex; align-items: center; justify-content: center; color: #666; font-style: italic;">
         Play at least 3 games to see history
       </div>
-      <highcharts v-show="showChart" :options="chartOptions" ref="chartRef" style="width:100%; flex: 1;"></highcharts>
+      <highcharts v-show="showChart" :key="'timeline-' + gamesPlayed + '-' + isVertical" :options="chartOptions" ref="chartRef" style="width:100%; flex: 1;"></highcharts>
     </div>
   </div>
 </template>
@@ -86,6 +91,90 @@ const historyStats = computed(() => {
   const mean = Math.round(sum / scores.length)
   
   return { min, max, mean, count: games.length }
+})
+
+const distributionChartOptions = computed(() => {
+  const games = stableGameHistory.value.filter(g => g.type === 'game')
+  if (games.length < 3) return {}
+  
+  const scores = games.map(g => g.score)
+  const min = Math.min(...scores)
+  const max = Math.max(...scores)
+  
+  // Create bins for histogram
+  const binCount = Math.min(8, Math.ceil(Math.sqrt(scores.length)))
+  const binSize = Math.ceil((max - min) / binCount)
+  
+  const bins = []
+  const categories = []
+  
+  for (let i = 0; i < binCount; i++) {
+    const binStart = min + (i * binSize)
+    const binEnd = binStart + binSize
+    const count = scores.filter(s => s >= binStart && (i === binCount - 1 ? s <= binEnd : s < binEnd)).length
+    
+    categories.push(`${formatScore(binStart)}-${formatScore(binEnd)}`)
+    bins.push(count)
+  }
+  
+  return {
+    chart: {
+      type: 'bar',
+      backgroundColor: 'transparent',
+      height: 140,
+      animation: false
+    },
+    title: { 
+      text: 'Score Distribution',
+      style: { color: '#aaa', fontSize: '0.9em' },
+      align: 'left'
+    },
+    credits: { enabled: false },
+    legend: { enabled: false },
+    xAxis: {
+      categories: categories,
+      labels: {
+        style: { color: '#ccc', fontSize: '0.75em' }
+      },
+      gridLineColor: '#333'
+    },
+    yAxis: {
+      title: { text: null },
+      gridLineColor: '#333',
+      labels: {
+        style: { color: '#888' }
+      },
+      allowDecimals: false
+    },
+    plotOptions: {
+      bar: {
+        borderWidth: 0,
+        color: {
+          linearGradient: { x1: 0, y1: 0, x2: 1, y2: 0 },
+          stops: [
+            [0, '#2e7d32'],
+            [1, '#4caf50']
+          ]
+        },
+        dataLabels: {
+          enabled: true,
+          style: { color: '#fff', fontSize: '0.8em', textOutline: 'none' },
+          align: 'right',
+          inside: true
+        }
+      }
+    },
+    tooltip: {
+      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+      style: { color: '#fff' },
+      headerFormat: '<b>{point.category}</b><br/>',
+      pointFormat: 'Games: {point.y}'
+    },
+    series: [{
+      name: 'Games',
+      data: bins
+    }]
+  }
 })
 
 const chartOptions = computed(() => {
@@ -167,14 +256,23 @@ const chartOptions = computed(() => {
             color: '#ffffff',
             fontWeight: 'bold'
           }
-        },
-        // Custom tooltip for settings
-        events: {
-          mouseover: function (e) {
-            // Highcharts doesn't support tooltips on plotLines natively easily,
-            // but we can rely on the point tooltip if we added a dummy point,
-            // or just let the user see the icon.
-            // For now, let's just show the icon.
+        }
+      })
+    } else if (g.type === 'difficulty_change') {
+      plotLines.push({
+        color: '#e91e63',
+        width: 2,
+        value: timestamp,
+        zIndex: 5,
+        label: {
+          text: `<span style="font-size: 8px;">${g.difficulty}</span>`,
+          rotation: isVertical.value ? 0 : 90,
+          align: isVertical.value ? 'right' : 'left',
+          x: isVertical.value ? -5 : 10,
+          y: isVertical.value ? 10 : 0,
+          style: {
+            color: '#ffffff',
+            fontWeight: 'bold'
           }
         }
       })
@@ -197,7 +295,7 @@ const chartOptions = computed(() => {
     xAxis: {
       type: 'datetime',
       visible: true,
-      reversed: isVertical.value,
+      reversed: !isVertical.value,
       minPadding: 0,
       maxPadding: 0,
       labels: {
@@ -345,6 +443,15 @@ const formatScore = (num) => {
   font-size: 1.1em;
   font-weight: bold;
   color: #fff;
+}
+
+.distribution-container {
+  background: #0a0a0a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 10px;
+  flex-shrink: 0;
+  height: 140px;
 }
 
 .sparkline-container {

@@ -1037,7 +1037,15 @@ const updateCamera = () => {
        const cx = mapX(physicsConfig.value.camera_x)
        const cy = mapY(physicsConfig.value.camera_y)
        const cz = physicsConfig.value.camera_z * 0.6
-       camera.position.set(cx, cy, cz)
+       const pitch = (physicsConfig.value.camera_pitch || 45) * (Math.PI / 180)
+       
+       // Calculate camera position based on pitch
+       // We want to orbit around the center (0, 0, 0) at a distance
+       const distance = Math.sqrt(cy * cy + cz * cz)
+       const adjustedY = -distance * Math.cos(pitch)
+       const adjustedZ = distance * Math.sin(pitch)
+       
+       camera.position.set(cx, adjustedY, adjustedZ)
        camera.lookAt(0, 0, 0)
     } else {
        // Default

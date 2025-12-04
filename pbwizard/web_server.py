@@ -505,11 +505,19 @@ def handle_toggle_ai(data):
     
     enabled = data.get('enabled', True)
     logger.info(f"Received toggle_ai event. Data: {data}, Setting to: {enabled}")
+    
+    # Set on vision_system
     if hasattr(vision_system, 'ai_enabled'):
         vision_system.ai_enabled = enabled
         logger.info(f"AI Enabled set to: {enabled}")
-        # Broadcast new state to all clients
-        socketio.emit('ai_status', {'enabled': enabled}, namespace='/training')
+    
+    # Also set on agent if it exists
+    if hasattr(vision_system, 'agent') and vision_system.agent:
+        vision_system.agent.enabled = enabled
+        logger.info(f"Agent enabled set to: {enabled}")
+    
+    # Broadcast new state to all clients
+    socketio.emit('ai_status', {'enabled': enabled}, namespace='/training')
 
 
 @socketio.on('toggle_auto_start', namespace='/training')
@@ -547,6 +555,18 @@ def handle_update_difficulty(data):
             vision_system.agent.VY_THRESHOLD = params['VY_THRESHOLD']
             vision_system.agent.USE_VELOCITY_PREDICTION = params['USE_VELOCITY_PREDICTION']
             logger.info(f"AI Difficulty updated to: {difficulty}")
+    
+    # Record difficulty change in game history
+    import time
+    vision_system.game_history.insert(0, {
+        'type': 'difficulty_change',
+        'difficulty': difficulty,
+        'timestamp': time.time(),
+        'date': time.strftime("%Y-%m-%d %H:%M:%S")
+    })
+    # Keep history limited
+    if len(vision_system.game_history) > 50:
+        vision_system.game_history.pop()
     
     # Save to config
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system

@@ -59,6 +59,10 @@ class ReflexAgent:
         self.right_cooldown = 0
 
     def act(self, ball_pos, frame_width, frame_height, velocity=(0, 0)):
+        # Check if agent is enabled
+        if not getattr(self, 'enabled', True):
+            return
+        
         if ball_pos is None:
             return
 

@@ -364,6 +364,7 @@
         <span class="arrow" :class="{ rotated: groupsExpanded.camera }">▼</span>
       </div>
       <div v-if="groupsExpanded.camera" class="group-content">
+        <div style="margin-bottom: 10px; color: #4caf50; font-size: 0.9em; font-weight: bold;">2D View Camera</div>
         <div class="slider-container">
           <div class="slider-label">
             <span>Camera Pitch</span>
