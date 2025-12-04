@@ -759,6 +759,8 @@ img {
   display: flex;
   gap: 10px;
   z-index: 30;
+  width: 90%;
+  justify-content: space-between;
 }
 
 .edit-btn {

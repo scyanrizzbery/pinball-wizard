@@ -39,6 +39,10 @@ defineProps({
   right: 7px;
 }
 
+.status-text {
+    margin-left: 5px;
+}
+
 .status-dot {
   width: 10px;
   height: 10px;
