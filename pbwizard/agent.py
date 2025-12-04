@@ -43,6 +43,7 @@ class ReflexAgent:
         self.zone_manager = zone_manager
         self.hw = hardware_controller
         self.difficulty = difficulty
+        self.enabled = True  # AI enabled by default
         
         # Load difficulty parameters
         params = self.DIFFICULTY_PARAMS.get(difficulty, self.DIFFICULTY_PARAMS['medium'])
@@ -61,6 +62,9 @@ class ReflexAgent:
     def act(self, ball_pos, frame_width, frame_height, velocity=(0, 0)):
         # Check if agent is enabled
         if not getattr(self, 'enabled', True):
+            # Release flippers when disabled
+            self.hw.release_left()
+            self.hw.release_right()
             return
         
         if ball_pos is None:
@@ -162,6 +166,7 @@ class RLAgent:
 
     def __init__(self, env=None, model_path=None):
         self.model = None
+        self.enabled = True  # AI enabled by default
         if model_path and os.path.exists(model_path):
             logger.info(f"Loading RL model from {model_path}")
             self.model = PPO.load(model_path)

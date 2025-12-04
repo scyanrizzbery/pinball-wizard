@@ -341,7 +341,7 @@ class PinballLayout:
 class SimulatedFrameCapture:
     # Physics Constants
     FLIPPER_SPEED = 15.0  # Degrees per frame
-    FLIPPER_LENGTH = 0.12  # Normalized width    # Flipper Angles (Degrees)
+    FLIPPER_LENGTH = 0.21  # Normalized width    # Flipper Angles (Degrees)
     LEFT_DOWN_ANGLE = 30
     LEFT_UP_ANGLE = -30
     RIGHT_DOWN_ANGLE = -30 # Symmetric
@@ -349,9 +349,7 @@ class SimulatedFrameCapture:
     GRAVITY = 25.0 # Synced with physics.py
     SUB_STEPS = 20
     FRICTION = 0.5 # Synced with physics.py
-    FRICTION = 0.5 # Synced with physics.py
     RESTITUTION = 0.7 # Synced with physics.py
-    FLIPPER_LENGTH = 0.18 # Synced with config
     FLIPPER_WIDTH = 0.010 # Synced with config
     
     MAX_BALLS = 5
@@ -1901,12 +1899,13 @@ class SimulatedFrameCapture:
         if ball['lost']: return
         
         current_time = time.time()
-        
         # Initialize invulnerability timer if not exists
         if not hasattr(self, '_drop_target_invuln_until'):
             self._drop_target_invuln_until = [0.0] * len(self.layout.drop_targets)
         
-        logger.debug(f"Checking drop target collision for ball at {ball['pos']}")
+        import random
+        if len(self.layout.drop_targets) > 0 and random.random() < 0.01:  # Log 1% of the time
+            logger.debug(f"Checking drop targets. Ball at {ball['pos']}, States: {self.drop_target_states}")
         
         for i, target in enumerate(self.layout.drop_targets):
             # Skip if already hit
