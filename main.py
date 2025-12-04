@@ -479,17 +479,20 @@ def main():
                         # Check if ball is in any zone
                         zones = zone_manager.get_zone_status(ball_pos[0], ball_pos[1])
                         
-                        logger.debug(f"RL Agent: Ball at ({ball_pos[0]:.1f}, {ball_pos[1]:.1f}), Zones={zones}, Vel=({vx:.1f}, {vy:.1f})")
+                        action = constants.ACTION_NOOP
                         
-                        # Construct observation [x, y, vx, vy] normalized
-                        obs = np.array([
-                            ball_pos[0] / width,
-                            ball_pos[1] / height,
-                            np.clip(vx / 50.0, -1, 1),
-                            np.clip(vy / 50.0, -1, 1)
-                        ], dtype=np.float32)
-                        
-                        action = agnt.predict(obs)
+                        if vision_wrapper.ai_enabled:
+                            logger.debug(f"RL Agent: Ball at ({ball_pos[0]:.1f}, {ball_pos[1]:.1f}), Zones={zones}, Vel=({vx:.1f}, {vy:.1f})")
+                            
+                            # Construct observation [x, y, vx, vy] normalized
+                            obs = np.array([
+                                ball_pos[0] / width,
+                                ball_pos[1] / height,
+                                np.clip(vx / 50.0, -1, 1),
+                                np.clip(vy / 50.0, -1, 1)
+                            ], dtype=np.float32)
+                            
+                            action = agnt.predict(obs)
 
                         # Anti-holding for RL
                         if not hasattr(vision_wrapper, 'rl_hold_steps'): vision_wrapper.rl_hold_steps = 0
@@ -522,9 +525,9 @@ def main():
                         # Right Flipper
                         should_flip_right = (action == constants.ACTION_FLIP_RIGHT or action == constants.ACTION_FLIP_BOTH)
                         
-                        # Safety Override: If ball is in right zone and moving down, force flip
-                        if zones['right'] and vy > 100: # Pixel/sec threshold
-                            should_flip_right = True
+                        # # Safety Override: If ball is in right zone and moving down, force flip
+                        # if vision_wrapper.ai_enabled and zones['right'] and vy > 100: # Pixel/sec threshold
+                        #     should_flip_right = True
 
                         if should_flip_right and zones['right']:
                             hw.hold_right()

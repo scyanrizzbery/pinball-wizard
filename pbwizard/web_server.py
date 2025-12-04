@@ -530,6 +530,19 @@ def handle_toggle_auto_start(data):
     if hasattr(vision_system, 'auto_start_enabled'):
         vision_system.auto_start_enabled = enabled
         logger.info(f"Auto-Start set to: {enabled}")
+        
+        # Also sync to physics engine
+        capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+        
+        # Sync to capture object (SimulatedFrameCapture)
+        if hasattr(capture, 'auto_start_enabled'):
+            capture.auto_start_enabled = enabled
+            logger.info(f"Capture Auto-Start set to: {enabled}")
+
+        if hasattr(capture, 'physics_engine') and capture.physics_engine:
+            if hasattr(capture.physics_engine, 'auto_start_enabled'):
+                capture.physics_engine.auto_start_enabled = enabled
+                logger.info(f"Physics Engine Auto-Start set to: {enabled}")
         # Broadcast new state to all clients
         socketio.emit('auto_start_status', {'enabled': enabled}, namespace='/training')
 

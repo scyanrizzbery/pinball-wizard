@@ -1673,7 +1673,8 @@ class SimulatedFrameCapture:
                         return
                 
                 # Spawn ball in plunger lane
-                ball_x = 0.9 * self.width
+                # Center of plunger lane is approx 0.925 * width (0.85 to 1.0)
+                ball_x = 0.925 * self.width
                 ball_y = 0.9 * self.height
                 self.physics_engine.add_ball((ball_x, ball_y))
                 logger.debug(f"Sim: Ball spawned in plunger lane ({ball_x}, {ball_y})")

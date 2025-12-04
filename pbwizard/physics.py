@@ -80,6 +80,7 @@ class PymunkEngine(Physics):
         self.is_tilted = False # Track tilt state
         self.drop_target_shapes = [] # Track drop target shapes for removal
         self.launch_angle = 0.0 # Launch angle in degrees (0 = Up)
+        self.auto_start_enabled = True # Default to True
         
         # Combo System
         self.combo_count = 0
@@ -204,8 +205,9 @@ class PymunkEngine(Physics):
 
                 # Auto-launch if hitting plunger while it's resting
                 if other == COLLISION_TYPE_PLUNGER and self.plunger_state == 'resting':
-                    logger.debug("Ball touched plunger while resting - AUTO LAUNCH")
-                    self.release_plunger()
+                    if self.auto_start_enabled:
+                        logger.debug("Ball touched plunger while resting - AUTO LAUNCH")
+                        self.release_plunger()
 
                 # Auto-launch for left plunger (Kickback)
                 if other == COLLISION_TYPE_LEFT_PLUNGER and self.left_plunger_state == 'resting':
@@ -329,7 +331,7 @@ class PymunkEngine(Physics):
         # Plunger Lane
         # Vertical wall separating plunger from playfield
         lane_x = self.width * 0.85
-        # self._add_static_segment((lane_x, self.height * 0.3), (lane_x, self.height), thickness=5.0)
+        self._add_static_segment((lane_x, self.height * 0.3), (lane_x, self.height), thickness=5.0)
         logger.info(f"Plunger Wall: x={lane_x}")
 
         # Plunger (Kinematic Body)
@@ -868,8 +870,9 @@ class PymunkEngine(Physics):
         for b in self.balls:
             if b.position.x > lane_x and b.position.y > self.height * 0.6:
                 if b.velocity.length < 10.0:
-                    logger.info("Auto-launching resting ball")
-                    self.launch_plunger()
+                    if self.auto_start_enabled:
+                        logger.info("Auto-launching resting ball")
+                        self.launch_plunger()
         
         # Check for stuck balls
         self.check_stuck_ball(dt)
