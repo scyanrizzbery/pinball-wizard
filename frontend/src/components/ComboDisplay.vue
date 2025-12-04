@@ -2,7 +2,7 @@
   <transition name="toast-slide">
     <div class="combo-toast" v-if="comboActive && comboCount > 5">
       <div class="combo-content" :class="{ 'pulse-anim': triggerAnim }">
-        <div class="count" :style="gradientStyle">{{ comboCount }}x</div>
+        <div class="count" :style="gradientStyle">{{ Math.floor(comboCount) }}x</div>
         <div class="label">COMBO</div>
       </div>
       
@@ -85,23 +85,24 @@ const gradientStyle = computed(() => {
 <style scoped>
 .combo-toast {
   position: absolute;
-  top: 15%; /* Slightly higher */
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000; /* High z-index to ensure visibility */
+  top: 10px;
+  right: 10px;
+  left: auto;
+  transform: none;
+  z-index: 1000;
   
-  background: rgba(20, 20, 20, 0.85); /* Dark semi-transparent background */
-  backdrop-filter: blur(8px); /* Blur effect */
+  background: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 16px;
-  padding: 20px 60px 20px 40px; /* Significantly increased right padding */
+  border-radius: 12px;
+  padding: 12px 24px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 255, 255, 0.05) inset;
   
   display: flex;
   flex-direction: column;
   align-items: center;
   pointer-events: none;
-  min-width: 200px; /* Increased min-width */
+  min-width: 120px;
 }
 
 .combo-content {
@@ -113,18 +114,19 @@ const gradientStyle = computed(() => {
 }
 
 .count {
-  font-size: 4.5rem; /* Slightly smaller than before but still huge */
+  font-size: 2.5rem;
+  margin: 5px;
   font-weight: 900;
   font-family: 'Arial Black', sans-serif;
-  letter-spacing: -2px;
+  letter-spacing: -1px;
 }
 
 .label {
-  font-size: 1.2rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: #fff;
-  letter-spacing: 4px;
-  margin-top: -5px;
+  letter-spacing: 3px;
+  margin-top: -3px;
   text-transform: uppercase;
   opacity: 0.9;
 }
@@ -164,7 +166,7 @@ const gradientStyle = computed(() => {
 .toast-slide-enter-from,
 .toast-slide-leave-to {
   opacity: 0;
-  transform: translate(-50%, -20px) scale(0.9);
+  transform: translateX(20px) scale(0.9);
 }
 
 @media (max-width: 690px) {

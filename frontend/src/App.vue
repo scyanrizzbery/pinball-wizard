@@ -458,9 +458,6 @@ onMounted(() => {
 
   sockets.game.on('stats_update', (data) => {
     Object.assign(stats, data)
-    if (data.combo_count > 0) {
-       // console.log('Combo Update:', data.combo_count, data.combo_active)
-    }
     if (data.nudge) {
       nudgeEvent.value = data.nudge
     }

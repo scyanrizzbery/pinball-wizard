@@ -18,10 +18,10 @@
       <div v-if="comboActive" class="combo-anchor">
         <div class="combo-container" :class="{ 'pulse': comboActive }">
           <span class="combo-badge" :style="getComboBadgeStyle()">
-            {{ comboCount }}x COMBO!
+            {{ comboCount.toFixed(0) }}x COMBO!
           </span>
           <span class="multiplier-badge" v-if="scoreMultiplier > 1">
-            {{ scoreMultiplier.toFixed(1) }}x
+            {{ scoreMultiplier.toFixed(0) }}x
           </span>
         </div>
       </div>
@@ -208,7 +208,7 @@ const highScoreReels = computed(() => getReelItems(props.highScore, 7))
 .combo-container {
   margin-top: 8px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row nowrap;
   align-items: center;
   gap: 4px;
   animation: fadeInUp 0.3s ease-out;
