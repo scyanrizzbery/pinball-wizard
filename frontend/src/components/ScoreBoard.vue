@@ -15,7 +15,7 @@
       </div>
       
       <!-- Combo & Multiplier Display -->
-      <div v-if="comboActive" class="combo-anchor">
+      <div v-if="comboActive && comboCount <= 10" class="combo-anchor">
         <div class="combo-container" :class="{ 'pulse': comboActive }">
           <span class="combo-badge" :style="getComboBadgeStyle()">
             {{ comboCount.toFixed(0) }}x COMBO!

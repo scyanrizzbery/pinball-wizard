@@ -37,6 +37,7 @@
             :comboTimer="stats.combo_timer || 0"
             :comboActive="stats.combo_active || false"
             :maxTimer="physics.combo_window || 3.0"
+            :scoreMultiplier="stats.score_multiplier || 1.0"
           />
         </div>
 

@@ -1,9 +1,10 @@
 <template>
   <transition name="toast-slide">
-    <div class="combo-toast" v-if="comboActive && comboCount > 5">
+    <div class="combo-toast" v-if="comboActive && comboCount >= 10">
       <div class="combo-content" :class="{ 'pulse-anim': triggerAnim }">
         <div class="count" :style="gradientStyle">{{ Math.floor(comboCount) }}x</div>
         <div class="label">COMBO</div>
+        <div class="multiplier" v-if="scoreMultiplier > 1">{{ Math.floor(scoreMultiplier) }}x Multiplier</div>
       </div>
       
       <div class="timer-bar-container">
@@ -32,6 +33,10 @@ const props = defineProps({
   maxTimer: {
     type: Number,
     default: 3.0
+  },
+  scoreMultiplier: {
+    type: Number,
+    default: 1.0
   }
 })
 
@@ -129,6 +134,17 @@ const gradientStyle = computed(() => {
   margin-top: -3px;
   text-transform: uppercase;
   opacity: 0.9;
+}
+
+.multiplier {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #ffeb3b;
+  letter-spacing: 1px;
+  margin-top: 2px;
+  text-transform: uppercase;
+  opacity: 0.95;
+  text-shadow: 0 0 8px rgba(255, 235, 59, 0.6);
 }
 
 .timer-bar-container {
