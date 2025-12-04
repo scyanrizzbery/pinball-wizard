@@ -29,6 +29,7 @@
           :configSocket="sockets.config"
           :config="layoutConfig"
           :nudgeEvent="nudgeEvent"
+          :stats="stats"
           :cameraMode="viewMode === '3d' ? 'perspective' : 'top-down'"
           @toggle-view="toggleViewMode"
         />

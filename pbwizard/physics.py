@@ -140,7 +140,7 @@ class PymunkEngine(Physics):
                         # Extend combo
                         self.combo_count += 1
                         self.combo_timer = self.combo_window  # Reset timer
-                        logger.info(f"COMBO x{self.combo_count}! Time since last: {time_since_last_hit:.2f}s")
+                        logger.debug(f"COMBO x{self.combo_count}! Time since last: {time_since_last_hit:.2f}s")
                     elif time_since_last_hit <= self.combo_window or self.combo_count == 0:
                         # Start new combo
                         self.combo_count = 1
@@ -171,7 +171,7 @@ class PymunkEngine(Physics):
                         logger.debug(f"Combo bonus: +{combo_bonus} points")
                     
                     if self.score_multiplier > 1.0:
-                        logger.info(f"BALL COLLISION: hit {label} (+{score_value} x{self.score_multiplier:.1f} = {final_score} points, total: {self.score})")
+                        logger.debug(f"BALL COLLISION: hit {label} (+{score_value} x{self.score_multiplier:.1f} = {final_score} points, total: {self.score})")
                     else:
                         logger.debug(f"BALL COLLISION: hit {label} (+{score_value} points, total: {self.score})")
                     

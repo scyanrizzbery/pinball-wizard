@@ -667,7 +667,7 @@ def handle_start_training(data):
             'learning_rate': float(data.get('learning_rate', 0.0003)),
             'layout': data.get('layout'),
             'physics': data.get('physics'),
-            'random_layouts': False # Disable random layouts for now
+            'random_layouts': data.get('random_layouts', False)
         }
         vision_system.controller.start_training(config)
         socketio.emit('training_started', config, namespace='/training')

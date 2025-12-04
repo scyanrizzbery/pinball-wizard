@@ -7,6 +7,18 @@
        @dragover.prevent
        @drop="onDrop">
 
+    <div v-if="stats && stats.is_training"
+      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; color: white;">
+      <h2>TRAINING IN PROGRESS</h2>
+      <p style="font-size: 1.2em; font-weight: bold; color: #4caf50;">{{ Math.round(stats.training_progress * 100) }}%</p>
+      <p>Step {{ formatNumber(stats.current_step) }} / {{ formatNumber(stats.total_steps) }}</p>
+      <div style="width: 60%; height: 8px; background: #555; border-radius: 4px; overflow: hidden; margin-top: 10px;">
+        <div
+          :style="{ width: (stats.training_progress * 100) + '%', height: '100%', background: '#4caf50', transition: 'width 0.3s' }">
+        </div>
+      </div>
+    </div>
+
     <div v-if="!config || !config.rails" class="loading-placeholder">
       <div class="spinner"></div>
       <div class="loading-text">CONNECTING...</div>
@@ -72,6 +84,7 @@ import * as THREE from 'three'
   configSocket: Object,
   config: Object,
   nudgeEvent: Object,
+  stats: Object,
   cameraMode: { type: String, default: 'perspective' }
 })
 
@@ -96,6 +109,11 @@ let debugTimeout = null
 const stuckBallDialog = ref(false)
 const stuckBallTimer = ref(20)
 let stuckBallInterval = null
+
+const formatNumber = (num) => {
+  if (num === undefined || num === null) return '0'
+  return num.toLocaleString()
+}
 
 // Rail Editor State
 const isEditMode = ref(false)

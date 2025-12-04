@@ -1075,9 +1075,10 @@ class SimulatedFrameCapture:
                 
                 physics_keys = [
                     'table_tilt', 'gravity', 'friction', 'restitution', 'flipper_speed', 
-                    'flipper_resting_angle', 'flipper_stroke_angle', 'flipper_length',
+                    'flipper_resting_angle', 'flipper_stroke_angle', 'flipper_length', 'flipper_width',
                     'plunger_release_speed', 'launch_angle', 'tilt_threshold', 
                     'nudge_cost', 'tilt_decay',
+                    'combo_window', 'multiplier_max', 'base_combo_bonus', 'combo_multiplier_enabled'
                 ]
                 
                 for key in physics_keys:
@@ -1942,7 +1943,7 @@ class SimulatedFrameCapture:
                 
                 # Mark as hit
                 self.drop_target_states[i] = False
-                logger.info(f"Drop target {i} hit! States: {self.drop_target_states}")
+                logger.debug(f"Drop target {i} hit! States: {self.drop_target_states}")
                 self.score += target['value']
                 ball['vel'][1] *= -1 # Bounce back
                 
