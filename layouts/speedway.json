@@ -186,6 +186,7 @@
         "tilt_decay": 0.07,
         "table_tilt": 4.3,
         "rail_x_offset": 0.0,
-        "rail_y_offset": 0.0
+        "rail_y_offset": 0.0,
+        "flipper_width": 0.021
     }
 }

@@ -846,6 +846,14 @@ class PymunkEngine(Physics):
                 self.space.remove(b, *b.shapes)
                 self.balls.remove(b)
                 
+                # Reset combo and multiplier on drain ONLY IF NO BALLS LEFT
+                if len(self.balls) == 0:
+                    if self.combo_count > 0 or self.score_multiplier > 1.0:
+                        logger.info("Last ball drained! Combo and Multiplier reset.")
+                        self.combo_count = 0
+                        self.combo_timer = 0.0
+                        self.score_multiplier = 1.0
+                
         # Update Flipper Physics (Kinematic rotation)
         # Use dynamic speed (default 30.0)
         flipper_speed = self.flipper_speed 

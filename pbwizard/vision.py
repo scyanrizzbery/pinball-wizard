@@ -488,6 +488,7 @@ class SimulatedFrameCapture:
         self.balls = [] # List of dicts: {'pos': np.array, 'vel': np.array, 'lost': bool}
         self.ball_radius = int(width * 0.025) # Scale ball with width
         self.balls_remaining = 1 # Single ball game
+        self.last_ball_count = 0 # Track ball count for drain detection
         
         # Tilt State
         self.tilt_value = 0.0
@@ -1669,7 +1670,7 @@ class SimulatedFrameCapture:
                         
                         # Full Game Reset (clears physics, combo, score, balls)
                         self.reset_game()
-                        pass
+                        return
                 
                 # Spawn ball in plunger lane
                 ball_x = 0.9 * self.width
@@ -2147,6 +2148,24 @@ class SimulatedFrameCapture:
                     'lost': False 
                 })
             
+            # Check for ball drain (Game Over / Next Ball)
+            current_ball_count = len(self.balls)
+            if current_ball_count == 0 and self.last_ball_count > 0:
+                logger.info("Ball Drained! Requesting next ball...")
+                
+                # Force immediate stats update to clear combo on frontend
+                if self.socketio:
+                    self.socketio.emit('stats_update', {
+                        'combo_count': 0,
+                        'combo_active': False,
+                        'score_multiplier': 1.0,
+                        'combo_timer': 0.0
+                    }, namespace='/game')
+                    
+                self.launch_ball()
+                
+            self.last_ball_count = current_ball_count
+
             # Sync flipper angles for 2D draw
             self.current_left_angle = state['flippers']['left_angle']
             self.current_right_angle = state['flippers']['right_angle']
