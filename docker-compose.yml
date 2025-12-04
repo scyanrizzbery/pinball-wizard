@@ -64,8 +64,7 @@ services:
     environment:
       - CYPRESS_baseUrl=http://frontend:5173
     volumes:
-      - ./frontend:/e2e
-      - frontend_node_modules:/e2e/node_modules
+      - .:/e2e
     working_dir: /e2e
     networks:
       - pbwizard-network

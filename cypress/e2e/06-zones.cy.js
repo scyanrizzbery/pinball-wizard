@@ -6,11 +6,18 @@ describe('Multi-Zone Support', () => {
         cy.contains('Connected to server', { timeout: 10000 }).should('be.visible')
         // Wait for physics config to load (ensures zones are populated)
         cy.contains('Physics config loaded', { timeout: 10000 }).should('be.visible')
+
+        // Ensure we're in 2D mode (where Edit button exists)
+        cy.get('.switch-view-btn').then($btn => {
+            if ($btn.text().includes('Switch to 2D')) {
+                cy.wrap($btn).click()
+            }
+        })
     })
 
     it('should render default zones', () => {
-        // Open Zone Editor
-        cy.contains('Edit').click()
+        // Open Zone Editor (button text is "Edit" in 2D mode, "Hide editor" when active)
+        cy.contains('button', 'Edit').click()
 
         // Check for zone polygons
         cy.get('.zone-poly').should('have.length.at.least', 2)
@@ -19,7 +26,7 @@ describe('Multi-Zone Support', () => {
     })
 
     it('should allow adding and removing zones', () => {
-        cy.contains('Edit').click()
+        cy.contains('button', 'Edit').click()
 
         // Count initial zones
         cy.get('.zone-poly').then($zones => {
@@ -41,7 +48,7 @@ describe('Multi-Zone Support', () => {
     })
 
     it('should handle zone dragging', () => {
-        cy.contains('Edit').click()
+        cy.contains('button', 'Edit').click()
 
         // Get the first zone polygon
         cy.get('.zone-poly').first().then($poly => {
@@ -61,7 +68,7 @@ describe('Multi-Zone Support', () => {
     })
 
     it('should reset zones to default', () => {
-        cy.contains('Edit').click()
+        cy.contains('button', 'Edit').click()
 
         // Add a zone to modify state
         cy.contains('+ Left Zone').click()

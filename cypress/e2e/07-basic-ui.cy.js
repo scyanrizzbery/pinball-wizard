@@ -59,11 +59,11 @@ describe('Pinball Wizard Basic Tests', () => {
     })
 
     it('displays game controls', () => {
-        cy.contains('button', 'Left Flipper').should('be.visible')
-        cy.contains('button', 'Right Flipper').should('be.visible')
+        cy.contains('button', 'Left').should('be.visible')
+        cy.contains('button', 'Right').should('be.visible')
         cy.contains('button', 'Launch').should('be.visible')
-        cy.contains('button', 'Nudge Left').should('be.visible')
-        cy.contains('button', 'Nudge Right').should('be.visible')
+        cy.contains('button', 'N Left').should('be.visible')
+        cy.contains('button', 'N Right').should('be.visible')
     })
 
     it('displays scoreboard', () => {
