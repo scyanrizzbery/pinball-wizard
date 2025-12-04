@@ -6,9 +6,7 @@
        @mouseleave="onMouseUp"
        @dragover.prevent
        @drop="onDrop">
-    <button @click="$emit('toggle-view')" class="switch-view-btn">
-      {{ cameraMode === 'perspective' ? 'Switch to 2D' : 'Switch to 3D' }}
-    </button>
+
     <div v-if="cameraMode === 'perspective' && showDebug" class="debug-overlay">
       <div>Camera X: {{ cameraDebug.x.toFixed(2) }}</div>
       <div>Camera Y: {{ cameraDebug.y.toFixed(2) }}</div>
@@ -17,9 +15,15 @@
     
     <!-- Rail Editor Controls -->
     <div class="editor-controls" v-if="cameraMode === 'perspective'">
-        <button @click="toggleEditMode" :class="{ active: isEditMode }">
-            {{ isEditMode ? 'Done Editing' : 'Edit Rails' }}
-        </button>
+        <div class="controls-row">
+            <button @click="toggleEditMode" :class="{ active: isEditMode }">
+                {{ isEditMode ? 'Done Editing' : 'Edit Rails' }}
+            </button>
+            <button @click="$emit('toggle-view')" class="switch-view-btn">
+                {{ cameraMode === 'perspective' ? 'Switch to 2D' : 'Switch to 3D' }}
+            </button>
+        </div>
+
         <div v-if="isEditMode" class="edit-actions">
             <button @click="addRail">Add Rail</button>
             <button @click="deleteSelectedObject" :disabled="selectedRailIndex === -1 && selectedBumperIndex === -1">Delete Selected</button>
@@ -30,9 +34,11 @@
             <div class="object-drawer">
                 <div class="drawer-title">Drag to Add:</div>
                 <div class="drawer-item" draggable="true" @dragstart="onDragStart($event, 'rail')">
+                    <div class="icon rail-icon"></div>
                     <span>Rail</span>
                 </div>
                 <div class="drawer-item" draggable="true" @dragstart="onDragStart($event, 'bumper')">
+                    <div class="icon bumper-icon"></div>
                     <span>Bumper</span>
                 </div>
             </div>
@@ -1308,15 +1314,20 @@ const handleKeydown = (e) => {
 
 .editor-controls {
     position: absolute;
-    top: 10px;
+    bottom: 10px;
     right: 10px;
     z-index: 100;
     display: flex;
-    flex-direction: column;
+    flex-direction: column-reverse;
     gap: 10px;
     background: rgba(0, 0, 0, 0.7);
     padding: 10px;
     border-radius: 5px;
+}
+
+.controls-row {
+    display: flex;
+    gap: 10px;
 }
 
 .edit-actions {
@@ -1325,13 +1336,18 @@ const handleKeydown = (e) => {
     gap: 5px;
 }
 
-.editor-controls button {
-    background: #333;
+.editor-controls button, .switch-view-btn {
+    background: rgba(0, 0, 0, 0.6);
     color: white;
     border: 1px solid #555;
     padding: 5px 10px;
     cursor: pointer;
-    border-radius: 3px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.editor-controls button:hover, .switch-view-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
 }
 
 .editor-controls button.active {
@@ -1351,9 +1367,9 @@ const handleKeydown = (e) => {
 }
 
 .object-drawer {
-    margin-top: 10px;
-    border-top: 1px solid #555;
-    padding-top: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #555;
+    padding-bottom: 10px;
 }
 .drawer-title {
     font-size: 12px;
@@ -1385,4 +1401,6 @@ const handleKeydown = (e) => {
     border-radius: 50%;
     background: #ffaa00;
 }
+
+
 </style>

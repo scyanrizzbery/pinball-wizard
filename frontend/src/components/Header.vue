@@ -35,8 +35,8 @@ defineProps({
 
 .connection-status {
   position: fixed;
-  top: 5px;
-  right: 5px;
+  top: 7px;
+  right: 7px;
 }
 
 .status-dot {
@@ -81,8 +81,8 @@ defineProps({
 
   .app-header {
     position: absolute;
-    top: 5px;
-    right: 5px;
+    top: 7px;
+    right: 7px;
     margin: 0;
     z-index: 1000;
     width: auto;

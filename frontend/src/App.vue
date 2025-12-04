@@ -62,7 +62,7 @@
 
     <div id="input-area">
       <div class="input-group" style="flex: 2;">
-        <button class="input-btn" :class="{ pressed: buttonStates.left }" @mousedown="handleInput('KeyZ', 'down')"
+        <button class="input-btn flipper-btn" :class="{ pressed: buttonStates.left }" @mousedown="handleInput('KeyZ', 'down')"
           @mouseup="handleInput('KeyZ', 'up')" @touchstart.prevent="handleInput('KeyZ', 'down')"
           @touchend.prevent="handleInput('KeyZ', 'up')" :disabled="stats.is_training">Left</button>
         <button class="input-btn" :class="{ pressed: buttonStates.nudgeLeft }"
@@ -79,7 +79,7 @@
       </div>
 
       <div class="input-group" style="flex: 2;">
-        <button class="input-btn" :class="{ pressed: buttonStates.right }" @mousedown="handleInput('Slash', 'down')"
+        <button class="input-btn flipper-btn" :class="{ pressed: buttonStates.right }" @mousedown="handleInput('Slash', 'down')"
           @mouseup="handleInput('Slash', 'up')" @touchstart.prevent="handleInput('Slash', 'down')"
           @touchend.prevent="handleInput('Slash', 'up')" :disabled="stats.is_training">Right</button>
         <button class="input-btn" :class="{ pressed: buttonStates.nudgeRight }"
@@ -118,7 +118,7 @@ const models = ref([])
 const selectedModel = ref('')
 const debounceTimers = {}
 const nudgeEvent = ref(null)
-const viewMode = ref('video')
+const viewMode = ref('3d')
 const layoutConfig = ref(null)
 const isLoadingLayout = ref(false)
 const hasUnsavedChanges = ref(false)
@@ -850,6 +850,10 @@ body {
     min-height: 60px;
     font-size: 14px;
     padding: 10px;
+  }
+
+  .flipper-btn {
+    min-height: 120px;
   }
 
   .input-btn.launch {
