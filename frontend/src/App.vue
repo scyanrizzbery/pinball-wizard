@@ -648,15 +648,15 @@ body {
   bottom: 0;
   left: 0;
   width: 100%;
-  background: linear-gradient(180deg, rgba(20, 20, 20, 0.95), rgba(10, 10, 10, 0.98));
-  border-top: 1px solid rgba(76, 175, 80, 0.3);
+  background: rgba(0, 0, 0, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
   z-index: 2000;
   display: none;
   justify-content: center;
   align-items: center;
   gap: 12px;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.7), 0 -1px 0 rgba(76, 175, 80, 0.1);
+  backdrop-filter: blur(4px);
+  box-shadow: none;
   padding: 12px;
   box-sizing: border-box;
 }
@@ -669,9 +669,9 @@ body {
 
 .input-btn {
   padding: 16px 32px;
-  background: linear-gradient(180deg, #3a3a3a, #2a2a2a);
-  color: #fff;
-  border: 2px solid #444;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 10px;
   cursor: pointer;
   font-size: 16px;
@@ -688,19 +688,21 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(4px);
 }
 
 .input-btn:active {
-  background: linear-gradient(180deg, #2a2a2a, #1a1a1a);
+  background: rgba(255, 255, 255, 0.2);
   transform: translateY(2px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .input-btn.pressed {
-  background: linear-gradient(180deg, #66bb6a, #4caf50) !important;
-  border-color: #45a049 !important;
-  box-shadow: 0 0 20px rgba(76, 175, 80, 0.8), 0 4px 8px rgba(0, 0, 0, 0.3) !important;
+  background: rgba(76, 175, 80, 0.4) !important;
+  border-color: rgba(76, 175, 80, 0.6) !important;
+  color: #fff;
+  box-shadow: 0 0 20px rgba(76, 175, 80, 0.4), 0 4px 8px rgba(0, 0, 0, 0.2) !important;
   transform: translateY(2px);
 }
 
@@ -708,27 +710,27 @@ body {
   width: 85px;
   height: 85px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #ef5350, #d32f2f);
+  background: rgba(239, 83, 80, 0.3);
   font-size: 1em;
-  border: 3px solid #b71c1c;
+  border: 2px solid rgba(239, 83, 80, 0.5);
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 0 auto;
-  box-shadow: 0 6px 12px rgba(211, 47, 47, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
 }
 
 .input-btn.launch:active {
-  background: linear-gradient(135deg, #d32f2f, #b71c1c);
+  background: rgba(239, 83, 80, 0.5);
   transform: scale(0.95);
-  box-shadow: 0 3px 6px rgba(211, 47, 47, 0.5);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
 }
 
 .input-btn.launch.pressed {
-  background: linear-gradient(135deg, #ff6659, #ff5722) !important;
-  border-color: #e64a19 !important;
-  box-shadow: 0 0 24px rgba(255, 87, 34, 0.9), 0 4px 8px rgba(0, 0, 0, 0.3) !important;
+  background: rgba(255, 87, 34, 0.5) !important;
+  border-color: rgba(255, 87, 34, 0.7) !important;
+  box-shadow: 0 0 24px rgba(255, 87, 34, 0.5), 0 4px 8px rgba(0, 0, 0, 0.2) !important;
   transform: scale(0.95);
 }
 
