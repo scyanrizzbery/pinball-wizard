@@ -7,6 +7,11 @@
        @dragover.prevent
        @drop="onDrop">
 
+    <div v-if="!config || !config.rails" class="loading-placeholder">
+      <div class="spinner"></div>
+      <div class="loading-text">CONNECTING...</div>
+    </div>
+
     <div v-if="cameraMode === 'perspective' && showDebug" class="debug-overlay">
       <div>Camera X: {{ cameraDebug.x.toFixed(2) }}</div>
       <div>Camera Y: {{ cameraDebug.y.toFixed(2) }}</div>
@@ -108,6 +113,11 @@ const railHandles = [] // Array of mesh handles
 const railMeshes = [] // Array of rail body meshes
 const bumperMeshes = [] // Array of bumper meshes
 let dragPlane = null // Plane for raycasting during drag
+
+// Camera Pan State
+const isPanning = ref(false)
+const panStart = new THREE.Vector2()
+const cameraStartPos = new THREE.Vector3()
 
 const toggleEditMode = () => {
     isEditMode.value = !isEditMode.value
@@ -224,6 +234,15 @@ const onDrop = (event) => {
 }
 
 const onMouseDown = (event) => {
+    // Middle mouse button for camera panning
+    if (event.button === 1) {
+        event.preventDefault()
+        isPanning.value = true
+        panStart.set(event.clientX, event.clientY)
+        cameraStartPos.copy(camera.position)
+        return
+    }
+    
     if (!isEditMode.value) return
     
     updateMouse(event)
@@ -318,6 +337,19 @@ const onMouseDown = (event) => {
 }
 
 const onMouseMove = (event) => {
+    // Handle camera panning
+    if (isPanning.value) {
+        const deltaX = event.clientX - panStart.x
+        const deltaY = event.clientY - panStart.y
+        
+        // Pan sensitivity (adjust as needed)
+        const sensitivity = 0.002
+        camera.position.x = cameraStartPos.x - deltaX * sensitivity
+        camera.position.y = cameraStartPos.y + deltaY * sensitivity
+        camera.lookAt(0, 0, 0)
+        return
+    }
+    
     if (!isDragging.value) return
     
     updateMouse(event)
@@ -373,6 +405,12 @@ const onMouseMove = (event) => {
 }
 
 const onMouseUp = () => {
+    // End camera panning
+    if (isPanning.value) {
+        isPanning.value = false
+        return
+    }
+    
     if (isDragging.value) {
         isDragging.value = false
         // Emit update
@@ -1316,6 +1354,7 @@ const handleKeydown = (e) => {
     position: absolute;
     bottom: 10px;
     right: 10px;
+    width: 90%;
     z-index: 100;
     display: flex;
     flex-direction: column-reverse;
@@ -1328,6 +1367,8 @@ const handleKeydown = (e) => {
 .controls-row {
     display: flex;
     gap: 10px;
+    flex-wrap: nowrap;
+    align-items: center;
 }
 
 .edit-actions {
@@ -1344,6 +1385,9 @@ const handleKeydown = (e) => {
     cursor: pointer;
     border-radius: 4px;
     font-size: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: fit-content;
 }
 
 .editor-controls button:hover, .switch-view-btn:hover {
@@ -1402,5 +1446,46 @@ const handleKeydown = (e) => {
     background: #ffaa00;
 }
 
+.loading-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #111;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-family: 'Segoe UI', sans-serif;
+  z-index: 50;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #333;
+  border-top: 4px solid #4caf50;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 15px;
+}
+
+.loading-text {
+  font-size: 1.2em;
+  letter-spacing: 1px;
+  animation: pulse-text 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes pulse-text {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
 
 </style>

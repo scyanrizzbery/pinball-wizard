@@ -178,8 +178,11 @@ class RLAgent:
     def predict(self, observation):
         if self.model:
             action, _ = self.model.predict(observation)
+            logger.debug(f"RL Agent predict: obs={observation}, action={action}")
             return action
-        return ACTION_NOOP # No-op
+        else:
+            logger.warning("RL Agent predict called but no model loaded, returning NOOP")
+            return ACTION_NOOP # No-op
 
     def save(self, path):
         if self.model:

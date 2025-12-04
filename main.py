@@ -479,63 +479,57 @@ def main():
                         # Check if ball is in any zone
                         zones = zone_manager.get_zone_status(ball_pos[0], ball_pos[1])
                         
-                        if zones['left'] or zones['right']:
-                            # Construct observation [x, y, vx, vy] normalized
-                            # Assuming 640x480 for normalization as in environment.py
-                            obs = np.array([
-                                ball_pos[0] / width,
-                                ball_pos[1] / height,
-                                np.clip(vx / 50.0, -1, 1),
-                                np.clip(vy / 50.0, -1, 1)
-                            ], dtype=np.float32)
-                            
-                            action = agnt.predict(obs)
+                        logger.debug(f"RL Agent: Ball at ({ball_pos[0]:.1f}, {ball_pos[1]:.1f}), Zones={zones}, Vel=({vx:.1f}, {vy:.1f})")
+                        
+                        # Construct observation [x, y, vx, vy] normalized
+                        obs = np.array([
+                            ball_pos[0] / width,
+                            ball_pos[1] / height,
+                            np.clip(vx / 50.0, -1, 1),
+                            np.clip(vy / 50.0, -1, 1)
+                        ], dtype=np.float32)
+                        
+                        action = agnt.predict(obs)
 
-                            # Anti-holding for RL
-                            if not hasattr(vision_wrapper, 'rl_hold_steps'): vision_wrapper.rl_hold_steps = 0
-                            if not hasattr(vision_wrapper, 'rl_cooldown'): vision_wrapper.rl_cooldown = 0
-                            
-                            if vision_wrapper.rl_cooldown > 0:
-                                vision_wrapper.rl_cooldown -= 1
+                        # Anti-holding for RL
+                        if not hasattr(vision_wrapper, 'rl_hold_steps'): vision_wrapper.rl_hold_steps = 0
+                        if not hasattr(vision_wrapper, 'rl_cooldown'): vision_wrapper.rl_cooldown = 0
+                        
+                        if vision_wrapper.rl_cooldown > 0:
+                            vision_wrapper.rl_cooldown -= 1
+                            action = constants.ACTION_NOOP
+                        else:
+                            is_holding = (action != constants.ACTION_NOOP)
+                            if is_holding:
+                                vision_wrapper.rl_hold_steps += 1
+                            else:
+                                vision_wrapper.rl_hold_steps = 0
+                                
+                            if vision_wrapper.rl_hold_steps > 90: # 3 seconds
                                 action = constants.ACTION_NOOP
-                            else:
-                                is_holding = (action != constants.ACTION_NOOP)
-                                if is_holding:
-                                    vision_wrapper.rl_hold_steps += 1
-                                else:
-                                    vision_wrapper.rl_hold_steps = 0
-                                    
-                                if vision_wrapper.rl_hold_steps > 90: # 3 seconds
-                                    action = constants.ACTION_NOOP
-                                    vision_wrapper.rl_cooldown = 30 # 1 second cooldown
-                                    vision_wrapper.rl_hold_steps = 0
-                            
-                            # Execute action with zone restrictions
-                            # Logic matches environment.py: _execute_action
-                            
-                            # Left Flipper
-                            if (action == constants.ACTION_FLIP_LEFT or action == constants.ACTION_FLIP_BOTH) and zones['left']:
-                                if vision_wrapper.ai_enabled:
-                                    hw.hold_left()
-                                else:
-                                    hw.release_left()
-                            else:
-                                hw.release_left()
+                                vision_wrapper.rl_cooldown = 30 # 1 second cooldown
+                                vision_wrapper.rl_hold_steps = 0
+                        
+                        # Execute action with zone restrictions
+                        # Logic matches environment.py: _execute_action
+                        
+                        # Left Flipper
+                        if (action == constants.ACTION_FLIP_LEFT or action == constants.ACTION_FLIP_BOTH) and zones['left']:
+                            hw.hold_left()
+                        else:
+                            hw.release_left()
 
-                            # Right Flipper
-                            should_flip_right = (action == constants.ACTION_FLIP_RIGHT or action == constants.ACTION_FLIP_BOTH)
-                            
-                            # Safety Override: If ball is in right zone and moving down, force flip
-                            if zones['right'] and vy > 100: # Pixel/sec threshold
-                                should_flip_right = True
+                        # Right Flipper
+                        should_flip_right = (action == constants.ACTION_FLIP_RIGHT or action == constants.ACTION_FLIP_BOTH)
+                        
+                        # Safety Override: If ball is in right zone and moving down, force flip
+                        if zones['right'] and vy > 100: # Pixel/sec threshold
+                            should_flip_right = True
 
-                            if should_flip_right and zones['right']:
-                                if vision_wrapper.ai_enabled:
-                                    hw.hold_right()
-                                else:
-                                    hw.release_right()
-                            else:
-                                hw.release_right()
+                        if should_flip_right and zones['right']:
+                            hw.hold_right()
+                        else:
+                            hw.release_right()
                     else:
                         # Reflex Agent
                         if vision_wrapper.ai_enabled:

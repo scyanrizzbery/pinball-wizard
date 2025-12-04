@@ -2,14 +2,61 @@
     "width": 0.6,
     "height": 1.2,
     "left_flipper_x_min": 0.25,
-    "left_flipper_x_max": 0.43,
+    "left_flipper_x_max": 0.45999999999999996,
     "left_flipper_y_min": 0.8,
     "left_flipper_y_max": 0.9,
-    "right_flipper_x_min": 0.5700000000000001,
+    "right_flipper_x_min": 0.54,
     "right_flipper_x_max": 0.75,
     "right_flipper_y_min": 0.8,
     "right_flipper_y_max": 0.9,
-    "zones": [],
+    "zones": [
+        {
+            "id": "default_left",
+            "type": "left",
+            "is_screen_space": true,
+            "points": [
+                {
+                    "x": 0.08673678684786278,
+                    "y": 0.7339935582338903
+                },
+                {
+                    "x": 0.4958330481931845,
+                    "y": 0.8100154605256058
+                },
+                {
+                    "x": 0.4958330481931845,
+                    "y": 1.0100154605256062
+                },
+                {
+                    "x": 0.1958330481931845,
+                    "y": 1.0100154605256062
+                }
+            ]
+        },
+        {
+            "id": "default_right",
+            "type": "right",
+            "is_screen_space": true,
+            "points": [
+                {
+                    "x": 0.5174065680743574,
+                    "y": 0.8037514931786848
+                },
+                {
+                    "x": 0.8763802355340099,
+                    "y": 0.6482838613106726
+                },
+                {
+                    "x": 0.8174065680743573,
+                    "y": 1.0037514931786848
+                },
+                {
+                    "x": 0.5174065680743574,
+                    "y": 1.0037514931786848
+                }
+            ]
+        }
+    ],
     "bumpers": [
         {
             "x": 0.5,
@@ -116,10 +163,10 @@
         "gravity": 2613.211581691337,
         "friction": 0.5,
         "restitution": 0.7,
-        "flipper_speed": 15.0,
-        "flipper_resting_angle": -30.0,
+        "flipper_speed": 1.6,
+        "flipper_resting_angle": -44.0,
         "flipper_stroke_angle": 50.0,
-        "flipper_length": 0.18,
+        "flipper_length": 0.21,
         "plunger_release_speed": 1200.0,
         "launch_angle": 0.0,
         "tilt_threshold": 8.0,
