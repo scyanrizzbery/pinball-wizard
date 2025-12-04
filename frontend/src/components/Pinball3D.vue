@@ -22,7 +22,7 @@
     <div class="editor-controls" v-if="cameraMode === 'perspective'">
         <div class="controls-row">
             <button @click="toggleEditMode" :class="{ active: isEditMode }">
-                {{ isEditMode ? 'Done Editing' : 'Edit Rails' }}
+                {{ isEditMode ? 'Done Editing' : 'Edit' }}
             </button>
             <button @click="$emit('toggle-view')" class="switch-view-btn">
                 {{ cameraMode === 'perspective' ? 'Switch to 2D' : 'Switch to 3D' }}
@@ -30,7 +30,6 @@
         </div>
 
         <div v-if="isEditMode" class="edit-actions">
-            <button @click="addRail">Add Rail</button>
             <button @click="deleteSelectedObject" :disabled="selectedRailIndex === -1 && selectedBumperIndex === -1">Delete Selected</button>
             <div v-if="selectedRailIndex !== -1" class="selected-info">
                 Selected: {{ selectedRailIndex }}

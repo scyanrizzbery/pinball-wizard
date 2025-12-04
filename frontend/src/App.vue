@@ -647,16 +647,16 @@ body {
   bottom: 0;
   left: 0;
   width: 100%;
-  background: rgba(20, 20, 20, 0.1);
-  border-top: 1px solid #333;
+  background: linear-gradient(180deg, rgba(20, 20, 20, 0.95), rgba(10, 10, 10, 0.98));
+  border-top: 1px solid rgba(76, 175, 80, 0.3);
   z-index: 2000;
   display: none;
   justify-content: center;
   align-items: center;
-  gap: 10px;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
-  padding: 10px;
+  gap: 12px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.7), 0 -1px 0 rgba(76, 175, 80, 0.1);
+  padding: 12px;
   box-sizing: border-box;
 }
 
@@ -667,16 +667,17 @@ body {
 }
 
 .input-btn {
-  padding: 15px 30px;
-  background-color: #333;
+  padding: 16px 32px;
+  background: linear-gradient(180deg, #3a3a3a, #2a2a2a);
   color: #fff;
-  border: 1px solid #444;
-  border-radius: 8px;
+  border: 2px solid #444;
+  border-radius: 10px;
   cursor: pointer;
   font-size: 16px;
   font-weight: bold;
-  transition: all 0.1s;
+  transition: all 0.15s ease;
   text-transform: uppercase;
+  letter-spacing: 0.5px;
   width: 100%;
   height: 100%;
   min-height: 80px;
@@ -686,43 +687,47 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .input-btn:active {
-  background-color: #555;
+  background: linear-gradient(180deg, #2a2a2a, #1a1a1a);
   transform: translateY(2px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
 }
 
 .input-btn.pressed {
-  background-color: #4caf50 !important;
+  background: linear-gradient(180deg, #66bb6a, #4caf50) !important;
   border-color: #45a049 !important;
-  box-shadow: 0 0 15px rgba(76, 175, 80, 0.8);
+  box-shadow: 0 0 20px rgba(76, 175, 80, 0.8), 0 4px 8px rgba(0, 0, 0, 0.3) !important;
   transform: translateY(2px);
 }
 
 .input-btn.launch {
-  width: 80px;
-  height: 80px;
+  width: 85px;
+  height: 85px;
   border-radius: 50%;
-  background-color: #d32f2f;
+  background: linear-gradient(135deg, #ef5350, #d32f2f);
   font-size: 1em;
-  border-color: #b71c1c;
+  border: 3px solid #b71c1c;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 0 auto;
+  box-shadow: 0 6px 12px rgba(211, 47, 47, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .input-btn.launch:active {
-  background-color: #b71c1c;
+  background: linear-gradient(135deg, #d32f2f, #b71c1c);
   transform: scale(0.95);
+  box-shadow: 0 3px 6px rgba(211, 47, 47, 0.5);
 }
 
 .input-btn.launch.pressed {
-  background-color: #ff5722 !important;
+  background: linear-gradient(135deg, #ff6659, #ff5722) !important;
   border-color: #e64a19 !important;
-  box-shadow: 0 0 20px rgba(255, 87, 34, 0.9);
+  box-shadow: 0 0 24px rgba(255, 87, 34, 0.9), 0 4px 8px rgba(0, 0, 0, 0.3) !important;
   transform: scale(0.95);
 }
 

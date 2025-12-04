@@ -754,8 +754,8 @@ img {
 
 .video-controls {
   position: absolute;
-  bottom: 10px;
-  right: 10px;
+  bottom: 20px;
+  right: 20px;
   display: flex;
   gap: 10px;
   z-index: 30;
