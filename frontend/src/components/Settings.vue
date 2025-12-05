@@ -547,7 +547,7 @@
 
       <div v-if="stats.is_training" style="margin-top: 15px;">
         <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9em; color: #ccc;">
-          <span>Progress</span>
+          <span>Progress <span v-if="stats.model_name" style="color: #4caf50;">({{ stats.model_name }})</span></span>
           <span>{{ Math.round(stats.training_progress * 100) }}%</span>
         </div>
         <div style="width: 100%; height: 10px; background: #333; border-radius: 5px; overflow: hidden;">

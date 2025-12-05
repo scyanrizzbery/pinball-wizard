@@ -12,7 +12,6 @@ except RuntimeError:
 import time
 import logging
 # Force restart v2
-from queue import Queue
 import numpy as np
 from dotenv import load_dotenv
 
@@ -167,9 +166,9 @@ def main():
                         # Draw debug info on frame if needed
                         with self.lock:
                             self.latest_processed_frame = raw_frame
-                            # Count only non-lost balls, or use balls_remaining if available
-                            if hasattr(self.capture, 'balls_remaining'):
-                                self.current_ball_count = self.capture.balls_remaining
+                            # Count actual balls on table (not balls_remaining which is balls left to play)
+                            if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
+                                self.current_ball_count = len(self.capture.physics_engine.balls)
                             elif hasattr(self.capture, 'balls'):
                                 self.current_ball_count = sum(1 for ball in self.capture.balls if not ball.get('lost', False))
                             else:
@@ -206,9 +205,14 @@ def main():
                 
             if current_score > self.high_score:
                 self.high_score = current_score
-                
-            current_balls = self.current_ball_count
-            
+
+            # Get real-time ball count directly from physics engine for accurate stats
+            current_balls = 0
+            if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
+                current_balls = len(self.capture.physics_engine.balls)
+            else:
+                current_balls = self.current_ball_count
+
             if self.last_ball_count > 0 and current_balls == 0:
                 self.games_played += 1
                 
@@ -268,19 +272,16 @@ def main():
                 'score': current_score,
                 'high_score': self.high_score,
                 'balls': current_balls,
+                'ball_count': current_balls,  # Actual balls on table (same as balls in this context)
                 'games_played': self.games_played,
                 'nudge': nudge_data,
                 'tilt_value': tilt_value,
-                'is_tilted': is_tilted,
                 'is_tilted': is_tilted,
                 'is_simulation': self.is_simulation,
                 'game_history': self.game_history
             }
             
-            # Merge training stats
-            with self.lock:
-                stats.update(self.training_stats)
-                
+
             # Merge training stats
             with self.lock:
                 stats.update(self.training_stats)
@@ -292,17 +293,8 @@ def main():
                 return self.capture.get_game_state()
             return {}
 
-        @property
-        def auto_start_enabled(self):
-            return getattr(self.capture, 'auto_start_enabled', False)
-
-        @auto_start_enabled.setter
-        def auto_start_enabled(self, value):
-            if hasattr(self.capture, 'auto_start_enabled'):
-                self.capture.auto_start_enabled = value
-
         def __getattr__(self, name):
-            if name in ['ai_enabled', 'auto_start_enabled']:
+            if name in ['ai_enabled']:
                 raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
             return getattr(self.capture, name)
 
@@ -428,6 +420,8 @@ def main():
                                 
                                 # Auto-load new model if available
                                 if new_model:
+                                    logger.info(f"Auto-selected new model: {new_model}")
+                                    web_server.emit_training_finished(new_model)
                                     logger.info(f"Auto-loading new model: {new_model}")
                                     try:
                                         # Simulate load_model call

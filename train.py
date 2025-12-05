@@ -65,10 +65,11 @@ class QueueStopCallback(BaseCallback):
         return True
 
 class WebStatsCallback(BaseCallback):
-    def __init__(self, status_queue, total_timesteps, verbose=0):
+    def __init__(self, status_queue, total_timesteps, model_name="Unknown", verbose=0):
         super().__init__(verbose)
         self.status_queue = status_queue
         self.total_timesteps = total_timesteps
+        self.model_name = model_name
         self.start_time = None
 
     def _on_training_start(self) -> None:
@@ -120,6 +121,7 @@ class WebStatsCallback(BaseCallback):
 
             stats = {
                 'timesteps': self.num_timesteps,
+                'model_name': self.model_name,
                 'mean_reward': safe_float(mean_reward),
                 'is_training': True,
                 'training_progress': self.num_timesteps / self.total_timesteps,
@@ -240,7 +242,7 @@ def train_worker(config, state_queue, command_queue, status_queue):
         callbacks = [
             StateSyncCallback(vision_wrapper, state_queue),
             QueueStopCallback(command_queue),
-            WebStatsCallback(status_queue, total_timesteps),
+            WebStatsCallback(status_queue, total_timesteps, model_name=model_name),
             ProgressBarCallback(total_timesteps)
         ]
         

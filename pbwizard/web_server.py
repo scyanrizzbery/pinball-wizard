@@ -1,12 +1,11 @@
 import base64
-import threading
-import time
 import logging
 import os
 
 import cv2
 
 import eventlet
+
 eventlet.monkey_patch()
 from flask import Flask, render_template
 from flask_socketio import SocketIO
@@ -38,7 +37,7 @@ def stream_frames():
         try:
             if vision_system:
                 # logger.debug("Getting frame...")
-                
+
                 # Emit 3D Game State
                 if hasattr(vision_system, 'get_game_state'):
                     game_state = vision_system.get_game_state()
@@ -51,6 +50,7 @@ def stream_frames():
                             'score': game_state.get('score', 0),
                             'high_score': game_state.get('high_score', 0),
                             'balls': game_state.get('balls_remaining', 0),
+                            'ball_count': len(game_state.get('balls', [])),  # Actual balls on table
                             'games_played': game_state.get('games_played', 0),
                             'game_history': game_state.get('game_history', []),
                             'is_tilted': game_state.get('is_tilted', False),
@@ -59,7 +59,7 @@ def stream_frames():
                             'score_multiplier': 1.0,
                             'combo_active': False
                         }
-                    
+
                     # Add combo data from physics engine
                     try:
                         capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
@@ -71,25 +71,25 @@ def stream_frames():
                             stats_data['score_multiplier'] = capture.physics_engine.get_multiplier()
                     except Exception as e:
                         logger.error(f"Error adding combo stats: {e}")
-                    
+
                     # Add training stats if available
                     if hasattr(vision_system, 'training_stats'):
-                         stats_data.update(vision_system.training_stats)
-                    
+                        stats_data.update(vision_system.training_stats)
+
                     # Sanitize for JSON serialization (handle numpy types)
                     def sanitize_for_json(obj):
                         if isinstance(obj, dict):
                             return {k: sanitize_for_json(v) for k, v in obj.items()}
                         elif isinstance(obj, list):
                             return [sanitize_for_json(v) for v in obj]
-                        elif hasattr(obj, 'item'): # Numpy scalar
+                        elif hasattr(obj, 'item'):  # Numpy scalar
                             return obj.item()
-                        elif hasattr(obj, 'tolist'): # Numpy array
+                        elif hasattr(obj, 'tolist'):  # Numpy array
                             return obj.tolist()
                         return obj
 
                     stats_data = sanitize_for_json(stats_data)
-                         
+
                     socketio.emit('stats_update', stats_data, namespace='/game')
                     if len(game_state.get('balls', [])) > 0:
                         logger.debug(f"Emitting Game State: {game_state['balls'][0]}")
@@ -120,6 +120,7 @@ def stream_frames():
 def handle_connect_game():
     logger.info('Client connected to /game')
 
+
 @socketio.on('connect', namespace='/config')
 def handle_connect_config():
     logger.info('Client connected to /config')
@@ -148,22 +149,22 @@ def handle_connect_config():
                 'camera_x': capture.cam_x / capture.width if hasattr(capture, 'cam_x') else 0.5,
                 'camera_y': capture.cam_y / capture.height if hasattr(capture, 'cam_y') else 1.5,
                 'camera_z': capture.cam_z / capture.width if hasattr(capture, 'cam_z') else 1.5,
-                'camera_zoom': capture.focal_length / (capture.width * 1.2) if hasattr(capture, 'focal_length') else 1.0,
+                'camera_zoom': capture.focal_length / (capture.width * 1.2) if hasattr(capture,
+                                                                                       'focal_length') else 1.0,
                 'last_model': getattr(capture, 'last_model', None),
                 'last_preset': getattr(capture, 'last_preset', None),
                 'zones': capture.layout.zones if hasattr(capture, 'layout') else []
             }
             socketio.emit('physics_config_loaded', config, namespace='/config')
 
+
 @socketio.on('connect', namespace='/training')
 def handle_connect_training():
     logger.info('Client connected to /training')
-    # Sync initial state
+    # Sync initial AI state
     if vision_system:
         ai_enabled = getattr(vision_system, 'ai_enabled', True)
-        auto_start = getattr(vision_system, 'auto_start_enabled', True)
         socketio.emit('ai_status', {'enabled': ai_enabled}, namespace='/training')
-        socketio.emit('auto_start_status', {'enabled': auto_start}, namespace='/training')
 
 
 @socketio.on('input_event', namespace='/control')
@@ -203,7 +204,7 @@ def handle_input(data):
         if event_type == 'down':
             logger.info("Input: Pull Plunger")
             if hasattr(capture, 'pull_plunger'):
-                capture.pull_plunger(1.0) # Full pull for now
+                capture.pull_plunger(1.0)  # Full pull for now
         else:
             logger.info("Input: Release Plunger")
             if hasattr(capture, 'release_plunger'):
@@ -215,15 +216,39 @@ def handle_input(data):
         if hasattr(capture, 'nudge_right'):
             capture.nudge_right()
 
+
 @socketio.on('relaunch_ball', namespace='/game')
 def handle_relaunch_ball():
     if not vision_system: return
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
-    
+
     if hasattr(capture, 'relaunch_ball'):
         capture.relaunch_ball()
         logger.info("Relaunch ball command received and executed")
 
+
+@socketio.on('start_game', namespace='/control')
+def handle_start_game():
+    """Start a new game by spawning and firing ball (for auto-start)."""
+    if not vision_system:
+        return
+
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+
+    logger.info("Start game command received")
+
+    # Add ball if none exist
+    if hasattr(capture, 'physics_engine'):
+        if len(capture.physics_engine.balls) == 0:
+            logger.info("Auto-start: Adding ball to plunger")
+            if hasattr(capture, 'add_ball'):
+                capture.add_ball()
+
+            # Let the auto-fire plunger logic in physics.py handle the launch
+            # This is more reliable than firing immediately
+            logger.info("Auto-start: Ball added, auto-fire will launch it")
+        else:
+            logger.info("Auto-start: Ball already exists, skipping")
 
 
 @socketio.on('update_physics_v2', namespace='/config')
@@ -239,11 +264,12 @@ def handle_physics_update(data):
         #     config = capture.get_config()
         #     socketio.emit('physics_config_loaded', config, namespace='/config')
 
+
 @socketio.on('save_new_layout', namespace='/config')
 def handle_save_new_layout(data):
     """Handle saving layout as new file."""
     if not vision_system: return
-    
+
     name = data.get('name')
     if name:
         capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
@@ -255,11 +281,12 @@ def handle_save_new_layout(data):
             else:
                 socketio.emit('status', {'msg': "Failed to save layout"}, namespace='/config')
 
+
 @socketio.on('save_layout', namespace='/config')
 def handle_save_layout():
     """Handle saving current layout (overwrite)."""
     if not vision_system: return
-    
+
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
     if hasattr(capture, 'save_layout'):
         capture.save_layout()
@@ -273,6 +300,7 @@ def handle_update_zones(zones_data):
         vision_system.update_zones(zones_data)
         socketio.emit('status', {'msg': 'Zones updated and saved'}, namespace='/config')
 
+
 @socketio.on('update_rails', namespace='/config')
 def handle_update_rails(rails_data):
     """Handle rail updates from frontend."""
@@ -280,9 +308,10 @@ def handle_update_rails(rails_data):
         if hasattr(vision_system, 'update_rails'):
             vision_system.update_rails(rails_data)
         elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'update_rails'):
-             vision_system.capture.update_rails(rails_data)
-             
+            vision_system.capture.update_rails(rails_data)
+
         socketio.emit('status', {'msg': 'Rails updated and saved'}, namespace='/config')
+
 
 @socketio.on('create_rail', namespace='/config')
 def handle_create_rail(rail_data):
@@ -291,12 +320,13 @@ def handle_create_rail(rail_data):
         if hasattr(vision_system, 'create_rail'):
             vision_system.create_rail(rail_data)
         elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'create_rail'):
-             vision_system.capture.create_rail(rail_data)
-        
+            vision_system.capture.create_rail(rail_data)
+
         socketio.emit('status', {'msg': 'Rail created'}, namespace='/config')
         # Emit updated config
         if hasattr(vision_system, 'capture'):
-             socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
+            socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
+
 
 @socketio.on('delete_rail', namespace='/config')
 def handle_delete_rail(data):
@@ -307,12 +337,13 @@ def handle_delete_rail(data):
             if hasattr(vision_system, 'delete_rail'):
                 vision_system.delete_rail(rail_index)
             elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'delete_rail'):
-                 vision_system.capture.delete_rail(rail_index)
-            
+                vision_system.capture.delete_rail(rail_index)
+
             socketio.emit('status', {'msg': 'Rail deleted'}, namespace='/config')
             # Emit updated config
             if hasattr(vision_system, 'capture'):
-                 socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
+                socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
+
 
 @socketio.on('update_bumpers', namespace='/config')
 def handle_update_bumpers(bumpers_data):
@@ -321,9 +352,10 @@ def handle_update_bumpers(bumpers_data):
         if hasattr(vision_system, 'update_bumpers'):
             vision_system.update_bumpers(bumpers_data)
         elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'update_bumpers'):
-             vision_system.capture.update_bumpers(bumpers_data)
-             
+            vision_system.capture.update_bumpers(bumpers_data)
+
         socketio.emit('status', {'msg': 'Bumpers updated and saved'}, namespace='/config')
+
 
 @socketio.on('create_bumper', namespace='/config')
 def handle_create_bumper(bumper_data):
@@ -332,9 +364,10 @@ def handle_create_bumper(bumper_data):
         if hasattr(vision_system, 'create_bumper'):
             vision_system.create_bumper(bumper_data)
         elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'create_bumper'):
-             vision_system.capture.create_bumper(bumper_data)
-        
+            vision_system.capture.create_bumper(bumper_data)
+
         socketio.emit('status', {'msg': 'Bumper created'}, namespace='/config')
+
 
 @socketio.on('delete_bumper', namespace='/config')
 def handle_delete_bumper(data):
@@ -345,14 +378,15 @@ def handle_delete_bumper(data):
             if hasattr(vision_system, 'delete_bumper'):
                 vision_system.delete_bumper(index)
             elif hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'delete_bumper'):
-                 vision_system.capture.delete_bumper(index)
-            
+                vision_system.capture.delete_bumper(index)
+
             socketio.emit('status', {'msg': 'Bumper deleted'}, namespace='/config')
-             
+
         socketio.emit('status', {'msg': 'Bumpers updated and saved'}, namespace='/config')
         # Emit updated config
         if hasattr(vision_system, 'capture'):
-             socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
+            socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
+
 
 @socketio.on('reset_zones', namespace='/config')
 def handle_reset_zones():
@@ -366,6 +400,7 @@ def handle_reset_zones():
                 config = capture.get_config()
                 socketio.emit('physics_config_loaded', config, namespace='/config')
             socketio.emit('status', {'msg': 'Zones reset to default'}, namespace='/config')
+
 
 @socketio.on('save_physics', namespace='/config')
 def handle_save_physics():
@@ -406,29 +441,30 @@ def handle_reset_physics():
 def handle_load_layout(data):
     if not vision_system:
         return
-    
+
     logger.info("Received load_layout request")
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
-    
+
     if hasattr(capture, 'load_layout'):
         try:
             success = capture.load_layout(data)
             if success:
                 logger.info("Layout loaded successfully")
                 socketio.emit('layout_loaded', {'status': 'success'}, namespace='/config')
-                
+
                 # Emit updated config (including new layout zones/targets) to frontend
                 if hasattr(capture, 'get_config'):
                     config = capture.get_config()
                     socketio.emit('physics_config_loaded', config, namespace='/config')
-                
+
                 # Add to history
                 layout_name = data.get('name', 'Unknown Layout')
                 if hasattr(vision_system, 'add_history_event'):
                     vision_system.add_history_event('layout_change', {'layout': layout_name})
             else:
                 logger.error("Failed to load layout")
-                socketio.emit('layout_loaded', {'status': 'error', 'message': 'Failed to load layout'}, namespace='/config')
+                socketio.emit('layout_loaded', {'status': 'error', 'message': 'Failed to load layout'},
+                              namespace='/config')
         except Exception as e:
             logger.error(f"Error loading layout: {e}")
             socketio.emit('layout_loaded', {'status': 'error', 'message': str(e)}, namespace='/config')
@@ -447,6 +483,7 @@ def handle_save_preset(data):
             presets = capture.save_camera_preset(name)
             socketio.emit('presets_updated', presets, namespace='/config')
 
+
 @socketio.on('apply_preset', namespace='/config')
 def handle_apply_preset(data):
     if not vision_system: return
@@ -458,6 +495,7 @@ def handle_apply_preset(data):
         capture.save_config()
         logger.info(f"Applied and saved camera preset: {preset_name}")
 
+
 @socketio.on('delete_preset', namespace='/config')
 def handle_delete_preset(data):
     if not vision_system: return
@@ -467,7 +505,6 @@ def handle_delete_preset(data):
         if name:
             presets = capture.delete_camera_preset(name)
             socketio.emit('presets_updated', presets, namespace='/config')
-
 
         socketio.emit('layout_loaded', {'status': 'error', 'message': 'Not supported'})
 
@@ -481,8 +518,8 @@ def handle_get_layouts():
             if hasattr(capture, 'available_layouts'):
                 layouts = []
                 for key, data in capture.available_layouts.items():
-                    if key == 'default': continue # Skip default layout
-                    
+                    if key == 'default': continue  # Skip default layout
+
                     # Use the 'name' property from the layout data if available
                     display_name = data.get('name', key.replace('_', ' ').title())
                     layouts.append({
@@ -507,9 +544,9 @@ def handle_load_layout_by_name(data):
 
     if not vision_system:
         return
-        
+
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
-    
+
     if hasattr(capture, 'load_layout'):
         success = capture.load_layout(layout_name)
         if success:
@@ -527,16 +564,17 @@ def handle_save_layout_settings(data):
     """Save current physics settings to the active layout file."""
     if not vision_system:
         return
-        
+
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
-    
+
     if hasattr(capture, 'save_layout_settings'):
         success = capture.save_layout_settings()
         if success:
             socketio.emit('layout_settings_saved', {'status': 'success'}, namespace='/config')
             logger.info("Layout settings saved successfully.")
         else:
-            socketio.emit('layout_settings_saved', {'status': 'error', 'message': 'Failed to save settings'}, namespace='/config')
+            socketio.emit('layout_settings_saved', {'status': 'error', 'message': 'Failed to save settings'},
+                          namespace='/config')
             logger.error("Failed to save layout settings.")
 
 
@@ -546,49 +584,23 @@ def handle_toggle_ai(data):
     if not vision_system:
         logger.error("Vision system is None in handle_toggle_ai")
         return
-    
+
     enabled = data.get('enabled', True)
     logger.info(f"Received toggle_ai event. Data: {data}, Setting to: {enabled}")
-    
+
     # Set on vision_system
     if hasattr(vision_system, 'ai_enabled'):
         vision_system.ai_enabled = enabled
         logger.info(f"AI Enabled set to: {enabled}")
-    
+
     # Also set on agent if it exists
     if hasattr(vision_system, 'agent') and vision_system.agent:
         vision_system.agent.enabled = enabled
         logger.info(f"Agent enabled set to: {enabled}")
-    
+
     # Broadcast new state to all clients
     socketio.emit('ai_status', {'enabled': enabled}, namespace='/training')
 
-
-@socketio.on('toggle_auto_start', namespace='/training')
-def handle_toggle_auto_start(data):
-    if not vision_system:
-        return
-    
-    enabled = data.get('enabled', True)
-    logger.info(f"Received toggle_auto_start event. Data: {data}, Setting to: {enabled}")
-    if hasattr(vision_system, 'auto_start_enabled'):
-        vision_system.auto_start_enabled = enabled
-        logger.info(f"Auto-Start set to: {enabled}")
-        
-        # Also sync to physics engine
-        capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
-        
-        # Sync to capture object (SimulatedFrameCapture)
-        if hasattr(capture, 'auto_start_enabled'):
-            capture.auto_start_enabled = enabled
-            logger.info(f"Capture Auto-Start set to: {enabled}")
-
-        if hasattr(capture, 'physics_engine') and capture.physics_engine:
-            if hasattr(capture.physics_engine, 'auto_start_enabled'):
-                capture.physics_engine.auto_start_enabled = enabled
-                logger.info(f"Physics Engine Auto-Start set to: {enabled}")
-        # Broadcast new state to all clients
-        socketio.emit('auto_start_status', {'enabled': enabled}, namespace='/training')
 
 
 @socketio.on('update_difficulty', namespace='/training')
@@ -596,23 +608,24 @@ def handle_update_difficulty(data):
     """Handle AI difficulty level changes."""
     if not vision_system:
         return
-    
+
     difficulty = data.get('difficulty', 'medium')
     logger.info(f"Received update_difficulty event. Setting to: {difficulty}")
-    
+
     # Update agent difficulty if reflex agent
     if hasattr(vision_system, 'agent'):
         if hasattr(vision_system.agent, 'difficulty'):
             vision_system.agent.difficulty = difficulty
             # Update difficulty parameters
-            params = vision_system.agent.DIFFICULTY_PARAMS.get(difficulty, vision_system.agent.DIFFICULTY_PARAMS['medium'])
+            params = vision_system.agent.DIFFICULTY_PARAMS.get(difficulty,
+                                                               vision_system.agent.DIFFICULTY_PARAMS['medium'])
             vision_system.agent.MIN_HOLD = params['MIN_HOLD']
             vision_system.agent.MAX_HOLD = params['MAX_HOLD']
             vision_system.agent.COOLDOWN = params['COOLDOWN']
             vision_system.agent.VY_THRESHOLD = params['VY_THRESHOLD']
             vision_system.agent.USE_VELOCITY_PREDICTION = params['USE_VELOCITY_PREDICTION']
             logger.info(f"AI Difficulty updated to: {difficulty}")
-    
+
     # Record difficulty change in game history
     import time
     vision_system.game_history.insert(0, {
@@ -624,7 +637,7 @@ def handle_update_difficulty(data):
     # Keep history limited
     if len(vision_system.game_history) > 50:
         vision_system.game_history.pop()
-    
+
     # Save to config
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
     if hasattr(capture, 'save_config'):
@@ -634,7 +647,7 @@ def handle_update_difficulty(data):
         else:
             capture.ai_difficulty = difficulty
         capture.save_config()
-    
+
     # Broadcast new state to all clients
     socketio.emit('difficulty_status', {'difficulty': difficulty}, namespace='/training')
 
@@ -646,7 +659,7 @@ def handle_get_models():
         models_dir = os.path.join(os.getcwd(), 'models')
         if not os.path.exists(models_dir):
             os.makedirs(models_dir)
-            
+
         model_list = []
         for f in os.listdir(models_dir):
             if f.endswith('.zip'):
@@ -657,7 +670,7 @@ def handle_get_models():
                         file_hash = hashlib.sha256(file.read()).hexdigest()[:6]
                 except Exception:
                     file_hash = "unknown"
-                
+
                 # Get modification time
                 try:
                     mtime = os.path.getmtime(filepath)
@@ -674,7 +687,7 @@ def handle_get_models():
                     'mod_time': mod_time,
                     'mtime_timestamp': mtime  # Store timestamp for sorting
                 })
-        
+
         # Sort by modification time (newest first)
         model_list.sort(key=lambda x: x.get('mtime_timestamp', 0), reverse=True)
         socketio.emit('models_list', model_list, namespace='/training')
@@ -684,35 +697,37 @@ def handle_get_models():
 
 @socketio.on('load_model', namespace='/training')
 def handle_load_model(data):
-    model_file = data.get('model')
     model_name = data.get('model')
     if not model_name:
         return
-        
+
     try:
         model_path = os.path.join(os.getcwd(), 'models', model_name)
         if os.path.exists(model_path):
             if hasattr(vision_system, 'agent') and hasattr(vision_system.agent, 'load_model'):
                 vision_system.agent.load_model(model_path)
                 logger.info(f"Loaded model: {model_name}")
-                
+
                 # Save as last loaded model
                 if hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'save_config'):
                     vision_system.capture.last_model = model_name
                     vision_system.capture.save_config()
-                
+
                 # Add to history
                 if hasattr(vision_system, 'add_history_event'):
                     vision_system.add_history_event('model_change', {'model': model_name})
 
                 socketio.emit('model_loaded', {'status': 'success', 'model': model_name}, namespace='/training')
             else:
-                socketio.emit('model_loaded', {'status': 'error', 'message': 'Agent not initialized or does not support loading'}, namespace='/training')
+                socketio.emit('model_loaded',
+                              {'status': 'error', 'message': 'Agent not initialized or does not support loading'},
+                              namespace='/training')
         else:
             socketio.emit('model_loaded', {'status': 'error', 'message': 'Model file not found'}, namespace='/training')
     except Exception as e:
         logger.error(f"Error loading model: {e}")
         socketio.emit('model_loaded', {'status': 'error', 'message': str(e)}, namespace='/training')
+
 
 @socketio.on('start_training', namespace='/training')
 def handle_start_training(data):
@@ -722,14 +737,18 @@ def handle_start_training(data):
             'model_name': data.get('model_name', 'ppo_pinball'),
             'total_timesteps': int(data.get('total_timesteps', 100000)),
             'learning_rate': float(data.get('learning_rate', 0.0003)),
-            'layout': data.get('layout'),
+            # If layout not specified, use currently loaded layout
+            'layout': data.get('layout') or (
+                vision_system.capture.current_layout_id if hasattr(vision_system, 'capture') else None),
             'physics': data.get('physics'),
             'random_layouts': data.get('random_layouts', False)
         }
+        logger.info(f"STARTING TRAINING WITH CONFIG: {config}")
         vision_system.controller.start_training(config)
         socketio.emit('training_started', config, namespace='/training')
     else:
         logger.error("No controller attached to vision system")
+
 
 @socketio.on('stop_training', namespace='/training')
 def handle_stop_training():
@@ -740,15 +759,23 @@ def handle_stop_training():
     else:
         logger.error("No controller attached to vision system")
 
+
+def emit_training_finished(model_name):
+    """Called by main loop when training finishes."""
+    if socketio:
+        socketio.emit('training_finished', {'model': model_name}, namespace='/training')
+
+
 @socketio.on('camera_control', namespace='/config')
 def handle_camera_control(data):
     if not vision_system: return
-    
+
     key = data.get('key')
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
-    
+
     if hasattr(capture, 'adjust_camera'):
         capture.adjust_camera(key)
+
 
 class SocketIOLogHandler(logging.Handler):
     def emit(self, record):
@@ -762,16 +789,16 @@ class SocketIOLogHandler(logging.Handler):
 def start_server(vision_sys, port=5000):
     global vision_system
     vision_system = vision_sys
-    
+
     # Attach SocketIO logger
     handler = SocketIOLogHandler()
     handler.setLevel(os.getenv('LOG_LEVEL', 'INFO'))
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
-    
+
     # Add to root logger or specific logger
     logging.getLogger(constants.LOGGER_NAME).addHandler(handler)
-    
+
     # Start streaming thread
     socketio.start_background_task(stream_frames)
-    socketio.run(app, host='0.0.0.0', port=port, debug=True, use_reloader=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, use_reloader=False)

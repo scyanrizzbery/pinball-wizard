@@ -230,7 +230,7 @@ class PinballEnv(gym.Env):
         terminated, truncated = self._check_termination(ball_pos, height)
         
         if terminated:
-            reward -= 10.0 # Compromise penalty (was -5, then -20)
+            reward -= 50.0 # Heavy penalty for draining (was -10.0)
         
         return obs, reward, terminated, truncated, {}
 
@@ -347,17 +347,12 @@ class PinballEnv(gym.Env):
                  self.vision.capture.load_layout(self.vision.capture.layout.to_dict())
                  logger.info("Randomized layout for new episode")
         
-        # Launch ball if in simulation and auto-start is enabled
-        should_launch = True
-        if hasattr(self.vision, 'auto_start_enabled'):
-            should_launch = self.vision.auto_start_enabled
-            
-        if should_launch:
-            if hasattr(self.vision, 'launch_ball'):
-                self.vision.launch_ball()
-            elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'launch_ball'):
-                self.vision.capture.launch_ball()
-        
+        # Launch ball if in simulation (always launch during training)
+        if hasattr(self.vision, 'launch_ball'):
+            self.vision.launch_ball()
+        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'launch_ball'):
+            self.vision.capture.launch_ball()
+
         # Initial observation
         frame = None
         if not self.headless:
@@ -379,12 +374,12 @@ class PinballEnv(gym.Env):
             'easy': {
                 'survival_reward': 0.3,  # Higher survival reward
                 'holding_threshold': 120,  # 4 seconds - more lenient
-                'holding_penalty': 0.3  # Lower penalty
+                'holding_penalty': 0.1  # Lower penalty
             },
             'medium': {
                 'survival_reward': 0.1,  # Standard
                 'holding_threshold': 90,  # 3 seconds
-                'holding_penalty': 0.5  # Standard penalty
+                'holding_penalty': 0.2  # Reduced from 0.5 to encourage holding slightly more than dying
             },
             'hard': {
                 'survival_reward': 0.1,  # Lower survival reward - must score to win

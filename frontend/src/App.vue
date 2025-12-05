@@ -31,6 +31,7 @@
           :nudgeEvent="nudgeEvent"
           :stats="stats"
           :cameraMode="viewMode === '3d' ? 'perspective' : 'top-down'"
+          :autoStartEnabled="toggles.autoStart"
           @toggle-view="toggleViewMode"
         />
           <ComboDisplay 
@@ -148,7 +149,8 @@ const addLog = (message) => {
 const stats = reactive({
   score: 0,
   high_score: 0,
-  balls: 0,
+  balls: 0,  // balls_remaining (3, 2, 1, 0)
+  ball_count: 0,  // actual balls on table
   games_played: 0,
   game_history: [],
   timesteps: 0,
@@ -202,7 +204,6 @@ const physics = reactive({
   launch_angle: 0.0,
   base_combo_bonus: 50,
   combo_multiplier_enabled: true,
-  combo_multiplier_enabled: true,
   zones: [],
   rails: [],
   bumpers: [],
@@ -214,6 +215,10 @@ const toggles = reactive({
   ai: true,
   autoStart: true
 })
+
+// Auto-start state management (frontend-controlled)
+const autoStartEnabled = ref(true)
+const autoStartTimeoutId = ref(null)
 
 const cameraPresets = ref({})
 const selectedPreset = ref('')
@@ -265,6 +270,54 @@ const updateDifficulty = (difficulty) => {
   sockets.training.emit('update_difficulty', { difficulty })
   addLog(`Set difficulty to: ${difficulty}`)
 }
+
+// Watch for game over and auto-start if enabled
+// Watch ball_count (actual balls on table), not balls (balls_remaining)
+watch(() => stats.ball_count, (newBalls, oldBalls) => {
+  console.log(`[Auto-Start Watcher] Ball count changed from ${oldBalls} to ${newBalls}`)
+  console.log(`[Auto-Start Watcher] stats.is_training: ${stats.is_training}`)
+
+  // If ball count increased from 0, a new game has started - cancel pending auto-start
+  if (oldBalls === 0 && newBalls > 0 && autoStartTimeoutId.value) {
+    console.log('[Auto-Start Watcher] New game already started (balls went 0 -> 1+), cancelling auto-start')
+    clearTimeout(autoStartTimeoutId.value)
+    autoStartTimeoutId.value = null
+    return
+  }
+
+  // If balls decreased to 0, game is over
+  // Check that oldBalls exists and was > 0, and newBalls is exactly 0
+  if (oldBalls !== undefined && oldBalls > 0 && newBalls === 0) {
+    console.log('[Auto-Start Watcher] Ball count went from >0 to 0 (game over)')
+
+    if (toggles.autoStart) {
+      console.log('[Auto-Start Watcher] Auto-start is ENABLED')
+
+      if (!stats.is_training) {
+        console.log('[Auto-Start Watcher] Not in training mode, scheduling auto-start in 2 seconds...')
+        addLog('Game over, auto-starting in 2 seconds...')
+
+        // Clear any existing timeout first
+        if (autoStartTimeoutId.value) {
+          clearTimeout(autoStartTimeoutId.value)
+        }
+
+        autoStartTimeoutId.value = setTimeout(() => {
+          console.log('[Auto-Start Watcher] Executing auto-start now!')
+          startNewGame()
+        }, 2000)
+      } else {
+        console.log('[Auto-Start Watcher] In training mode, skipping auto-start')
+      }
+    } else {
+      console.log('[Auto-Start Watcher] Auto-start is DISABLED, not scheduling')
+    }
+  } else {
+    console.log('[Auto-Start Watcher] Conditions not met for auto-start')
+    console.log(`  - oldBalls: ${oldBalls} (need > 0)`)
+    console.log(`  - newBalls: ${newBalls} (need === 0)`)
+  }
+})
 
 const handleInput = (key, type) => {
   const getPitch = () => {
@@ -414,7 +467,35 @@ const toggleAI = () => {
 }
 
 const toggleAutoStart = () => {
-  sockets.training.emit('toggle_auto_start', { enabled: !toggles.autoStart })
+  // Toggle the UI state (source of truth)
+  const oldValue = toggles.autoStart
+  toggles.autoStart = !toggles.autoStart
+
+  console.log(`[Auto-Start Toggle] Changed from ${oldValue} to ${toggles.autoStart}`)
+  console.log(`[Auto-Start Toggle] toggles.autoStart is now: ${toggles.autoStart}`)
+
+  addLog(`Auto-Start: ${toggles.autoStart ? 'ON' : 'OFF'}`)
+
+  // If toggled ON and no balls in play, immediately start a game
+  if (toggles.autoStart && stats.ball_count === 0) {
+    console.log('[Auto-Start Toggle] Enabled with no balls - starting game immediately')
+    addLog('Auto-Start enabled, starting game...')
+    startNewGame()
+  }
+
+  // Cancel pending auto-start if disabled (check against toggles.autoStart)
+  if (!toggles.autoStart && autoStartTimeoutId.value) {
+    clearTimeout(autoStartTimeoutId.value)
+    autoStartTimeoutId.value = null
+    console.log('[Auto-Start Toggle] Cancelled pending timeout')
+  }
+}
+
+// Function to start new game
+const startNewGame = () => {
+  console.log('[Auto-Start] Sending start_game event')
+  addLog('Starting new game...')
+  sockets.control.emit('start_game')
 }
 
 
@@ -467,6 +548,12 @@ const stopTraining = () => {
 }
 
 const handleKeydown = (e) => {
+  // Ignore keyboard events if user is typing in an input field
+  const target = e.target
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+    return // Don't process game controls when typing
+  }
+  
   if (e.repeat) return
   if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space' || e.code === 'ShiftLeft' ||
     e.code === 'ShiftRight') {
@@ -476,6 +563,12 @@ const handleKeydown = (e) => {
 }
 
 const handleKeyup = (e) => {
+  // Ignore keyboard events if user is typing in an input field
+  const target = e.target
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+    return // Don't process game controls when typing
+  }
+  
   if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space' || e.code === 'ShiftLeft' ||
     e.code === 'ShiftRight') {
     handleInput(e.code, 'up')
@@ -537,6 +630,21 @@ onMounted(() => {
   sockets.game.on('connect', () => {
     connected.value = true
     addLog('Connected to game server')
+
+    // Start initial game after a short delay (let physics engine initialize)
+    setTimeout(() => {
+      console.log('[Initial Game] Checking if we should start first game...')
+      console.log(`[Initial Game] ball_count: ${stats.ball_count}`)
+
+      // If auto-start is enabled and no balls exist, start the first game
+      if (toggles.autoStart && stats.ball_count === 0) {
+        console.log('[Initial Game] Starting first game automatically')
+        addLog('Starting first game...')
+        startNewGame()
+      } else {
+        console.log('[Initial Game] Not starting automatically (auto-start off or ball already exists)')
+      }
+    }, 1000) // Wait 1 second for backend to fully initialize
   })
 
   sockets.config.on('connect', () => {
@@ -554,6 +662,19 @@ onMounted(() => {
   })
 
   sockets.game.on('stats_update', (data) => {
+    // Debug: Log all stats updates to diagnose issue
+    console.log('[Stats Update] Received:', {
+      ball_count: data.ball_count,
+      balls: data.balls,
+      score: data.score,
+      games_played: data.games_played
+    })
+
+    // Debug: Log ball_count changes specifically
+    if (data.ball_count !== undefined && data.ball_count !== stats.ball_count) {
+      console.log(`[Stats Update] ball_count: ${stats.ball_count} → ${data.ball_count}`)
+    }
+
     Object.assign(stats, data)
     if (data.nudge) {
       nudgeEvent.value = data.nudge
@@ -583,14 +704,17 @@ onMounted(() => {
     sockets.training.emit('get_models')
   })
 
-  sockets.training.on('auto_start_status', (data) => {
-    toggles.autoStart = data.enabled
-    addLog(`Auto-Start: ${data.enabled}`)
-  })
 
   sockets.training.on('difficulty_status', (data) => {
     selectedDifficulty.value = data.difficulty
     addLog(`Difficulty updated: ${data.difficulty}`)
+  })
+  
+  sockets.training.on('training_finished', (data) => {
+    addLog(`Training Finished. New Model: ${data.model}`)
+    selectedModel.value = data.model
+    // Refresh models to ensure lists are in sync
+    sockets.training.emit('get_models')
   })
 
   sockets.config.on('layouts_list', (data) => {
@@ -674,9 +798,19 @@ onMounted(() => {
   if (window.Cypress || import.meta.env.DEV) {
     window.__APP_STATS__ = stats
   }
+
+  // Diagnostic: Log ball_count every 3 seconds to see if it's updating
+  setInterval(() => {
+    console.log(`[Diagnostic] Current ball_count: ${stats.ball_count}, balls: ${stats.balls}, score: ${stats.score}`)
+  }, 3000)
 })
 
 onUnmounted(() => {
+  // Clean up auto-start timeout
+  if (autoStartTimeoutId.value) {
+    clearTimeout(autoStartTimeoutId.value)
+  }
+
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('keyup', handleKeyup)
   Object.values(sockets).forEach(s => s.disconnect())

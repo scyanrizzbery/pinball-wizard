@@ -134,7 +134,9 @@ class SoundManager {
         // 3. Filter (Lowpass to tame highs, maybe some Q/Resonance)
         const filter = this.ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(2000, t);
+        // Open filter for higher notes to avoid silencing them
+        // Keep at least 2000Hz for body, but scale up with pitch
+        filter.frequency.setValueAtTime(Math.max(2000, baseFreq * 4), t);
         filter.Q.value = 1.0;
 
         // 4. Envelope (Gain)

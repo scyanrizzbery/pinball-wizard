@@ -113,12 +113,15 @@
         "flipper_length": 0.21,
         "plunger_release_speed": 1350.0,
         "launch_angle": -16.0,
-        "tilt_threshold": 1.0,
+        "tilt_threshold": 6.0,
         "nudge_cost": 4.0,
         "tilt_decay": 0.05,
         "table_tilt": 1.7,
         "rail_x_offset": 0.0,
         "rail_y_offset": 0.0,
-        "flipper_width": 0.021
+        "flipper_width": 0.021,
+        "flipper_tip_width": 0.025,
+        "ball_mass": 1.0,
+        "flipper_elasticity": 0.5
     }
 }

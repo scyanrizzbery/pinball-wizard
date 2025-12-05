@@ -19,6 +19,18 @@
       </div>
     </div>
 
+    <!-- Tilted Overlay -->
+    <div v-if="stats && stats.is_tilted === true" class="overlay-screen tilted-overlay">
+        <h1>TILTED!</h1>
+    </div>
+
+    <!-- Game Over Overlay -->
+    <div v-if="showGameOver && !stats.is_training" class="overlay-screen game-over-overlay">
+        <h1>GAME OVER</h1>
+        <p v-if="!autoStartEnabled">Press Launch to Restart</p>
+        <p v-else>Please wait...</p>
+    </div>
+
     <div v-if="!config || !config.rails" class="loading-placeholder">
       <div class="spinner"></div>
       <div class="loading-text">CONNECTING...</div>
@@ -33,6 +45,11 @@
     <!-- Rail Editor Controls -->
     <div class="editor-controls" v-if="cameraMode === 'perspective'">
         <div class="controls-row">
+            <button @click="$emit('toggle-view')" class="fullscreen-btn" title="Playfield Full">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                </svg>
+            </button>
             <button @click="toggleEditMode" :class="{ active: isEditMode }">
                 {{ isEditMode ? 'Done Editing' : 'Edit' }}
             </button>
@@ -74,7 +91,7 @@
     <!-- Stuck Ball Dialog -->
     <div v-if="stuckBallDialog" class="stuck-ball-dialog">
       <div class="dialog-content">
-        <h2>BALL LOST! RE-LAUNCH?</h2>
+        <h2>BALL NOT FOUND! RESTART?</h2>
         <div class="timer">{{ stuckBallTimer }}</div>
         <div class="buttons">
           <button @click="confirmRelaunch" class="confirm-btn">Yes</button>
@@ -91,16 +108,15 @@ import * as THREE from 'three'
 import SoundManager from '../utils/SoundManager'
 import SoundSettings from './SoundSettings.vue'
 
-  const props = defineProps({
-  socket: Object,
-  configSocket: Object,
-  config: Object,
-  nudgeEvent: Object,
-  stats: Object,
-  cameraMode: { type: String, default: 'perspective' }
+const props = defineProps({
+    socket: Object,
+    configSocket: Object,
+    config: Object,
+    nudgeEvent: Object,
+    stats: Object,
+    cameraMode: { type: String, default: 'perspective' },
+    autoStartEnabled: { type: Boolean, default: false },
 })
-
-const emit = defineEmits(['toggle-view'])
 
 const container = ref(null)
 let scene, camera, renderer
@@ -752,7 +768,9 @@ const createTable = (config = null) => {
   leftPivot.add(leftMesh)
   flippers.left = leftPivot
 
-  // Right Flipper
+  // Right Flipper - Clone geometry to avoid sharing
+  const rightFlipperGeo = flipperGeo.clone()
+
   const rightPivot = new THREE.Group()
   // Default fallback
   let rx = 0.26
@@ -767,7 +785,7 @@ const createTable = (config = null) => {
   rightPivot.position.set(rx, ry, 0.02)
   tableGroup.add(rightPivot)
   
-  const rightMesh = new THREE.Mesh(flipperGeo, flipperMat)
+  const rightMesh = new THREE.Mesh(rightFlipperGeo, flipperMat)
   // Right flipper mesh extends to the LEFT from pivot?
   // In physics.py: p2 = (-length, 0).
   // In Three.js here: we set position to (flipperLength / 2, 0, 0).
@@ -967,7 +985,13 @@ const initThree = () => {
   animate()
 }
 
-onMounted(() => {
+  // Reactive state for overlay logic
+  const activeBallCount = ref(0)
+  const showGameOver = ref(false)
+  const lastGamesPlayed = ref(null) // Local track of games played
+  let gameOverTimeout = null
+
+  onMounted(() => {
   console.log('Pinball3D Mounted. Initial Config:', props.config)
   initThree()
   
@@ -1026,9 +1050,53 @@ onMounted(() => {
       }
     })
   }
+
+  // Watch for Game Over Condition based on Games Played increment
+  watch(() => props.stats?.games_played, (newCount) => {
+      // Ignore if undefined
+      if (newCount === undefined) return
+      
+      // Initialize if null
+      if (lastGamesPlayed.value === null) {
+          lastGamesPlayed.value = newCount
+          return
+      }
+      
+      // TRIGGER: Game Over (Latch Open) when games_played increases
+      if (newCount > lastGamesPlayed.value) {
+          if (!showGameOver.value) {
+              console.log(`Game Over Triggered: Games Played ${lastGamesPlayed.value} -> ${newCount}`)
+              showGameOver.value = true
+              
+              if (gameOverTimeout) clearTimeout(gameOverTimeout)
+
+              if (props.autoStartEnabled) {
+                  gameOverTimeout = setTimeout(() => {
+                      showGameOver.value = false
+                  }, 3000)
+              }
+          }
+          // Update local tracker
+          lastGamesPlayed.value = newCount
+      }
+      else if (newCount < lastGamesPlayed.value) {
+          // Reset tracker if server reset count (e.g. restart)
+          lastGamesPlayed.value = newCount
+      }
+  })
   
+  // Watch active balls to close the latch
+  watch(activeBallCount, (newVal) => {
+      if (newVal > 0 && showGameOver.value) {
+           console.log("New Game Start Detected (Active Balls) - Hiding Overlay")
+           showGameOver.value = false
+           if (gameOverTimeout) clearTimeout(gameOverTimeout)
+      }
+  })
+
   const onGameState = (state) => {
     updateBalls(state.balls)
+    activeBallCount.value = state.balls.length // Track active balls
     updateFlippers(state)
     updateDropTargets(state.drop_targets)
     updateBumpers(state.bumper_states)
@@ -1050,6 +1118,8 @@ onMounted(() => {
             // 1.05946 is approx 12th root of 2
             const semitones = combo - GUITAR_THRESHOLD
             pitch = 2.0 * Math.pow(1.05946, semitones)
+            // Cap at 4 octaves (16.0x) to prevent ultrasonic/unpleasant frequencies
+            pitch = Math.min(pitch, 16.0)
         } else {
             // Normal mode
             // Increase pitch by 10% per multiplier level above 1, and 5% per combo
@@ -1234,15 +1304,24 @@ watch(() => props.config, (newConfig, oldConfig) => {
 
 
 // Nudge Animation (Camera Shake)
-const lastNudgeTime = ref(props.nudgeEvent?.time || 0)
-watch(() => props.nudgeEvent, (newVal) => {
-  // console.log('Pinball3D: nudgeEvent watcher fired', newVal)
-  if (newVal && newVal.time > lastNudgeTime.value) {
+const lastNudgeTime = ref(0) // Start at 0, will update on first real nudge
+const isInitialLoad = ref(true)
+
+watch(() => props.nudgeEvent, (newVal, oldVal) => {
+  // Skip initial mount/load where oldVal is undefined
+  if (isInitialLoad.value) {
+    isInitialLoad.value = false
+    // Initialize lastNudgeTime from props if it exists
+    if (newVal?.time) {
+      lastNudgeTime.value = newVal.time
+    }
+    return
+  }
+
+  // Only trigger on new nudges (timestamp increased)
+  if (newVal && newVal.time && newVal.time > lastNudgeTime.value) {
     lastNudgeTime.value = newVal.time
-    // console.log('Pinball3D: Triggering shake for', newVal.direction)
     triggerShake(newVal.direction)
-  } else {
-    // console.log('Pinball3D: Ignoring nudge (old timestamp or null)')
   }
 }, { deep: true })
 
@@ -1319,6 +1398,13 @@ onUnmounted(() => {
 
 const handleKeydown = (e) => {
   if (!camera) return
+
+  // Dismiss Game Over immediately on Launch (Space)
+  if (e.code === 'Space' && showGameOver.value) {
+      console.log("Manual Launch Detected - Hiding Game Over Overlay Immediately")
+      showGameOver.value = false
+      if (gameOverTimeout) clearTimeout(gameOverTimeout)
+  }
   
   const speed = 0.1
   // Prevent default scrolling for camera keys
@@ -1470,8 +1556,31 @@ const handleKeydown = (e) => {
     gap: 10px;
     flex-wrap: wrap; /* Allow wrapping */
     align-items: center;
-    justify-content: flex-end; /* Align to right */
+    justify-content: space-between; /* Space between fullscreen (left) and other buttons (right) */
     pointer-events: auto; /* Ensure clickable */
+}
+
+.fullscreen-btn {
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    border: 1px solid #777;
+    padding: 8px 10px;
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    margin-right: auto; /* Push to far left */
+}
+
+.fullscreen-btn:hover {
+    background: rgba(0, 120, 215, 0.8);
+    border-color: #0078d7;
+}
+
+.fullscreen-btn svg {
+    display: block;
 }
 
 .edit-actions {
@@ -1625,4 +1734,66 @@ const handleKeydown = (e) => {
   to { opacity: 1; }
 }
 
+
+.overlay-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 20; /* Above training overlay and canvas */
+  pointer-events: none; /* Let clicks pass through if needed, though usually Game Over stops input */
+}
+
+.tilted-overlay {
+  background: rgba(255, 0, 0, 0.3);
+  color: #ff3333;
+  text-shadow: 0 0 10px #ff0000;
+  animation: shake 0.3s infinite;
+}
+
+.tilted-overlay h1 {
+  font-size: 5em;
+  font-weight: 900;
+  transform: rotate(-10deg);
+  border: 4px solid #ff3333;
+  padding: 10px 40px;
+  background: rgba(0,0,0,0.8);
+}
+
+.game-over-overlay {
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+}
+
+.game-over-overlay h1 {
+  font-size: 4em;
+  color: #ff5555;
+  margin-bottom: 20px;
+  text-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+  animation: blink 1s infinite;
+}
+
+@keyframes shake {
+  0% { transform: translate(1px, 1px) rotate(0deg); }
+  10% { transform: translate(-1px, -2px) rotate(-1deg); }
+  20% { transform: translate(-3px, 0px) rotate(1deg); }
+  30% { transform: translate(3px, 2px) rotate(0deg); }
+  40% { transform: translate(1px, -1px) rotate(1deg); }
+  50% { transform: translate(-1px, 2px) rotate(-1deg); }
+  60% { transform: translate(-3px, 1px) rotate(0deg); }
+  70% { transform: translate(3px, 1px) rotate(-1deg); }
+  80% { transform: translate(-1px, -1px) rotate(1deg); }
+  90% { transform: translate(1px, 2px) rotate(0deg); }
+  100% { transform: translate(1px, -2px) rotate(-1deg); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
 </style>
