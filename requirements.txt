@@ -12,3 +12,4 @@ python-dotenv
 pytest
 progressbar2
 pymunk==6.6.0
+watchdog

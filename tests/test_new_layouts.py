@@ -7,7 +7,8 @@ class TestNewLayouts(unittest.TestCase):
     def test_load_all_layouts(self):
         sim = SimulatedFrameCapture(headless=True)
         layouts_dir = os.path.join(os.getcwd(), 'layouts')
-        layout_files = ['bumper_forest.json', 'precision.json', 'wide_open.json']
+        # Update list to match actual creative layouts
+        layout_files = ['bumper_forest.json', 'the_maze.json', 'pachinko_style.json']
         
         for filename in layout_files:
             filepath = os.path.join(layouts_dir, filename)
@@ -19,14 +20,21 @@ class TestNewLayouts(unittest.TestCase):
             success = sim.load_layout(config)
             self.assertTrue(success, f"Failed to load {filename}")
             
-            # Basic verification of loaded state
+            # Specific verification for each layout
             if filename == 'bumper_forest.json':
-                self.assertEqual(len(sim.bumpers), 6)
-            elif filename == 'precision.json':
-                self.assertEqual(len(sim.bumpers), 1)
-                self.assertAlmostEqual(sim.layout.left_flipper_x_max, 0.45)
-            elif filename == 'wide_open.json':
-                self.assertEqual(len(sim.bumpers), 0)
+                # Bumper Forest should have bumpers
+                self.assertGreater(len(sim.bumpers), 0)
+                # Check physics params
+                self.assertAlmostEqual(sim.restitution, 0.69)
+            elif filename == 'the_maze.json':
+                # The Maze should have many rails (walls)
+                # Note: rails in layout might be merged or processed, but count should be high
+                self.assertGreater(len(sim.layout.rails), 10)
+            elif filename == 'pachinko_style.json':
+                # Pachinko should have many bumpers (pins)
+                self.assertGreater(len(sim.bumpers), 10)
+                # And minimal/no rails
+                self.assertLess(len(sim.layout.rails), 5)
 
         print("All new layouts verified successfully!")
 

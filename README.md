@@ -3,10 +3,12 @@
 A reinforcement learning agent for playing pinball.
 
 - **Web Visualization**: Live web interface to watch the agent "think" and play in real-time.
-- **3D Simulator**: Fully interactive 3D view of the pinball table with realistic physics.
+- **3D Simulator**: Fully interactive 3D view with realistic physics, including tapered flippers and rubber bounce.
 - **Zone Visualization**: Visual feedback of the AI's flipper activation zones.
 - **Manual Play Mode**: Test the physics and controls yourself via the web interface.
-- **Dynamic Physics Config**: Adjust gravity, friction, and flipper angles on the fly from the UI.
+- **Dynamic Physics Config**: Adjust gravity, friction, ball mass, and flipper mechanics on the fly.
+- **Layout Persistence**: Physics settings are automatically saved and loaded for each specific table layout.
+- **Fullscreen Mode**: Playfield-only fullscreen mode for an immersive experience.
 
 ## Desktop
 ![Desktop View](assets/screenshot_desktop.png)

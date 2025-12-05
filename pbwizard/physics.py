@@ -660,6 +660,11 @@ class PymunkEngine(Physics):
         self.flipper_tip_width_ratio = width_ratio
         self._rebuild_flippers()
 
+    def update_flipper_elasticity(self, elasticity):
+        """Update flipper elasticity and rebuild flippers."""
+        self.flipper_elasticity = elasticity
+        self._rebuild_flippers()
+
     def _rebuild_flippers(self):
         """Remove and recreate flippers with current settings."""
         # Remove existing flippers

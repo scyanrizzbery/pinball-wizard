@@ -14,6 +14,41 @@ from pbwizard.physics import PymunkEngine
 
 logger = logging.getLogger(__name__)
 
+try:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+    WATCHDOG_AVAILABLE = True
+except ImportError:
+    WATCHDOG_AVAILABLE = False
+    FileSystemEventHandler = object # Dummy base class
+    logger.warning("watchdog module not found. Layout file watching will be disabled.")
+
+class LayoutFileHandler(FileSystemEventHandler):
+    def __init__(self, vision_system):
+        self.vision_system = vision_system
+        self.last_reload = 0
+
+    def on_any_event(self, event):
+        if not WATCHDOG_AVAILABLE: return
+        if event.is_directory:
+            return
+        
+        if event.event_type not in ['created', 'modified', 'deleted']:
+            return
+
+        filename = os.path.basename(event.src_path)
+        if not filename.endswith('.json'):
+            return
+
+        # Debounce reloads (watchdog can fire multiple events for one save)
+        current_time = time.time()
+        if current_time - self.last_reload < 0.5:
+            return
+        self.last_reload = current_time
+
+        logger.info(f"Layout file changed: {event.src_path} ({event.event_type})")
+        self.vision_system.refresh_layouts(filename if event.event_type != 'deleted' else None)
+
 
 class FrameCapture:
     def __init__(self, camera_index=0):
@@ -125,9 +160,10 @@ class PinballLayout:
             {'p1': {'x': 0.82, 'y': 0.50}, 'p2': {'x': 0.64, 'y': 0.83}}
         ]
         
+        
         # Rail Translation Offsets (Defaults)
-        self.rail_x_offset = -0.61
-        self.rail_y_offset = -0.11
+        self.rail_x_offset = 0.0
+        self.rail_y_offset = 0.0
         
         # Physics Parameters (Persisted per layout)
         self.physics_params = {}
@@ -413,6 +449,19 @@ class SimulatedFrameCapture:
         except Exception as e:
             logger.error(f"Failed to scan layouts directory: {e}")
 
+        # Start File Watcher
+        if WATCHDOG_AVAILABLE:
+            try:
+                self.event_handler = LayoutFileHandler(self)
+                self.observer = Observer()
+                self.observer.schedule(self.event_handler, path=layouts_dir, recursive=False)
+                self.observer.start()
+                logger.info(f"Started layout file watcher on {layouts_dir}")
+            except Exception as e:
+                logger.error(f"Failed to start file watcher: {e}")
+        else:
+            logger.warning("Skipping file watcher start (watchdog not installed)")
+
         self.ball_mass = 1.0
         self.flipper_tip_width = 0.025
         self.flipper_elasticity = 0.5
@@ -584,9 +633,9 @@ class SimulatedFrameCapture:
             },
             "Top Down": {
                 "camera_pitch": 0.0,
-                "camera_x": 0.5,
-                "camera_y": 0.6,
-                "camera_z": 1.7,
+                "camera_x": 0.0,
+                "camera_y": 0.0,
+                "camera_z": 2,
                 "camera_zoom": 0.8
             },
             "Player View": {
@@ -802,6 +851,26 @@ class SimulatedFrameCapture:
             val = float(params['flipper_width'])
             if val != self.flipper_width:
                 self.flipper_width = val
+                self._update_flipper_rects()
+                if self.physics_engine:
+                    self.physics_engine.update_flipper_width(val)
+                changes.append(f"Flipper Width: {val}")
+
+        if 'flipper_tip_width' in params:
+            val = float(params['flipper_tip_width'])
+            # Check if changed (default to width if not set)
+            current = getattr(self, 'flipper_tip_width', self.flipper_width)
+            if val != current:
+                self.flipper_tip_width = val
+                # self._update_flipper_rects() # Rects might not care about tip width yet?
+                if self.physics_engine:
+                    self.physics_engine.update_flipper_tip_width(val)
+                changes.append(f"Flipper Tip Width: {val}")
+
+        if 'flipper_width' in params:
+            val = float(params['flipper_width'])
+            if val != self.flipper_width:
+                self.flipper_width = val
                 changes.append(f"Flipper Width: {val}")
             # Always update physics engine to ensure it has the correct value
             if self.physics_engine:
@@ -814,6 +883,22 @@ class SimulatedFrameCapture:
                 changes.append(f"Flipper Tip Width: {val}")
             if self.physics_engine:
                 self.physics_engine.update_flipper_tip_width(val)
+
+        if 'launch_angle' in params:
+            val = float(params['launch_angle'])
+            if val != self.launch_angle:
+                self.launch_angle = val
+                if self.physics_engine:
+                    self.physics_engine.launch_angle = val
+                changes.append(f"Launch Angle: {val}")
+
+        if 'plunger_release_speed' in params:
+            val = float(params['plunger_release_speed'])
+            if val != self.plunger_release_speed:
+                self.plunger_release_speed = val
+                if self.physics_engine:
+                    self.physics_engine.plunger_release_speed = val
+                changes.append(f"Plunger Speed: {val}")
 
         if 'ball_mass' in params:
             val = float(params['ball_mass'])
@@ -1285,6 +1370,7 @@ class SimulatedFrameCapture:
             'flipper_stroke_angle': self.flipper_stroke_angle,
             'flipper_length': self.flipper_length,
             'flipper_width': self.flipper_width,
+            'flipper_tip_width': getattr(self, 'flipper_tip_width', 0.025),
             'plunger_release_speed': self.plunger_release_speed,
             'plunger_release_speed': self.plunger_release_speed,
             'launch_angle': self.launch_angle,
@@ -1359,7 +1445,7 @@ class SimulatedFrameCapture:
             # Application state
             'last_model': getattr(self, 'last_model', None),
             'last_preset': getattr(self, 'last_preset', None),
-            # 'current_layout_id': self.current_layout_id, # Don't save layout ID to force random on startup
+            'current_layout_id': self.current_layout_id, # Save layout ID to persist selection
             
             # Combo Settings (global)
             'combo_window': self.physics_engine.combo_window if self.physics_engine else 3.0,
@@ -1499,6 +1585,37 @@ class SimulatedFrameCapture:
             'nudge_cost': self.nudge_cost,
             'tilt_decay': self.tilt_decay_rate
         }
+
+    def save_layout_settings(self):
+        """Save current physics settings to the active layout file."""
+        if not self.layout_path or not os.path.exists(self.layout_path):
+            logger.error("No active layout path to save settings to.")
+            return False
+            
+        try:
+            import json
+            
+            # 1. Read existing layout
+            with open(self.layout_path, 'r') as f:
+                layout_data = json.load(f)
+                
+            # 2. Update physics params
+            current_params = self.get_config()
+            layout_data['physics_params'] = current_params
+            
+            # 3. Write back
+            with open(self.layout_path, 'w') as f:
+                json.dump(layout_data, f, indent=4)
+                
+            logger.info(f"Saved physics settings to {self.layout_path}")
+            
+            # Also update internal layout object
+            self.layout.physics_params = current_params
+            
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save layout settings: {e}")
+            return False
 
     def load_layout(self, layout_source):
         """Load a new table layout from a dictionary or name."""
@@ -1643,8 +1760,34 @@ class SimulatedFrameCapture:
             
             # Update available_layouts with new data
             self.available_layouts[safe_name] = self.layout.to_dict()
-            
-            logger.info(f"Layout saved to {filepath}")
+
+    def save_new_layout(self, name):
+        """Save current layout as a new file."""
+        if not name: return False
+        
+        # Sanitize name
+        safe_name = name.lower().replace(' ', '_')
+        safe_name = "".join([c for c in safe_name if c.isalnum() or c == '_'])
+        
+        filename = f"{safe_name}.json"
+        filepath = os.path.join(os.getcwd(), 'layouts', filename)
+        
+        # Update layout name
+        self.layout.name = name
+        self.layout_path = filepath
+        
+        # Save
+        self.layout.save_to_file(filepath)
+        
+        # Update available layouts
+        self.available_layouts[safe_name] = self.layout.to_dict()
+        self.current_layout_id = safe_name
+        
+        # Persist the switch
+        self.save_config()
+        
+        logger.info(f"Saved new layout '{name}' to {filepath}")
+        return True
 
     def update_rails(self, rails_data):
         """Update rail positions from frontend."""
@@ -1750,6 +1893,13 @@ class SimulatedFrameCapture:
                 ball_x = 0.925 * self.width
                 ball_y = 0.9 * self.height
                 self.physics_engine.add_ball((ball_x, ball_y))
+                # SYNCHRONOUS UPDATE: Add placeholder ball to prevent immediate "ball lost"
+                # The simulation loop will overwrite this with authoritative state shortly
+                self.balls.append({
+                    'pos': np.array([ball_x, ball_y]),
+                    'vel': np.array([0.0, 0.0]),
+                    'lost': False
+                })
                 logger.debug(f"Sim: Ball spawned in plunger lane ({ball_x}, {ball_y})")
                 
             else:
@@ -1777,11 +1927,13 @@ class SimulatedFrameCapture:
         
         self.physics_engine.add_ball(pos)
         
-        # Sync local balls list (optional, but good for consistency check)
-        # Actually, self.balls in vision.py is overwritten by physics state in simulation_loop
-        # So we don't need to manually append here if the loop picks it up.
-        # But let's append a placeholder to increment count immediately?
-        # No, let the loop handle it.
+        # SYNCHRONOUS UPDATE: Add placeholder ball to prevent immediate "ball lost"
+        # The simulation loop will overwrite this with authoritative state shortly
+        self.balls.append({
+            'pos': np.array([pos[0], pos[1]]),
+            'vel': np.array([0.0, 0.0]),
+            'lost': False
+        })
         
         logger.debug(f"Sim: Ball Added to Physics Engine at {pos}")
 
@@ -2979,9 +3131,52 @@ class SimulatedFrameCapture:
             
             logger.info(f"Camera Adjusted: X={self.cam_x:.2f}, Y={self.cam_y:.2f}, Z={self.cam_z:.2f}, Focal={self.focal_length:.2f}")
 
+    def refresh_layouts(self, changed_filename=None):
+        """Refreshes the available layouts list and notifies clients."""
+        layouts_dir = os.path.join(os.getcwd(), 'layouts')
+        logger.info("Refreshing layouts list...")
+        
+        new_layouts = {}
+        try:
+            for filename in os.listdir(layouts_dir):
+                if filename.endswith('.json'):
+                    layout_name = filename[:-5]
+                    filepath = os.path.join(layouts_dir, filename)
+                    try:
+                        with open(filepath, 'r') as f:
+                            layout_data = json.load(f)
+                            new_layouts[layout_name] = layout_data
+                    except Exception as e:
+                        logger.error(f"Failed to load layout {filename}: {e}")
+            
+            self.available_layouts = new_layouts
+            
+            # Emit new list to clients
+            layouts_list = []
+            for key, data in self.available_layouts.items():
+                if key == 'default': continue
+                display_name = data.get('name', key.replace('_', ' ').title())
+                layouts_list.append({'id': key, 'name': display_name})
+            
+            if self.socketio:
+                self.socketio.emit('layouts_list', layouts_list, namespace='/config')
+                
+            # If the changed file is the current layout, reload it
+            if changed_filename:
+                changed_name = changed_filename[:-5]
+                if changed_name == self.current_layout_id:
+                    logger.info(f"Current layout {changed_name} changed, reloading...")
+                    self.load_layout(changed_name)
+                    
+        except Exception as e:
+            logger.error(f"Error refreshing layouts: {e}")
+
     def stop(self):
         self.running = False
         self.thread.join()
+        if hasattr(self, 'observer'):
+            self.observer.stop()
+            self.observer.join()
         logger.info("Simulated camera stopped")
     def check_zones(self, x, y):
         """
