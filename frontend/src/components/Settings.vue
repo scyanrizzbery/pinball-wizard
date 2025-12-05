@@ -15,23 +15,42 @@
       </div>
       <div class="control-group">
         <div style="flex: 1;">
-          <div class="label">Layout</div>
-          <select :value="selectedLayout" @change="$emit('update:selectedLayout', $event.target.value); $emit('change-layout')"
-            class="select-input" :disabled="stats.is_training">
-            <option v-for="layout in layouts" :key="layout.id" :value="layout.id">
-              {{ layout.name }}
-            </option>
-          </select>
+          <div class="label">Table Layout</div>
+          <div style="display: flex; gap: 5px;">
+            <select :value="selectedLayout" @change="$emit('change-layout', $event.target.value)" class="select-input"
+              :disabled="stats.is_training" style="flex: 1;">
+              <option v-for="layout in layouts" :key="layout.id" :value="layout.id">
+                {{ layout.name }}
+              </option>
+            </select>
+            <button @click="saveLayout" class="control-btn" title="Save Layout" style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
+              💾
+            </button>
+            <button @click="saveLayoutAs" class="control-btn" title="Save Layout As..." style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
+              ➕
+            </button>
+            <button @click="saveLayoutSettings" class="control-btn" title="Save Settings to Layout" style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
+              ⚙️💾
+            </button>
+          </div>
         </div>
       </div>
       <div class="control-group">
         <div style="flex: 1;">
           <div class="label">View</div>
-          <select :value="selectedPreset" @change="$emit('update:selectedPreset', $event.target.value); $emit('apply-preset', $event.target.value)"
-            class="select-input" :disabled="stats.is_training">
-            <option value="" disabled>Select Camera Preset</option>
-            <option v-for="(preset, name) in cameraPresets" :key="name" :value="name">{{ name }}</option>
-          </select>
+          <div style="display: flex; gap: 5px;">
+            <select :value="selectedPreset" @change="$emit('update:selectedPreset', $event.target.value); $emit('apply-preset', $event.target.value)"
+              class="select-input" :disabled="stats.is_training" style="flex: 1;">
+              <option value="" disabled>Select Camera Preset</option>
+              <option v-for="(preset, name) in cameraPresets" :key="name" :value="name">{{ name }}</option>
+            </select>
+            <button @click="savePreset" class="control-btn" title="Save View" style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training || !selectedPreset">
+              💾
+            </button>
+            <button @click="savePresetAs" class="control-btn" title="Save View As..." style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
+              ➕
+            </button>
+          </div>
         </div>
       </div>
       <div class="control-group">
@@ -70,7 +89,7 @@
             <span>Table Tilt</span>
             <span>{{ formatNumber(physics.table_tilt, 1) }}°</span>
           </div>
-          <input type="range" min="1.0" max="10.0" step="0.1" v-model.number="physics.table_tilt">
+          <input type="range" min="1.0" max="60.0" step="0.1" v-model.number="physics.table_tilt">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -209,6 +228,24 @@
             <span>{{ formatNumber(physics.right_flipper_pos_y, 2) }}</span>
           </div>
           <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.right_flipper_pos_y"
+            :disabled="stats.is_training">
+        </div>
+
+        <div style="margin-bottom: 10px; margin-top: 15px; color: #aaa; font-size: 0.8em; border-top: 1px dashed #333; padding-top: 10px;">Plunger Settings</div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Launch Angle</span>
+            <span>{{ physics.launch_angle }}°</span>
+          </div>
+          <input type="range" min="-45" max="45" step="1" v-model.number="physics.launch_angle"
+            :disabled="stats.is_training">
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">
+            <span>Release Speed</span>
+            <span>{{ physics.plunger_release_speed }}</span>
+          </div>
+          <input type="range" min="500" max="3000" step="100" v-model.number="physics.plunger_release_speed"
             :disabled="stats.is_training">
         </div>
 
@@ -592,7 +629,7 @@ const props = defineProps({
   selectedDifficulty: String
 })
 
-const emit = defineEmits(['update-physics', 'reset-config', 'start-training', 'stop-training', 'apply-preset', 'save-preset', 'delete-preset', 'update:selectedModel', 'update:selectedLayout', 'update:selectedPreset', 'load-model', 'change-layout', 'update-difficulty'])
+const emit = defineEmits(['update-physics', 'reset-config', 'start-training', 'stop-training', 'apply-preset', 'save-preset', 'delete-preset', 'update:selectedModel', 'update:selectedLayout', 'update:selectedPreset', 'load-model', 'change-layout', 'update-difficulty', 'save-new-layout', 'save-layout'])
 
 const activeTab = ref('settings')
 // selectedPreset is now a prop
@@ -618,6 +655,40 @@ onMounted(() => {
     isFullscreen.value = !!document.fullscreenElement
   })
 })
+
+const saveLayout = () => {
+  if (confirm("Overwrite current layout?")) {
+    emit('save-layout')
+  }
+}
+
+const saveLayoutAs = () => {
+  const name = prompt("Enter name for new layout:")
+  if (name) {
+    emit('save-layout-as', name)
+  }
+}
+
+const saveLayoutSettings = () => {
+  if (confirm("Save current physics settings to the active layout file?")) {
+    emit('save-layout-settings')
+  }
+}
+
+const savePreset = () => {
+  if (props.selectedPreset) {
+    if (confirm(`Overwrite camera view '${props.selectedPreset}'?`)) {
+      emit('save-preset', props.selectedPreset)
+    }
+  }
+}
+
+const savePresetAs = () => {
+  const name = prompt("Enter name for new camera view:")
+  if (name) {
+    emit('save-preset', name)
+  }
+}
 
 const groupsExpanded = reactive({
   ball: false,
@@ -657,12 +728,7 @@ const applyPreset = () => {
   emit('apply-preset', props.selectedPreset)
 }
 
-const savePreset = () => {
-  const name = prompt("Enter preset name:")
-  if (name) {
-    emit('save-preset', name)
-  }
-}
+
 
 const deletePreset = () => {
   if (props.selectedPreset && confirm(`Delete preset "${props.selectedPreset}"?`)) {

@@ -96,6 +96,16 @@ def main():
         except Exception as e:
             logger.error(f"Error loading config for model: {e}")
             
+        # Fallback: If model_path doesn't exist, try to find ANY model
+        if not os.path.exists(model_path):
+            logger.warning(f"Default/Configured model not found: {model_path}")
+            models_dir = "models"
+            if os.path.exists(models_dir):
+                files = [f for f in os.listdir(models_dir) if f.endswith('.zip')]
+                if files:
+                    model_path = os.path.join(models_dir, files[0])
+                    logger.info(f"Falling back to first available model: {files[0]}")
+            
         agnt = agent.RLAgent(model_path=model_path)
     else:
         logger.info("Using Reflex Agent")
@@ -297,8 +307,11 @@ def main():
             return getattr(self.capture, name)
 
     vision_wrapper = VisionWrapper(cap, tracker, zone_manager, is_simulation=(sim_mode.lower() == 'true'))
+    vision_wrapper.agent = agnt # Assign agent regardless of type so web server can control it
+    
     if use_rl:
-        vision_wrapper.agent = agnt
+        # RL Agent Logic
+        pass # Already handled by assignment above
     
     # 5. Bot Controller (Manages Play/Train modes)
     # 5. Bot Controller (Manages Play/Train modes)
@@ -482,7 +495,9 @@ def main():
                         action = constants.ACTION_NOOP
                         
                         if vision_wrapper.ai_enabled:
-                            logger.debug(f"RL Agent: Ball at ({ball_pos[0]:.1f}, {ball_pos[1]:.1f}), Zones={zones}, Vel=({vx:.1f}, {vy:.1f})")
+                            # logger.debug(f"RL Agent: Ball at ({ball_pos[0]:.1f}, {ball_pos[1]:.1f}), Zones={zones}, Vel=({vx:.1f}, {vy:.1f})")
+                            if zones['left'] or zones['right']:
+                                logger.debug(f"AI Active in Zone! Zones={zones}, Action={action}")
                             
                             # Construct observation [x, y, vx, vy] normalized
                             obs = np.array([
@@ -536,6 +551,7 @@ def main():
                     else:
                         # Reflex Agent
                         if vision_wrapper.ai_enabled:
+                            # logger.debug(f"Reflex Agent Act: Pos={ball_pos}, Vel=({vx:.1f}, {vy:.1f})")
                             agnt.act(ball_pos, width, height, velocity=(vx, vy))
                     
                     # last_ball_pos updated above

@@ -84,6 +84,7 @@ class WebStatsCallback(BaseCallback):
             mean_reward = 0
             if "episode" in infos:
                 mean_reward = infos["episode"]["r"]
+                logger.info(f"Step {self.num_timesteps}: Episode Reward={mean_reward:.2f}")
             
             # Calculate ETA
             elapsed_time = time.time() - self.start_time
@@ -175,7 +176,7 @@ def train_worker(config, state_queue, command_queue, status_queue):
             import json
             # Check if it's a filename or "Default"
             if layout_name.lower() == 'default':
-                 layout_file = 'Default.json'
+                 layout_file = 'default.json'
             else:
                  layout_file = f"{layout_name}.json"
             

@@ -13,7 +13,7 @@
         {
             "id": "default_left",
             "type": "left",
-            "is_screen_space": true,
+            "is_screen_space": false,
             "points": [
                 {
                     "x": 0.15,
@@ -24,8 +24,8 @@
                     "y": 0.75
                 },
                 {
-                    "x": 0.5016203703703703,
-                    "y": 0.9702799479166666
+                    "x": 0.45,
+                    "y": 0.95
                 },
                 {
                     "x": 0.15,
@@ -36,7 +36,7 @@
         {
             "id": "default_right",
             "type": "right",
-            "is_screen_space": true,
+            "is_screen_space": false,
             "points": [
                 {
                     "x": 0.55,
@@ -51,8 +51,8 @@
                     "y": 0.95
                 },
                 {
-                    "x": 0.5275462962962962,
-                    "y": 0.96845703125
+                    "x": 0.55,
+                    "y": 0.95
                 }
             ]
         }
@@ -204,6 +204,9 @@
         "table_tilt": 4.2,
         "rail_x_offset": 0.0,
         "rail_y_offset": 0.0,
-        "flipper_width": 0.021
+        "flipper_width": 0.021,
+        "flipper_tip_width": 0.025,
+        "ball_mass": 1.0,
+        "flipper_elasticity": 0.5
     }
 }

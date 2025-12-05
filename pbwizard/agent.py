@@ -167,12 +167,22 @@ class RLAgent:
     def __init__(self, env=None, model_path=None):
         self.model = None
         self.enabled = True  # AI enabled by default
+        self._warned_no_model = False
         if model_path and os.path.exists(model_path):
             logger.info(f"Loading RL model from {model_path}")
             self.model = PPO.load(model_path)
         elif env:
-            logger.info("Initializing new PPO model")
-            self.model = PPO("MlpPolicy", env, verbose=1)
+            logger.info("Initializing new PPO model with custom hyperparameters")
+            self.model = PPO(
+                "MlpPolicy", 
+                env, 
+                verbose=1,
+                ent_coef=0.01, # Reduced from 0.03
+                learning_rate=3e-4,
+                n_steps=2048,
+                batch_size=64,
+                gamma=0.99
+            )
         else:
             logger.warning("RLAgent initialized without env or model_path. Cannot train or predict.")
 
@@ -190,7 +200,9 @@ class RLAgent:
             logger.debug(f"RL Agent predict: obs={observation}, action={action}")
             return action
         else:
-            logger.warning("RL Agent predict called but no model loaded, returning NOOP")
+            if not self._warned_no_model:
+                logger.warning("RL Agent predict called but no model loaded, returning NOOP (suppressing further warnings)")
+                self._warned_no_model = True
             return ACTION_NOOP # No-op
 
     def save(self, path):
@@ -204,6 +216,7 @@ class RLAgent:
             # We need to preserve the environment if we reload
             env = self.model.get_env() if self.model else None
             self.model = PPO.load(path, env=env)
+            self._warned_no_model = False
             return True
         else:
             logger.error(f"Model path not found: {path}")

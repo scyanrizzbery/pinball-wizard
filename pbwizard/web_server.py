@@ -239,6 +239,32 @@ def handle_physics_update(data):
         #     config = capture.get_config()
         #     socketio.emit('physics_config_loaded', config, namespace='/config')
 
+@socketio.on('save_new_layout', namespace='/config')
+def handle_save_new_layout(data):
+    """Handle saving layout as new file."""
+    if not vision_system: return
+    
+    name = data.get('name')
+    if name:
+        capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+        if hasattr(capture, 'save_new_layout'):
+            success = capture.save_new_layout(name)
+            if success:
+                socketio.emit('status', {'msg': f"Layout '{name}' saved"}, namespace='/config')
+                # Emit updated config/layout list might be needed, but client usually refreshes
+            else:
+                socketio.emit('status', {'msg': "Failed to save layout"}, namespace='/config')
+
+@socketio.on('save_layout', namespace='/config')
+def handle_save_layout():
+    """Handle saving current layout (overwrite)."""
+    if not vision_system: return
+    
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    if hasattr(capture, 'save_layout'):
+        capture.save_layout()
+        socketio.emit('status', {'msg': "Layout saved"}, namespace='/config')
+
 
 @socketio.on('update_zones', namespace='/config')
 def handle_update_zones(zones_data):
@@ -494,6 +520,24 @@ def handle_load_layout_by_name(data):
                 socketio.emit('physics_config_loaded', config, namespace='/config')
         else:
             socketio.emit('layout_loaded', {'status': 'error', 'message': 'Layout not found'}, namespace='/config')
+
+
+@socketio.on('save_layout_settings', namespace='/config')
+def handle_save_layout_settings(data):
+    """Save current physics settings to the active layout file."""
+    if not vision_system:
+        return
+        
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    
+    if hasattr(capture, 'save_layout_settings'):
+        success = capture.save_layout_settings()
+        if success:
+            socketio.emit('layout_settings_saved', {'status': 'success'}, namespace='/config')
+            logger.info("Layout settings saved successfully.")
+        else:
+            socketio.emit('layout_settings_saved', {'status': 'error', 'message': 'Failed to save settings'}, namespace='/config')
+            logger.error("Failed to save layout settings.")
 
 
 @socketio.on('toggle_ai', namespace='/training')

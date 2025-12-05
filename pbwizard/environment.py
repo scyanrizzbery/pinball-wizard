@@ -177,8 +177,8 @@ class PinballEnv(gym.Env):
             if event['type'] == 'collision':
                 # Base rewards for hitting features (independent of score/combo)
                 if 'bumper' in event['label']:
-                    reward += 0.1 # Small reward for bumpers
-                    logger.debug("Reward: Bumper Hit (+0.1)")
+                    reward += 0.2 # Moderate reward (was 0.1, then 0.5)
+                    logger.debug("Reward: Bumper Hit (+0.2)")
                 elif 'drop_target' in event['label']:
                     reward += 5.0 # Strong reward for targets
                     logger.debug("Reward: Drop Target Hit (+5.0)")
@@ -193,8 +193,14 @@ class PinballEnv(gym.Env):
         # Height Reward: Encourage keeping ball up (y is 0 at top, 1 at bottom)
         if ball_pos is not None:
              # Reward is higher when y is smaller (top of screen)
-             # Max reward approx 0.1 per step at top
-             reward += (1.0 - (ball_pos[1] / height)) * 0.1
+             # Max reward approx 0.2 per step at top (Increased from 0.1)
+             reward += (1.0 - (ball_pos[1] / height)) * 0.2
+             
+             # Flipper Hit Reward: Detect if we imparted upward velocity
+             # If we are in flipper zone (y > 0.8) and have strong upward velocity (vy < -50)
+             if ball_pos[1] / height > 0.8 and vy < -100: # Moving UP fast
+                 reward += 1.0 # Immediate reward for successful shot
+                 logger.debug("Reward: Strong Upward Shot (+1.0)")
              
              # Holding Penalty (scaled by difficulty)
              # Calculate velocity magnitude
@@ -224,7 +230,7 @@ class PinballEnv(gym.Env):
         terminated, truncated = self._check_termination(ball_pos, height)
         
         if terminated:
-            reward -= 5.0 # Ball loss penalty
+            reward -= 10.0 # Compromise penalty (was -5, then -20)
         
         return obs, reward, terminated, truncated, {}
 
@@ -307,6 +313,7 @@ class PinballEnv(gym.Env):
             ball_lost = self.vision.capture.ball_lost
         
         if ball_pos is not None and ball_pos[1] > height * 0.98:
+             logger.debug(f"Ball Lost Check: y={ball_pos[1]} > {height * 0.98} (Limit)")
              ball_lost = True
 
         if ball_lost:
@@ -375,7 +382,7 @@ class PinballEnv(gym.Env):
                 'holding_penalty': 0.3  # Lower penalty
             },
             'medium': {
-                'survival_reward': 0.2,  # Standard
+                'survival_reward': 0.1,  # Standard
                 'holding_threshold': 90,  # 3 seconds
                 'holding_penalty': 0.5  # Standard penalty
             },

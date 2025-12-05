@@ -57,7 +57,7 @@
         @update-physics="updatePhysics" @apply-preset="applyPreset"
         @save-preset="savePreset" @delete-preset="deletePreset" @load-model="loadModel"
         @change-layout="changeLayout" @start-training="startTraining" @stop-training="stopTraining"
-        @update-difficulty="updateDifficulty" />
+        @update-difficulty="updateDifficulty" @save-new-layout="handleSaveNewLayout" @save-layout="handleSaveLayout" />
 
       <Logs :logs="logs" />
     </div>
@@ -198,6 +198,8 @@ const physics = reactive({
   camera_zoom: 1.0,
   combo_window: 3.0,
   multiplier_max: 5.0,
+  plunger_release_speed: 1500.0,
+  launch_angle: 0.0,
   base_combo_bonus: 50,
   combo_multiplier_enabled: true,
   combo_multiplier_enabled: true,
@@ -265,6 +267,38 @@ const updateDifficulty = (difficulty) => {
 }
 
 const handleInput = (key, type) => {
+  const getPitch = () => {
+    let pitch = 1.0
+    if (stats) {
+      const multiplier = stats.score_multiplier || 1.0
+      // Major scale steps (semitones): Root, M2, M3, P4, P5, M6, M7, Octave
+      const majorScale = [0, 2, 4, 5, 7, 9, 11, 12]
+      
+      // Calculate index based on multiplier (1x = index 0)
+      const stepIndex = Math.max(0, Math.floor(multiplier - 1))
+      
+      // Calculate octave and note within octave
+      const octave = Math.floor(stepIndex / 7)
+      const noteIndex = stepIndex % 7
+      
+      // Calculate total semitones
+      const semitones = (octave * 12) + majorScale[noteIndex]
+      
+      // Pitch ratio = 2^(semitones/12)
+      pitch = Math.pow(2, semitones / 12)
+      
+      // Add combo bonus (slight detune for flavor if combo is high)
+      const combo = stats.combo_count || 0
+      if (combo > 5) {
+          pitch += 0.01 * (combo - 5)
+      }
+      
+      // Cap at 3 octaves (8.0x pitch) to prevent ear destruction
+      pitch = Math.min(pitch, 8.0)
+    }
+    return pitch
+  }
+
   if (type === 'down') {
     if (!activeKeys.has(key)) {
       activeKeys.add(key)
@@ -272,15 +306,15 @@ const handleInput = (key, type) => {
 
       if (key === 'KeyZ') {
           buttonStates.left = true
-          SoundManager.playFlipperUp()
+          SoundManager.playFlipperUp(getPitch())
       }
       else if (key === 'Slash') {
           buttonStates.right = true
-          SoundManager.playFlipperUp()
+          SoundManager.playFlipperUp(getPitch())
       }
       else if (key === 'Space') {
           buttonStates.launch = true
-          SoundManager.playLaunch()
+          SoundManager.playLaunch(getPitch())
       }
       else if (key === 'ShiftLeft') buttonStates.nudgeLeft = true
       else if (key === 'ShiftRight') buttonStates.nudgeRight = true
@@ -292,11 +326,11 @@ const handleInput = (key, type) => {
 
       if (key === 'KeyZ') {
           buttonStates.left = false
-          SoundManager.playFlipperDown()
+          SoundManager.playFlipperDown(getPitch())
       }
       else if (key === 'Slash') {
           buttonStates.right = false
-          SoundManager.playFlipperDown()
+          SoundManager.playFlipperDown(getPitch())
       }
       else if (key === 'Space') buttonStates.launch = false
       else if (key === 'ShiftLeft') buttonStates.nudgeLeft = false
@@ -385,10 +419,23 @@ const toggleAutoStart = () => {
 
 
 
-const changeLayout = () => {
+const changeLayout = (layoutId) => {
+  if (layoutId && typeof layoutId === 'string') {
+      selectedLayout.value = layoutId
+  }
   isLoadingLayout.value = true
   addLog(`Loading layout: ${selectedLayout.value}`)
   sockets.config.emit('load_layout_by_name', { name: selectedLayout.value })
+}
+
+const handleSaveNewLayout = (name) => {
+  console.log("Saving new layout:", name)
+  sockets.config.emit('save_new_layout', { name: name })
+}
+
+const handleSaveLayout = () => {
+  console.log("Saving current layout")
+  sockets.config.emit('save_layout')
 }
 
 const startTraining = (config) => {
@@ -461,6 +508,16 @@ onMounted(() => {
       }
       if (config.last_preset) {
         selectedPreset.value = config.last_preset
+        // Apply the preset to ensure the view matches the selection
+        // This handles cases where saved physics params might be out of sync
+        const preset = cameraPresets.value[config.last_preset]
+        if (preset) {
+           if (preset.camera_pitch !== undefined) physics.camera_pitch = preset.camera_pitch
+           if (preset.camera_x !== undefined) physics.camera_x = preset.camera_x
+           if (preset.camera_y !== undefined) physics.camera_y = preset.camera_y
+           if (preset.camera_z !== undefined) physics.camera_z = preset.camera_z
+           if (preset.camera_zoom !== undefined) physics.camera_zoom = preset.camera_zoom
+        }
         addLog(`Restored last camera preset: ${config.last_preset}`)
       }
       if (config.current_layout_id && !isLoadingLayout.value) {

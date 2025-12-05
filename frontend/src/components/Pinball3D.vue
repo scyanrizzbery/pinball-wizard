@@ -830,6 +830,13 @@ const createTable = (config = null) => {
   const plunger = createPlungerMesh(0x888888)
   // Initial position (will be updated)
   plunger.position.set(mapX(0.925), mapY(0.95), 0.02)
+  
+  // Rotate based on launch_angle
+  if (config && config.launch_angle) {
+    // Physics: +angle = Right. Three.js: -rotation = Right (Clockwise)
+    plunger.rotation.z = THREE.MathUtils.degToRad(-config.launch_angle)
+  }
+  
   tableGroup.add(plunger)
   flippers.plunger = plunger
 
@@ -947,6 +954,11 @@ const initThree = () => {
   scene.add(pointLight)
 
   // Initial creation (likely empty config until prop updates)
+  // Initialize physicsConfig from props
+  if (props.config) {
+      physicsConfig.value = props.config
+  }
+
   createTable(props.config)
   
   // Ensure camera is updated to match config immediately
@@ -1024,19 +1036,42 @@ onMounted(() => {
     // Handle Sound Events
     if (state.events && state.events.length > 0) {
       // console.log("Received events:", state.events)
+      
+      // Calculate dynamic pitch based on multiplier and combo
+      let pitch = 1.0
+      if (props.stats) {
+        const multiplier = props.stats.score_multiplier || 1
+        const combo = props.stats.combo_count || 0
+        const GUITAR_THRESHOLD = 10
+        
+        if (combo > GUITAR_THRESHOLD) {
+            // High combo: Electric Guitar mode (Pitch >= 2.0)
+            // Scale musically (semitones)
+            // 1.05946 is approx 12th root of 2
+            const semitones = combo - GUITAR_THRESHOLD
+            pitch = 2.0 * Math.pow(1.05946, semitones)
+        } else {
+            // Normal mode
+            // Increase pitch by 10% per multiplier level above 1, and 5% per combo
+            pitch = 1.0 + ((multiplier - 1) * 0.1) + (combo * 0.05)
+            // Cap at 1.9 to prevent premature guitar
+            pitch = Math.min(pitch, 1.9)
+        }
+      }
+
       state.events.forEach(event => {
         if (event.type === 'collision') {
           if (event.label === 'bumper') {
-            SoundManager.playBumper()
+            SoundManager.playBumper(pitch)
           } else if (event.label === 'rail') {
-             SoundManager.playRailHit()
+             SoundManager.playRailHit(pitch)
           } else if (event.label === 'wall') {
-             SoundManager.playWallHit(0.5)
+             SoundManager.playWallHit(0.5, pitch)
           } else if (event.label === 'drop_target') {
             console.log("Playing Drop Target Sound")
-            SoundManager.playDropTarget()
+            SoundManager.playDropTarget(pitch)
           } else if (event.label === 'flipper') {
-             SoundManager.playWallHit(0.8) 
+             SoundManager.playFlipperHit(pitch) 
           }
         }
       })
@@ -1087,7 +1122,7 @@ const updateCamera = () => {
     if (physicsConfig.value && physicsConfig.value.camera_x !== undefined) {
        const cx = mapX(physicsConfig.value.camera_x)
        const cy = mapY(physicsConfig.value.camera_y)
-       const cz = physicsConfig.value.camera_z * 0.6
+       const cz = physicsConfig.value.camera_z
        const pitch = (physicsConfig.value.camera_pitch || 45) * (Math.PI / 180)
        
        // Calculate camera position based on pitch
