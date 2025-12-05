@@ -114,6 +114,11 @@
       </div>
       
       <div class="video-controls">
+        <button @click="$emit('toggle-fullscreen')" class="fullscreen-btn" title="Playfield Full">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+          </svg>
+        </button>
         <button class="edit-btn" @click="showZones = !showZones" :class="{ active: showZones }">
           {{ showZones ? 'Hide editor' : 'Edit' }}
         </button>
@@ -122,7 +127,7 @@
         </button>
 
         <button @click="$emit('toggle-view')" class="switch-view-btn">
-          Simulator
+          Switch to 3D
         </button>
       </div>
     </div>
@@ -143,7 +148,7 @@ const props = defineProps({
   hasUnsavedChanges: Boolean
 })
 
-const emit = defineEmits(['update-zone', 'update-rail', 'update-bumper', 'save-layout', 'reset-zones', 'toggle-view'])
+const emit = defineEmits(['update-zone', 'update-rail', 'update-bumper', 'save-layout', 'reset-zones', 'toggle-view', 'toggle-fullscreen'])
 
 const handleKeydown = (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.code)) {
@@ -760,7 +765,32 @@ img {
   gap: 10px;
   z-index: 30;
   width: 90%;
-  justify-content: space-between;
+  justify-content: space-between; /* Space between fullscreen (left) and other buttons (right) */
+  align-items: center;
+}
+
+.fullscreen-btn {
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  border: 1px solid #777;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  margin-right: auto; /* Push to far left */
+  font-size: 12px;
+}
+
+.fullscreen-btn:hover {
+  background: rgba(0, 120, 215, 0.8);
+  border-color: #0078d7;
+}
+
+.fullscreen-btn svg {
+  display: block;
 }
 
 .edit-btn {

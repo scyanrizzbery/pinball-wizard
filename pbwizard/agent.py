@@ -196,9 +196,18 @@ class RLAgent:
 
     def predict(self, observation):
         if self.model:
-            action, _ = self.model.predict(observation)
-            logger.debug(f"RL Agent predict: obs={observation}, action={action}")
-            return action
+            try:
+                action, _ = self.model.predict(observation)
+                logger.debug(f"RL Agent predict: obs={observation}, action={action}")
+                return action
+            except ValueError as e:
+                # Catch shape mismatch error from SB3
+                if "Unexpected observation shape" in str(e):
+                    if not getattr(self, '_warned_shape_mismatch', False):
+                        logger.error(f"Observation shape mismatch (Active Model vs Current Env). Disabling RL inference. Error: {e}")
+                        self._warned_shape_mismatch = True
+                    return 0 # ACTION_NOOP
+                raise e # Re-raise other errors
         else:
             if not self._warned_no_model:
                 logger.warning("RL Agent predict called but no model loaded, returning NOOP (suppressing further warnings)")

@@ -4,10 +4,6 @@
     
     <div v-if="historyStats" class="stats-row">
       <div class="stat-item">
-        <span class="stat-label">Min</span>
-        <span class="stat-value">{{ formatScore(historyStats.min) }}</span>
-      </div>
-      <div class="stat-item">
         <span class="stat-label">Max</span>
         <span class="stat-value">{{ formatScore(historyStats.max) }}</span>
       </div>

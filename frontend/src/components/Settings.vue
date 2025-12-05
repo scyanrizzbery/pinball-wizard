@@ -64,11 +64,6 @@
           </select>
         </div>
       </div>
-      <div class="control-group" style="flex: 0 0 auto; display: flex; align-items: flex-end;">
-        <button @click="toggleFullscreen" class="control-btn" style="height: 36px; padding: 0 15px; font-size: 0.8em; margin-bottom: 1px;">
-          {{ isFullscreen ? 'Exit Full' : 'Playfield Full' }}
-        </button>
-      </div>
     </div>
 
     <div class="tabs">
@@ -133,18 +128,27 @@
       </div>
 
       <!-- Flipper Group -->
-      <div class="group-header" @click="toggleGroup('flipper')">
-        <span>Flipper Mechanics</span>
-        <span class="arrow" :class="{ rotated: groupsExpanded.flipper }">▼</span>
-      </div>
-      <div v-if="groupsExpanded.flipper" class="group-content">
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>Speed</span>
-            <span>{{ formatNumber(physics.flipper_speed, 1) }}</span>
-          </div>
-          <input type="range" min="0" max="60" step="0.1" v-model.number="physics.flipper_speed"
-            :disabled="stats.is_training">
+        <div class="group-header" @click="toggleGroup('flipper')">
+            <span>Flipper Mechanics</span>
+            <span class="arrow" :class="{ rotated: groupsExpanded.flipper }">▼</span>
+        </div>
+        <div v-if="groupsExpanded.flipper" class="group-content">
+            <div class="control-group checkbox-group">
+                <div class="checkbox-label">Show Flipper Zones</div>
+                <input
+                    id="zones-toggle"
+                    type="checkbox"
+                    v-model="showZones"
+                    @change="updateShowZones"
+                >
+            </div>
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>Speed</span>
+                    <span>{{ formatNumber(physics.flipper_speed, 1) }}</span>
+                </div>
+                <input type="range" min="0" max="60" step="0.1" v-model.number="physics.flipper_speed"
+                       :disabled="stats.is_training">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -246,6 +250,15 @@
             <span>{{ physics.plunger_release_speed }}</span>
           </div>
           <input type="range" min="500" max="3000" step="100" v-model.number="physics.plunger_release_speed"
+            :disabled="stats.is_training">
+        </div>
+        
+        <div class="slider-container" style="justify-content: space-between; align-items: center; border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
+          <div class="slider-label">
+            <span style="color: #FFD700; font-weight: bold;">GOD MODE 😇</span>
+          </div>
+          <input type="checkbox" :checked="physics.god_mode" 
+            @change="updatePhysics('god_mode', $event.target.checked)"
             :disabled="stats.is_training">
         </div>
 
@@ -547,7 +560,7 @@
 
       <div v-if="stats.is_training" style="margin-top: 15px;">
         <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9em; color: #ccc;">
-          <span>Progress</span>
+          <span>Progress <span v-if="stats.model_name" style="color: #4caf50;">({{ stats.model_name }})</span></span>
           <span>{{ Math.round(stats.training_progress * 100) }}%</span>
         </div>
         <div style="width: 100%; height: 10px; background: #333; border-radius: 5px; overflow: hidden;">
@@ -563,12 +576,20 @@
         <!-- PPO Metrics Grid -->
         <div style="margin-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.8em;">
           <div class="metric-box">
-            <span class="metric-label">FPS</span>
-            <span class="metric-value">{{ stats.fps || 0 }}</span>
+              <span class="metric-label">Mean Length</span>
+              <span class="metric-value">{{ formatNumber(stats.ep_len_mean || 0, 1) }}</span>
           </div>
           <div class="metric-box">
-            <span class="metric-label">Mean Reward</span>
-            <span class="metric-value">{{ formatNumber(stats.ep_rew_mean || 0, 2) }}</span>
+              <span class="metric-label">Mean Reward</span>
+              <span class="metric-value">{{ formatNumber(stats.ep_rew_mean || 0, 2) }}</span>
+          </div>
+          <div class="metric-box">
+              <span class="metric-label">FPS</span>
+              <span class="metric-value">{{ stats.fps || 0 }}</span>
+          </div>
+          <div class="metric-box">
+              <span class="metric-label">Expl. Var</span>
+              <span class="metric-value">{{ formatNumber(stats.explained_variance || 0, 3) }}</span>
           </div>
           <div class="metric-box">
             <span class="metric-label">Loss</span>
@@ -586,18 +607,9 @@
             <span class="metric-label">Policy Loss</span>
             <span class="metric-value">{{ formatNumber(stats.policy_gradient_loss || 0, 4) }}</span>
           </div>
-          <div class="metric-box">
-            <span class="metric-label">Approx KL</span>
-            <span class="metric-value">{{ formatNumber(stats.approx_kl || 0, 4) }}</span>
-          </div>
-          <div class="metric-box">
-            <span class="metric-label">Expl. Var</span>
-            <span class="metric-value">{{ formatNumber(stats.explained_variance || 0, 3) }}</span>
-          </div>
         </div>
       </div>
 
-      <!-- Training Stats Chart -->
       <div v-if="stats.is_training" style="margin-top: 20px; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
         <h4 style="margin: 0 0 10px 0; color: #ccc; font-size: 0.9em;">Training Metrics</h4>
         <highcharts :options="trainingChartOptions" ref="trainingChart" style="width:100%; height:250px;"></highcharts>
@@ -614,8 +626,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch, computed } from 'vue'
-import { Chart } from 'highcharts-vue'
+import { ref, reactive, watch, computed } from 'vue'
 
 const props = defineProps({
   physics: Object,
@@ -626,34 +637,28 @@ const props = defineProps({
   selectedModel: String,
   selectedLayout: String,
   selectedPreset: String,
-  selectedDifficulty: String
+  selectedDifficulty: String,
+  showFlipperZones: {
+    type: Boolean,
+    default: true
+  }
 })
 
-const emit = defineEmits(['update-physics', 'reset-config', 'start-training', 'stop-training', 'apply-preset', 'save-preset', 'delete-preset', 'update:selectedModel', 'update:selectedLayout', 'update:selectedPreset', 'load-model', 'change-layout', 'update-difficulty', 'save-new-layout', 'save-layout'])
+const emit = defineEmits(['update-physics', 'reset-config', 'start-training', 'stop-training', 'apply-preset', 'save-preset', 'delete-preset', 'update:selectedModel', 'update:selectedLayout', 'update:selectedPreset', 'load-model', 'change-layout', 'update-difficulty', 'save-new-layout', 'save-layout', 'update:showFlipperZones'])
 
 const activeTab = ref('settings')
+const showZones = ref(props.showFlipperZones)
+
+// Watch for prop changes and sync local state
+watch(() => props.showFlipperZones, (newValue) => {
+  showZones.value = newValue
+})
+
 // selectedPreset is now a prop
 const trainingConfig = reactive({
   modelName: 'ppo_pinball',
   timesteps: 100000,
   learningRate: 0.0003
-})
-
-const isFullscreen = ref(false)
-
-const toggleFullscreen = () => {
-  if (!document.fullscreenElement) {
-    const elem = document.getElementById('playfield-container') || document.documentElement
-    elem.requestFullscreen()
-  } else {
-    document.exitFullscreen()
-  }
-}
-
-onMounted(() => {
-  document.addEventListener('fullscreenchange', () => {
-    isFullscreen.value = !!document.fullscreenElement
-  })
 })
 
 const saveLayout = () => {
@@ -688,6 +693,10 @@ const savePresetAs = () => {
   if (name) {
     emit('save-preset', name)
   }
+}
+
+const updateShowZones = () => {
+    emit('update:showFlipperZones', showZones.value)
 }
 
 const groupsExpanded = reactive({
@@ -993,7 +1002,7 @@ label {
   margin-bottom: 15px;
 }
 
-.slider-label {
+.slider-label, .checkbox-label {
   display: flex;
   justify-content: space-between;
   margin-bottom: 5px;

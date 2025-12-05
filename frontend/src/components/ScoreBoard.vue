@@ -109,6 +109,21 @@ const highScoreReels = computed(() => getReelItems(props.highScore, 7))
   padding: 10px 20px;
   border-radius: 12px;
   backdrop-filter: blur(4px);
+  transition: transform 0.3s ease;
+}
+
+@media (min-width: 1920px) {
+  .scoreboard-container {
+    transform: scale(1.3);
+    transform-origin: top center;
+  }
+}
+
+/* Use :global to match the fullscreen ancestor from scoped styles */
+:global(:fullscreen) .scoreboard-container {
+  transform: scale(1.5);
+  transform-origin: top center;
+  margin-top: 20px;
 }
 
 .stat-box {

@@ -5,13 +5,78 @@ class SoundManager {
             this.ctx = new (window.AudioContext || window.webkitAudioContext)();
             this.masterGain = this.ctx.createGain();
             this.volume = 0.08;
-            this.muted = true;
+            this.muted = false;
             this.masterGain.gain.value = this.volume;
             this.masterGain.connect(this.ctx.destination);
             this.enabled = true;
 
             // Pre-calculate distortion curve
             this.distortionCurve = this.makeDistortionCurve(400);
+
+            // Track which musical scale/song mode we're in
+            this.currentScaleIndex = 0;
+            this.lastComboMilestone = 0;
+
+            // Define different musical scales (semitones from root)
+            // Each scale has unique instrument/tone characteristics
+            this.musicalScales = [
+                {
+                    name: 'Major',
+                    notes: [0, 2, 4, 5, 7, 9, 11, 12],
+                    instrument: 'guitar',
+                    baseFreq: 220, // A3
+                    waveform: 'sawtooth'
+                },
+                {
+                    name: 'Minor',
+                    notes: [0, 2, 3, 5, 7, 8, 10, 12],
+                    instrument: 'synth',
+                    baseFreq: 196, // G3
+                    waveform: 'triangle'
+                },
+                {
+                    name: 'Pentatonic',
+                    notes: [0, 2, 4, 7, 9, 12, 14, 16],
+                    instrument: 'bell',
+                    baseFreq: 261.63, // C4
+                    waveform: 'sine'
+                },
+                {
+                    name: 'Dorian',
+                    notes: [0, 2, 3, 5, 7, 9, 10, 12],
+                    instrument: 'organ',
+                    baseFreq: 146.83, // D3
+                    waveform: 'square'
+                },
+                {
+                    name: 'Phrygian',
+                    notes: [0, 1, 3, 5, 7, 8, 10, 12],
+                    instrument: 'bass',
+                    baseFreq: 164.81, // E3
+                    waveform: 'sawtooth'
+                },
+                {
+                    name: 'Mixolydian',
+                    notes: [0, 2, 4, 5, 7, 9, 10, 12],
+                    instrument: 'brass',
+                    baseFreq: 196, // G3
+                    waveform: 'sawtooth'
+                },
+                {
+                    name: 'Harmonic Minor',
+                    notes: [0, 2, 3, 5, 7, 8, 11, 12],
+                    instrument: 'strings',
+                    baseFreq: 220, // A3
+                    waveform: 'triangle'
+                },
+                {
+                    name: 'Blues',
+                    notes: [0, 3, 5, 6, 7, 10, 12, 15],
+                    instrument: 'guitar',
+                    baseFreq: 110, // A2 (lower for bluesy feel)
+                    waveform: 'sawtooth'
+                },
+            ];
 
             console.log("SoundManager: Initialized successfully")
         } catch (e) {
@@ -134,7 +199,9 @@ class SoundManager {
         // 3. Filter (Lowpass to tame highs, maybe some Q/Resonance)
         const filter = this.ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(2000, t);
+        // Open filter for higher notes to avoid silencing them
+        // Keep at least 2000Hz for body, but scale up with pitch
+        filter.frequency.setValueAtTime(Math.max(2000, baseFreq * 4), t);
         filter.Q.value = 1.0;
 
         // 4. Envelope (Gain)
@@ -342,21 +409,62 @@ class SoundManager {
     // --- Game Sounds Mapped to 808 ---
 
     playFlipperUp(pitch = 1.0) {
-        if (pitch >= 2.0) {
-            // E2 = 82.41Hz. Let's use 82.41 * pitch.
-            // If pitch is 2.0 (octave up), we play E3 (164.8Hz).
-            // Let's align with the key of C Major from App.vue logic if possible, or just scale freq.
-            this.playGuitar(55.0 * pitch, 0.6, 0.4); // Base A1 (55Hz)
+        // Fix: Use the current scale's instrument instead of hardcoded threshold
+        const scale = this.getCurrentScale();
+
+        // Base frequency calculation to match the energy of the click
+        // Guitar A2 (110) is a good base. 55Hz was too low.
+        const baseFreq = 110.0 * pitch;
+
+        // If pitch is significantly > 1.0, we are in a combo/multiplier. Play Music!
+        if (pitch > 1.05) {
+            switch (scale.instrument) {
+                case 'guitar':
+                    this.playGuitar(baseFreq, 0.4, 0.4);
+                    break;
+                case 'synth':
+                    // Synth needs to be punchy
+                    this.playInstrument(baseFreq, 'triangle', this.ctx.currentTime, 0.3, 0.4);
+                    break;
+                case 'bell':
+                    this.playBell(baseFreq * 2, this.ctx.currentTime, 0.4, 0.5); // Bells sound better higher
+                    break;
+                case 'organ':
+                    this.playOrgan(baseFreq, this.ctx.currentTime, 0.3, 0.4);
+                    break;
+                case 'bass':
+                    this.playInstrument(baseFreq, 'sawtooth', this.ctx.currentTime, 0.3, 0.5);
+                    break;
+                case 'brass':
+                    this.playBrass(baseFreq, this.ctx.currentTime, 0.3, 0.4);
+                    break;
+                case 'strings':
+                    this.playStrings(baseFreq, this.ctx.currentTime, 0.4, 0.4);
+                    break;
+                default:
+                    this.playGuitar(baseFreq, 0.4, 0.4);
+            }
         } else {
-            // Swapped: Kick for flipper activation
+            // Just starting / No combo - use the mechanical Kick sound
             this.playKick(1.0, pitch);
         }
     }
 
     playFlipperDown(pitch = 1.0) {
-        if (pitch >= 2.0) {
-            // Muted palm mute release sound? Just a short chunks
-            this.playGuitar(55.0 * pitch, 0.1, 0.2);
+        if (pitch > 1.05) {
+            const scale = this.getCurrentScale();
+            const baseFreq = 110.0 * pitch;
+
+            // Muted release sound matching instrument (quieter/shorter)
+            switch (scale.instrument) {
+                case 'bell':
+                    // Bells don't have "release" sounds really, simple click
+                    this.playNoise(0.05, 0.1, 2000);
+                    break;
+                default:
+                    // Muted guitar/synth release
+                    this.playInstrument(baseFreq, 'sawtooth', this.ctx.currentTime, 0.1, 0.1);
+            }
         } else {
             // Softer kick/tom for release
             this.playNoise(0.05, 0.2, 500 * pitch);
@@ -369,11 +477,32 @@ class SoundManager {
     }
 
     playBumper(pitch = 1.0) {
-        if (pitch >= 2.0) {
-            // Higher pitch power chord
-            this.playGuitar(110.0 * pitch, 0.4, 0.5); // A2 base
+        // Fix for "sporadic" notes: Drop the 2.0 threshold.
+        // Use the same 1.05 threshold as flippers so entire scales play.
+        const scale = this.getCurrentScale();
+        const baseFreq = 110.0 * pitch;
+
+        if (pitch > 1.05) {
+            // Higher pitch power chord or instrument
+            switch (scale.instrument) {
+                case 'guitar':
+                    this.playGuitar(baseFreq, 0.4, 0.5);
+                    break;
+                case 'synth':
+                    this.playInstrument(baseFreq, 'sawtooth', this.ctx.currentTime, 0.3, 0.6);
+                    break;
+                case 'bell':
+                    // Bells ring out longer
+                    this.playBell(baseFreq * 2, this.ctx.currentTime, 0.6, 0.6);
+                    break;
+                case 'organ':
+                    this.playOrgan(baseFreq, this.ctx.currentTime, 0.4, 0.5);
+                    break;
+                default:
+                    this.playGuitar(baseFreq, 0.4, 0.5);
+            }
         } else {
-            // Swapped: Snare for bumpers
+            // Swapped: Snare for bumpers (Mechanical/No Combo)
             this.playSnare(0.8, pitch);
         }
     }
@@ -411,6 +540,263 @@ class SoundManager {
     playSlingshot(pitch = 1.0) {
         // Clap
         this.playClap(0.8, pitch);
+    }
+
+    // Handle 10x combo milestones
+    checkComboMilestone(combo) {
+        const milestone = Math.floor(combo / 10);
+
+        if (milestone > this.lastComboMilestone && combo >= 10) {
+            this.lastComboMilestone = milestone;
+            this.currentScaleIndex = (this.currentScaleIndex + 1) % this.musicalScales.length;
+
+            const newScale = this.musicalScales[this.currentScaleIndex];
+
+            // Play a celebratory ascending melody in the new scale
+            this.playMilestoneJingle(newScale);
+
+            return true; // Milestone reached
+        }
+        return false;
+    }
+
+    // Play the Close Encounters five-note motif (D-E-C-C-G)
+    playCloseEncounters(baseFreq = 293.66) { // D4 as base
+        if (!this.enabled) return;
+        this.resume();
+
+        const t = this.ctx.currentTime;
+        const noteDuration = 0.5;
+        const gap = 0.05;
+
+        // The iconic five notes: D4, E4, C4 (down octave), C3 (down octave), G3
+        // Using clean sine waves like the original
+        const motif = [
+            { freq: baseFreq, duration: noteDuration },           // D4 (293.66 Hz)
+            { freq: baseFreq * Math.pow(2, 2 / 12), duration: noteDuration }, // E4
+            { freq: baseFreq * Math.pow(2, -2 / 12), duration: noteDuration }, // C4
+            { freq: baseFreq * Math.pow(2, -14 / 12), duration: noteDuration * 1.5 }, // C3 (lower octave, longer)
+            { freq: baseFreq * Math.pow(2, -5 / 12), duration: noteDuration * 1.5 }  // G3 (longer)
+        ];
+
+        let currentTime = t;
+        motif.forEach((note) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+
+            osc.type = 'sine'; // Pure sine wave like the original
+            osc.frequency.setValueAtTime(note.freq, currentTime);
+
+            // Smooth envelope
+            gain.gain.setValueAtTime(0, currentTime);
+            gain.gain.linearRampToValueAtTime(0.6, currentTime + 0.05);
+            gain.gain.setValueAtTime(0.6, currentTime + note.duration - 0.1);
+            gain.gain.linearRampToValueAtTime(0, currentTime + note.duration);
+
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+
+            osc.start(currentTime);
+            osc.stop(currentTime + note.duration);
+
+            currentTime += note.duration + gap;
+        });
+
+        console.log('🛸 Close Encounters motif played!');
+    }
+
+    // Play a celebratory jingle when reaching a combo milestone
+    playMilestoneJingle(scale) {
+        if (!this.enabled) return;
+        this.resume();
+
+        // Every 3rd scale change (30 combo), play Close Encounters instead
+        if (this.currentScaleIndex > 0 && this.currentScaleIndex % 3 === 0) {
+            this.playCloseEncounters();
+            return;
+        }
+
+        const baseFreq = scale.baseFreq || 220;
+        const noteDuration = 0.15;
+        const t = this.ctx.currentTime;
+
+        // Play ascending scale rapidly with scale-specific instrument
+        scale.notes.slice(0, 8).forEach((semitone, index) => {
+            const startTime = t + (index * noteDuration * 0.5);
+            const freq = baseFreq * Math.pow(2, semitone / 12);
+
+            // Use different instruments based on scale
+            switch (scale.instrument) {
+                case 'guitar':
+                    this.playGuitar(freq, noteDuration * 1.5, 0.7);
+                    break;
+                case 'synth':
+                    this.playInstrument(freq, 'triangle', startTime, noteDuration, 0.5);
+                    break;
+                case 'bell':
+                    this.playBell(freq, startTime, noteDuration, 0.6);
+                    break;
+                case 'organ':
+                    this.playOrgan(freq, startTime, noteDuration, 0.5);
+                    break;
+                case 'bass':
+                    this.playInstrument(freq * 0.5, 'sawtooth', startTime, noteDuration, 0.6);
+                    break;
+                case 'brass':
+                    this.playBrass(freq, startTime, noteDuration, 0.6);
+                    break;
+                case 'strings':
+                    this.playStrings(freq, startTime, noteDuration, 0.5);
+                    break;
+                default:
+                    this.playGuitar(freq, noteDuration * 1.5, 0.7);
+            }
+        });
+    }
+
+    // Generic instrument player with waveform selection
+    playInstrument(freq, waveform, startTime, duration, vol = 0.5) {
+        if (!this.enabled) return;
+
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = waveform;
+        osc.frequency.setValueAtTime(freq, startTime);
+
+        gain.gain.setValueAtTime(vol, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+    }
+
+    // Bell-like sound with harmonics
+    playBell(freq, startTime, duration, vol = 0.5) {
+        if (!this.enabled) return;
+
+        // Multiple sine waves at harmonic intervals
+        const harmonics = [1, 2.76, 5.4, 8.93]; // Bell-like ratios
+        const amps = [1.0, 0.4, 0.2, 0.1];
+
+        harmonics.forEach((ratio, i) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq * ratio, startTime);
+
+            const amplitude = vol * amps[i];
+            gain.gain.setValueAtTime(amplitude, startTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 2);
+
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+
+            osc.start(startTime);
+            osc.stop(startTime + duration * 2);
+        });
+    }
+
+    // Organ sound with multiple harmonics
+    playOrgan(freq, startTime, duration, vol = 0.5) {
+        if (!this.enabled) return;
+
+        // Organ has strong fundamental and octaves
+        const harmonics = [1, 2, 4]; // Fundamental, octave, two octaves
+
+        harmonics.forEach((ratio) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(freq * ratio, startTime);
+
+            gain.gain.setValueAtTime(vol / harmonics.length, startTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+
+            osc.start(startTime);
+            osc.stop(startTime + duration);
+        });
+    }
+
+    // Brass-like sound with bright harmonics
+    playBrass(freq, startTime, duration, vol = 0.5) {
+        if (!this.enabled) return;
+
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, startTime);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(freq * 3, startTime);
+        filter.frequency.exponentialRampToValueAtTime(freq * 6, startTime + duration * 0.3);
+        filter.Q.value = 2;
+
+        gain.gain.setValueAtTime(vol, startTime);
+        gain.gain.exponentialRampToValueAtTime(vol * 0.7, startTime + duration * 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.masterGain);
+
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+    }
+
+    // String ensemble sound
+    playStrings(freq, startTime, duration, vol = 0.5) {
+        if (!this.enabled) return;
+
+        // Multiple detuned oscillators for string ensemble effect
+        const detunes = [-5, 0, 5]; // Slight detuning in cents
+
+        detunes.forEach((detune) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const filter = this.ctx.createBiquadFilter();
+
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq, startTime);
+            osc.detune.setValueAtTime(detune, startTime);
+
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(freq * 4, startTime);
+            filter.Q.value = 1;
+
+            // Slow attack for strings
+            gain.gain.setValueAtTime(0, startTime);
+            gain.gain.linearRampToValueAtTime(vol / detunes.length, startTime + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.masterGain);
+
+            osc.start(startTime);
+            osc.stop(startTime + duration);
+        });
+    }
+
+    // Get the current musical scale for pitch calculation
+    getCurrentScale() {
+        return this.musicalScales[this.currentScaleIndex];
+    }
+
+    // Reset scale when combo is lost (optional)
+    resetScale() {
+        this.currentScaleIndex = 0;
+        this.lastComboMilestone = 0;
     }
 }
 

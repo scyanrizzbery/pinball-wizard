@@ -5,30 +5,35 @@
       <button @click="$emit('close')" class="close-btn">×</button>
     </div>
     
-    <div class="control-group">
-      <label>Volume: {{ Math.round(volume * 100) }}%</label>
-      <input 
-        type="range" 
-        min="0" 
-        max="1" 
-        step="0.01" 
-        v-model.number="volume"
-        @input="updateVolume"
-      >
-    </div>
+    <!-- Sound Section -->
+    <div class="section">
+      <h4 class="section-title">Sound</h4>
 
-    <div class="control-group checkbox-group">
-      <label for="mute-toggle">Mute</label>
-      <input 
-        id="mute-toggle"
-        type="checkbox" 
-        v-model="muted"
-        @change="updateMute"
-      >
-    </div>
+      <div class="control-group">
+        <label>Volume: {{ Math.round(volume * 100) }}%</label>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          v-model.number="volume"
+          @input="updateVolume"
+        >
+      </div>
 
-    <div class="actions">
-      <button @click="testSound" class="test-btn">Test Sound</button>
+      <div class="control-group checkbox-group">
+        <label for="mute-toggle">Mute</label>
+        <input
+          id="mute-toggle"
+          type="checkbox"
+          v-model="muted"
+          @change="updateMute"
+        >
+      </div>
+
+      <div class="actions">
+        <button @click="testSound" class="test-btn">Test Sound</button>
+      </div>
     </div>
   </div>
 </template>
@@ -70,6 +75,7 @@ const testSound = () => {
   color: #eee;
   box-shadow: 0 4px 12px rgba(0,0,0,0.5);
   pointer-events: auto;
+  z-index: 200;
 }
 
 .header {
@@ -100,11 +106,36 @@ const testSound = () => {
   color: #fff;
 }
 
+.section {
+  margin-bottom: 15px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #333;
+}
+
+.section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.section-title {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
 .control-group {
   margin-bottom: 15px;
   display: flex;
   flex-direction: column;
   gap: 5px;
+}
+
+.control-group:last-child {
+  margin-bottom: 0;
 }
 
 .checkbox-group {
@@ -116,6 +147,10 @@ const testSound = () => {
 input[type="range"] {
   width: 100%;
   cursor: pointer;
+}
+
+.actions {
+  margin-top: 10px;
 }
 
 .test-btn {

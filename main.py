@@ -12,7 +12,6 @@ except RuntimeError:
 import time
 import logging
 # Force restart v2
-from queue import Queue
 import numpy as np
 from dotenv import load_dotenv
 
@@ -167,9 +166,9 @@ def main():
                         # Draw debug info on frame if needed
                         with self.lock:
                             self.latest_processed_frame = raw_frame
-                            # Count only non-lost balls, or use balls_remaining if available
-                            if hasattr(self.capture, 'balls_remaining'):
-                                self.current_ball_count = self.capture.balls_remaining
+                            # Count actual balls on table (not balls_remaining which is balls left to play)
+                            if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
+                                self.current_ball_count = len(self.capture.physics_engine.balls)
                             elif hasattr(self.capture, 'balls'):
                                 self.current_ball_count = sum(1 for ball in self.capture.balls if not ball.get('lost', False))
                             else:
@@ -206,9 +205,14 @@ def main():
                 
             if current_score > self.high_score:
                 self.high_score = current_score
-                
-            current_balls = self.current_ball_count
-            
+
+            # Get real-time ball count directly from physics engine for accurate stats
+            current_balls = 0
+            if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
+                current_balls = len(self.capture.physics_engine.balls)
+            else:
+                current_balls = self.current_ball_count
+
             if self.last_ball_count > 0 and current_balls == 0:
                 self.games_played += 1
                 
@@ -268,19 +272,16 @@ def main():
                 'score': current_score,
                 'high_score': self.high_score,
                 'balls': current_balls,
+                'ball_count': current_balls,  # Actual balls on table (same as balls in this context)
                 'games_played': self.games_played,
                 'nudge': nudge_data,
                 'tilt_value': tilt_value,
-                'is_tilted': is_tilted,
                 'is_tilted': is_tilted,
                 'is_simulation': self.is_simulation,
                 'game_history': self.game_history
             }
             
-            # Merge training stats
-            with self.lock:
-                stats.update(self.training_stats)
-                
+
             # Merge training stats
             with self.lock:
                 stats.update(self.training_stats)
@@ -292,17 +293,8 @@ def main():
                 return self.capture.get_game_state()
             return {}
 
-        @property
-        def auto_start_enabled(self):
-            return getattr(self.capture, 'auto_start_enabled', False)
-
-        @auto_start_enabled.setter
-        def auto_start_enabled(self, value):
-            if hasattr(self.capture, 'auto_start_enabled'):
-                self.capture.auto_start_enabled = value
-
         def __getattr__(self, name):
-            if name in ['ai_enabled', 'auto_start_enabled']:
+            if name in ['ai_enabled']:
                 raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
             return getattr(self.capture, name)
 
@@ -428,6 +420,8 @@ def main():
                                 
                                 # Auto-load new model if available
                                 if new_model:
+                                    logger.info(f"Auto-selected new model: {new_model}")
+                                    web_server.emit_training_finished(new_model)
                                     logger.info(f"Auto-loading new model: {new_model}")
                                     try:
                                         # Simulate load_model call
@@ -438,6 +432,12 @@ def main():
                                         logger.error(f"Failed to auto-load model {new_model}: {e}")
                         elif msg_type == 'error':
                             logger.error(f"Training process error: {msg_data}")
+                            controller.switch_to_play() # FIX: Reset state on error
+                            # Notify UI
+                            try:
+                                web_server.socketio.emit('training_error', {'message': str(msg_data)}, namespace='/training')
+                            except Exception:
+                                pass
                 except Exception as e:
                     logger.error(f"Error processing status queue: {e}")
                 
@@ -499,13 +499,25 @@ def main():
                             if zones['left'] or zones['right']:
                                 logger.debug(f"AI Active in Zone! Zones={zones}, Action={action}")
                             
-                            # Construct observation [x, y, vx, vy] normalized
-                            obs = np.array([
-                                ball_pos[0] / width,
-                                ball_pos[1] / height,
-                                np.clip(vx / 50.0, -1, 1),
-                                np.clip(vy / 50.0, -1, 1)
-                            ], dtype=np.float32)
+                            # Construct observation [x, y, vx, vy, t1, t2, t3, t4]
+                            # Match environment.py: _create_observation
+                            obs = np.zeros(8, dtype=np.float32)
+                            obs[0] = ball_pos[0] / width
+                            obs[1] = ball_pos[1] / height
+                            obs[2] = np.clip(vx / 50.0, -1, 1)
+                            obs[3] = np.clip(vy / 50.0, -1, 1)
+                            
+                            # Add Drop Target States
+                            target_states = []
+                            if hasattr(vision_wrapper.capture, 'drop_target_states'):
+                                target_states = vision_wrapper.capture.drop_target_states
+                                
+                            # Pad or Truncate to fixed size 4
+                            for i in range(4):
+                                if i < len(target_states):
+                                    obs[4 + i] = 1.0 if target_states[i] else 0.0
+                                else:
+                                    obs[4 + i] = 0.0 # Pad with 0
                             
                             action = agnt.predict(obs)
 

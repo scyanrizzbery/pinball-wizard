@@ -2,10 +2,10 @@
     "width": 0.6,
     "height": 1.2,
     "left_flipper_x_min": 0.25,
-    "left_flipper_x_max": 0.45,
+    "left_flipper_x_max": 0.45999999999999996,
     "left_flipper_y_min": 0.8,
     "left_flipper_y_max": 0.9,
-    "right_flipper_x_min": 0.55,
+    "right_flipper_x_min": 0.54,
     "right_flipper_x_max": 0.75,
     "right_flipper_y_min": 0.8,
     "right_flipper_y_max": 0.9,
@@ -194,18 +194,18 @@
                 "y": 0.7755581488100234
             },
             "p2": {
-                "x": 0.21082213727279814,
-                "y": 0.8408056971125837
+                "x": 0.22766203703703702,
+                "y": 0.8793782552083332
             }
         },
         {
             "p1": {
-                "x": 0.7664353973070388,
-                "y": 0.7970349775116932
+                "x": 0.7630607906922477,
+                "y": 0.7724782356937484
             },
             "p2": {
-                "x": 0.7600026507208615,
-                "y": 0.8507505854655584
+                "x": 0.7603009259259258,
+                "y": 0.877685546875
             }
         }
     ],
@@ -214,22 +214,22 @@
     "physics": {
         "gravity": 2613.211581691337,
         "friction": 0.99,
-        "restitution": 0.6,
-        "flipper_speed": 14.8,
+        "restitution": 0.46,
+        "flipper_speed": 20.0,
         "flipper_resting_angle": -29.0,
         "flipper_stroke_angle": 54.0,
-        "flipper_length": 0.2,
-        "plunger_release_speed": 1270.0,
-        "launch_angle": 0.0,
-        "tilt_threshold": 4.0,
-        "nudge_cost": 5.0,
+        "flipper_length": 0.21,
+        "plunger_release_speed": 1410.0,
+        "launch_angle": -15.0,
+        "tilt_threshold": 10.0,
+        "nudge_cost": 2.4,
         "tilt_decay": 0.06,
         "table_tilt": 6.0,
         "rail_x_offset": 0.0,
         "rail_y_offset": 0.0,
         "flipper_width": 0.045,
-        "flipper_tip_width": 0.025,
-        "ball_mass": 0.7,
+        "flipper_tip_width": 0.015,
+        "ball_mass": 1.0,
         "flipper_elasticity": 0.5
     }
 }

@@ -36,8 +36,8 @@ class TestRewardShaping(unittest.TestCase):
         # Step
         _, reward, terminated, _, _ = self.env.step(0)
         
-        # Expect 0.2 survival reward (from environment.py)
-        self.assertAlmostEqual(reward, 0.2)
+        # Expect 0.1 survival reward (medium difficulty default)
+        self.assertAlmostEqual(reward, 0.1)
         self.assertFalse(terminated)
         
     def test_score_scaling(self):
@@ -54,9 +54,9 @@ class TestRewardShaping(unittest.TestCase):
         # Step
         _, reward, _, _, _ = self.env.step(0)
         
-        # Expect (500/100) + 0.2 = 5.2
-        self.assertAlmostEqual(reward, 5.2)
-        
+        # Expect (500/50) + 0.1 = 10.1 (updated from /100 to /50)
+        self.assertAlmostEqual(reward, 10.1)
+
     def test_loss_penalty(self):
         # Mock ball lost (y > height * 0.98)
         frame = np.zeros((800, 450, 3), dtype=np.uint8)
@@ -78,9 +78,45 @@ class TestRewardShaping(unittest.TestCase):
         # Step
         _, reward, terminated, _, _ = self.env.step(0)
         
-        # Expect -5.0 + 0.2 (survival) + 0.00125 (height reward: (1 - 790/800)*0.1) = -4.79875
+        # Expect -50.0 (drain penalty) + 0.1 (survival) + height reward
+        # Height reward: (1 - 790/800) * 0.2 = 0.0025
+        # Total: -50.0 + 0.1 + 0.0025 = -49.8975
         self.assertTrue(terminated)
-        self.assertAlmostEqual(reward, -4.79875)
+        self.assertAlmostEqual(reward, -49.8975, places=3)
+
+    def test_combo_and_multiplier_rewards(self):
+        """Test that combo count and multipliers properly reward the AI."""
+        frame = np.zeros((800, 450, 3), dtype=np.uint8)
+        self.vision.get_frame.return_value = frame
+        self.vision.get_raw_frame.return_value = frame
+        self.vision.process_frame.return_value = ((225, 400), np.zeros((800, 450, 3)))
+
+        # Mock physics engine with combo status
+        mock_physics = MagicMock()
+        mock_physics.get_combo_status.return_value = {
+            'combo_count': 4,
+            'combo_active': True,
+            'combo_timer': 2.5
+        }
+        mock_physics.get_multiplier.return_value = 4.0
+
+        self.vision.capture.physics_engine = mock_physics
+
+        # Mock score increase (base 100 points * 4x multiplier = 400 points)
+        self.vision.get_score.return_value = 400
+        self.env.current_score = 0
+        self.env.last_score = 0
+
+        # Step
+        _, reward, _, _, _ = self.env.step(0)
+
+        # Expected rewards:
+        # - Score: 400 / 50 = 8.0
+        # - Survival: 0.1
+        # - Combo: 1.0 * 4 = 4.0
+        # - Multiplier bonus: (4.0 - 1.0) * 0.5 = 1.5
+        # Total: 8.0 + 0.1 + 4.0 + 1.5 = 13.6
+        self.assertAlmostEqual(reward, 13.6, places=1)
 
 if __name__ == '__main__':
     unittest.main()

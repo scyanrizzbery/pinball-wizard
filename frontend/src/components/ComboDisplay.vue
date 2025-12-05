@@ -5,6 +5,7 @@
         <div class="count" :style="gradientStyle">{{ Math.floor(comboCount) }}x</div>
         <div class="label">COMBO</div>
         <div class="multiplier" v-if="scoreMultiplier > 1">{{ Math.floor(scoreMultiplier) }}x Multiplier</div>
+        <div class="scale-indicator" v-if="comboCount >= 10">🎵 {{ currentScaleName }}</div>
       </div>
       
       <div class="timer-bar-container">
@@ -15,7 +16,8 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
+import SoundManager from '../utils/SoundManager'
 
 const props = defineProps({
   comboCount: {
@@ -41,7 +43,9 @@ const props = defineProps({
 })
 
 const triggerAnim = ref(false)
+const currentScaleName = ref('Major')
 
+// Update scale name when combo changes
 watch(() => props.comboCount, (newVal, oldVal) => {
   if (newVal > oldVal) {
     triggerAnim.value = false
@@ -49,6 +53,18 @@ watch(() => props.comboCount, (newVal, oldVal) => {
       triggerAnim.value = true
     }, 10)
   }
+
+  // Update scale name display
+  if (newVal >= 10) {
+    const scale = SoundManager.getCurrentScale()
+    currentScaleName.value = scale.name
+  }
+})
+
+onMounted(() => {
+  // Initialize scale name
+  const scale = SoundManager.getCurrentScale()
+  currentScaleName.value = scale.name
 })
 
 const timerPercent = computed(() => {
@@ -108,6 +124,21 @@ const gradientStyle = computed(() => {
   align-items: center;
   pointer-events: none;
   min-width: 120px;
+  transition: transform 0.3s ease, top 0.3s ease, right 0.3s ease;
+}
+
+@media (min-width: 1920px) {
+  .combo-toast {
+    transform: scale(1.3);
+    transform-origin: top right;
+  }
+}
+
+:global(:fullscreen) .combo-toast {
+  transform: scale(1.5);
+  transform-origin: top right;
+  top: 40px;
+  right: 120px; /* Moved further left from 30px */
 }
 
 .combo-content {
@@ -145,6 +176,27 @@ const gradientStyle = computed(() => {
   text-transform: uppercase;
   opacity: 0.95;
   text-shadow: 0 0 8px rgba(255, 235, 59, 0.6);
+}
+
+.scale-indicator {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #00ff88;
+  letter-spacing: 1.5px;
+  margin-top: 4px;
+  text-transform: uppercase;
+  opacity: 1;
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.8);
+  animation: scale-glow 2s ease-in-out infinite;
+}
+
+@keyframes scale-glow {
+  0%, 100% {
+    text-shadow: 0 0 10px rgba(0, 255, 136, 0.8);
+  }
+  50% {
+    text-shadow: 0 0 20px rgba(0, 255, 136, 1), 0 0 30px rgba(0, 255, 136, 0.6);
+  }
 }
 
 .timer-bar-container {

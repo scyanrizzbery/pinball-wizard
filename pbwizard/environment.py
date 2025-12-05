@@ -30,8 +30,9 @@ class PinballEnv(gym.Env):
         # Action Space: 0: No-op, 1: Left Flip, 2: Right Flip, 3: Both Flip
         self.action_space = spaces.Discrete(4)
         
-        # Observation Space: [ball_x, ball_y, ball_vx, ball_vy] (normalized)
-        self.observation_space = spaces.Box(low=0, high=1, shape=(4,), dtype=np.float32)
+        # Observation Space: [ball_x, ball_y, ball_vx, ball_vy, target_1, target_2, target_3, target_4]
+        # We use a fixed size of 4 targets to handle layout randomization
+        self.observation_space = spaces.Box(low=0, high=1, shape=(8,), dtype=np.float32)
         
         self.last_score = 0
         self.current_score = 0
@@ -55,37 +56,7 @@ class PinballEnv(gym.Env):
         allowed_action = self._enforce_zones(action)
 
         # 2. Execute Action
-        # Safety Override for Training/Execution:
-        # If ball is in right zone and moving down fast, force right flip
-        # This helps the agent "discover" the right flipper if it's stuck in a local optimum
-        if self.last_ball_pos is not None and hasattr(self.vision, 'check_zones'):
-             zones = self.vision.check_zones(self.last_ball_pos[0], self.last_ball_pos[1])
-             # Calculate velocity if not available? We need vy.
-             # We can use the previous step's velocity or calculate it.
-             # Let's use a simple heuristic: if we are in the zone, we probably want to flip.
-             # But we need to know if it's moving down.
-             # We can't easily get vy here without passing it or recalculating.
-             # Let's rely on the fact that if it's in the zone, it's likely coming down.
-             
-             # Get velocity
-             vx, vy = 0, 0
-             if hasattr(self.vision, 'get_ball_status'):
-                 status = self.vision.get_ball_status()
-                 if status: _, (vx, vy) = status
 
-             # Left Safety
-             if zones['left'] and vy > 50:
-                 if allowed_action == constants.ACTION_NOOP:
-                     allowed_action = constants.ACTION_FLIP_LEFT
-                 elif allowed_action == constants.ACTION_FLIP_RIGHT:
-                     allowed_action = constants.ACTION_FLIP_BOTH
-
-             # Right Safety
-             if zones['right'] and vy > 50:
-                 if allowed_action == constants.ACTION_NOOP:
-                     allowed_action = constants.ACTION_FLIP_RIGHT
-                 elif allowed_action == constants.ACTION_FLIP_LEFT:
-                     allowed_action = constants.ACTION_FLIP_BOTH
 
         self._execute_action(allowed_action)
             
@@ -153,18 +124,26 @@ class PinballEnv(gym.Env):
         difficulty_params = self._get_difficulty_params()
         
         # Reward Shaping
-        reward = score_diff / 100.0 # Scale score (e.g. 500 -> 5.0)
+        reward = score_diff / 5000.0 # Scale score (e.g. 500 -> 0.1) - Increased from /50
         reward += difficulty_params['survival_reward'] # Survival reward (scaled by difficulty)
         
         # Combo Bonus Reward - encourage maintaining combos
-        if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'engine'):
-            combo_status = self.vision.capture.engine.get_combo_status()
+        # FIX: Corrected attribute name from 'engine' to 'physics_engine'
+        if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'physics_engine'):
+            combo_status = self.vision.capture.physics_engine.get_combo_status()
+            multiplier = self.vision.capture.physics_engine.get_multiplier()
+
             if combo_status['combo_active'] and combo_status['combo_count'] > 1:
-                # Award bonus for maintaining combo
-                combo_reward = 0.5 * combo_status['combo_count']
+                # Award increasing bonus for maintaining combo chains
+                combo_reward = 0.02 * combo_status['combo_count']  # Scaled down 100x
                 reward += combo_reward
-                if combo_status['combo_count'] > 3:
-                    logger.debug(f"Combo reward bonus: +{combo_reward:.2f} for {combo_status['combo_count']}x combo")
+                logger.debug(f"Combo reward bonus: +{combo_reward:.2f} for {combo_status['combo_count']}x combo")
+
+            # Extra reward for high multipliers (incentivize combo gameplay)
+            if multiplier > 1.0:
+                multiplier_bonus = (multiplier - 1.0) * 0.005 # Scaled down 100x
+                reward += multiplier_bonus
+                logger.debug(f"Multiplier bonus: +{multiplier_bonus:.2f} for {multiplier:.1f}x multiplier")
 
         # Event-based Reward (Explicit feedback for hitting targets)
         events = []
@@ -177,14 +156,15 @@ class PinballEnv(gym.Env):
             if event['type'] == 'collision':
                 # Base rewards for hitting features (independent of score/combo)
                 if 'bumper' in event['label']:
-                    reward += 0.2 # Moderate reward (was 0.1, then 0.5)
-                    logger.debug("Reward: Bumper Hit (+0.2)")
+                    reward += 0.02 # Stronger immediate feedback (was 2.0)
+                    logger.debug("Reward: Bumper Hit (+0.02)")
                 elif 'drop_target' in event['label']:
-                    reward += 5.0 # Strong reward for targets
-                    logger.debug("Reward: Drop Target Hit (+5.0)")
+                    reward += 0.15 # Very strong reward for targets (was 15.0)
+                    logger.debug("Reward: Drop Target Hit (+0.15)")
                 elif 'rail' in event['label']:
-                    reward += 0.2 # Small reward for hitting rails (flow)
-        
+                    reward += 0.01 # Encouragement for loop shots (was 1.0)
+                    logger.debug("Reward: Rail Hit (+0.01)")
+
         # Debug logging for start of episode
         # Debug logging for start of episode (only first step)
         if self.steps_without_ball == 0 and self.last_ball_pos is None and ball_pos is not None:
@@ -193,14 +173,15 @@ class PinballEnv(gym.Env):
         # Height Reward: Encourage keeping ball up (y is 0 at top, 1 at bottom)
         if ball_pos is not None:
              # Reward is higher when y is smaller (top of screen)
-             # Max reward approx 0.2 per step at top (Increased from 0.1)
-             reward += (1.0 - (ball_pos[1] / height)) * 0.2
+             # DRASTICALLY REDUCED: Was 0.2 per step. Now effectively 0 to remove noise.
+             # We want users to HIT TARGETS, not just float.
+             reward += (1.0 - (ball_pos[1] / height)) * 0.01
              
              # Flipper Hit Reward: Detect if we imparted upward velocity
              # If we are in flipper zone (y > 0.8) and have strong upward velocity (vy < -50)
              if ball_pos[1] / height > 0.8 and vy < -100: # Moving UP fast
-                 reward += 1.0 # Immediate reward for successful shot
-                 logger.debug("Reward: Strong Upward Shot (+1.0)")
+                 reward += 0.02 # Strong feedback for successful shot (was 2.0)
+                 logger.debug("Reward: Strong Upward Shot (+0.02)")
              
              # Holding Penalty (scaled by difficulty)
              # Calculate velocity magnitude
@@ -230,7 +211,7 @@ class PinballEnv(gym.Env):
         terminated, truncated = self._check_termination(ball_pos, height)
         
         if terminated:
-            reward -= 10.0 # Compromise penalty (was -5, then -20)
+            reward -= 1.0 # Stronger penalty for draining (was -0.5)
         
         return obs, reward, terminated, truncated, {}
 
@@ -282,7 +263,7 @@ class PinballEnv(gym.Env):
         return self.vision.get_frame()
 
     def _create_observation(self, ball_pos, vx, vy, width, height):
-        obs = np.array([0, 0, 0, 0], dtype=np.float32)
+        obs = np.zeros(8, dtype=np.float32)
         if ball_pos is not None:
             obs[0] = ball_pos[0] / width
             obs[1] = ball_pos[1] / height
@@ -292,6 +273,21 @@ class PinballEnv(gym.Env):
             self.steps_without_ball = 0
         else:
             self.steps_without_ball += 1
+            
+        # Add Drop Target States
+        target_states = []
+        if hasattr(self.vision, 'drop_target_states'):
+            target_states = self.vision.drop_target_states
+        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'drop_target_states'):
+            target_states = self.vision.capture.drop_target_states
+            
+        # Pad or Truncate to fixed size 4
+        for i in range(4):
+            if i < len(target_states):
+                obs[4 + i] = 1.0 if target_states[i] else 0.0
+            else:
+                obs[4 + i] = 0.0 # Pad with 0 (Inactive/Down)
+                
         return obs
 
     def _update_score(self, frame):
@@ -347,17 +343,12 @@ class PinballEnv(gym.Env):
                  self.vision.capture.load_layout(self.vision.capture.layout.to_dict())
                  logger.info("Randomized layout for new episode")
         
-        # Launch ball if in simulation and auto-start is enabled
-        should_launch = True
-        if hasattr(self.vision, 'auto_start_enabled'):
-            should_launch = self.vision.auto_start_enabled
-            
-        if should_launch:
-            if hasattr(self.vision, 'launch_ball'):
-                self.vision.launch_ball()
-            elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'launch_ball'):
-                self.vision.capture.launch_ball()
-        
+        # Launch ball if in simulation (always launch during training)
+        if hasattr(self.vision, 'launch_ball'):
+            self.vision.launch_ball()
+        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'launch_ball'):
+            self.vision.capture.launch_ball()
+
         # Initial observation
         frame = None
         if not self.headless:
@@ -371,25 +362,25 @@ class PinballEnv(gym.Env):
             self.vision.process_frame(frame)
 
         # For simplicity, return zeros or wait for ball
-        return np.array([0, 0, 0, 0], dtype=np.float32), {}
+        return np.zeros(8, dtype=np.float32), {}
 
     def _get_difficulty_params(self):
         """Return difficulty-specific reward scaling parameters."""
         params = {
             'easy': {
-                'survival_reward': 0.3,  # Higher survival reward
+                'survival_reward': 0.0001,  # Reduced from 0.01
                 'holding_threshold': 120,  # 4 seconds - more lenient
-                'holding_penalty': 0.3  # Lower penalty
+                'holding_penalty': 0.001  # Lower penalty
             },
             'medium': {
-                'survival_reward': 0.1,  # Standard
+                'survival_reward': 0.001,  # Increased 10x (from 0.0001) - Life must have value
                 'holding_threshold': 90,  # 3 seconds
-                'holding_penalty': 0.5  # Standard penalty
+                'holding_penalty': 0.002
             },
             'hard': {
-                'survival_reward': 0.1,  # Lower survival reward - must score to win
+                'survival_reward': 0.0005,  # Moderate survival pressure
                 'holding_threshold': 60,  # 2 seconds - aggressive
-                'holding_penalty': 0.8  # Harsh penalty for holding
+                'holding_penalty': 0.008
             }
         }
         return params.get(self.difficulty, params['medium'])

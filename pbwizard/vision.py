@@ -432,17 +432,11 @@ class SimulatedFrameCapture:
                         
             logger.info(f"Loaded {len(self.available_layouts)} layouts from {layouts_dir}")
             
-            # Ensure current_layout_id is valid
+            # DON'T modify current_layout_id here - let load_config() handle loading the saved layout
+            # If we set it now, save_config() called during init will overwrite the saved layout choice
             if self.current_layout_id not in self.available_layouts:
-                if self.available_layouts:
-                    import random
-                    self.current_layout_id = random.choice(list(self.available_layouts.keys()))
-                    logger.info(f"Selected random startup layout: {self.current_layout_id}")
-                    # Load the selected layout data immediately
-                    if self.current_layout_id in self.available_layouts:
-                        self.layout.load(self.available_layouts[self.current_layout_id])
-                else:
-                    logger.warning("No layouts found!")
+                logger.warning(f"Default layout '{self.current_layout_id}' not found, will use first available after config load")
+                # Don't change current_layout_id yet - wait for load_config()
         
 
                     
@@ -470,6 +464,7 @@ class SimulatedFrameCapture:
         # Initialize physics properties that aren't passed in __init__
         self.physics_engine.ball_mass = self.ball_mass
         self.physics_engine.update_flipper_tip_width(self.flipper_tip_width)
+
         
         self.zone_manager = ZoneManager(width, height, self.layout)
 
@@ -490,6 +485,11 @@ class SimulatedFrameCapture:
         self.flipper_speed = self.FLIPPER_SPEED
         self.flipper_length = self.FLIPPER_LENGTH
         self.flipper_width = self.FLIPPER_WIDTH
+        
+        # Sync physics engine with initialized values
+        self.physics_engine.update_flipper_length(self.flipper_length)
+        self.physics_engine.update_flipper_width(self.flipper_width)
+        self.physics_engine.update_flipper_elasticity(self.flipper_elasticity)
         
         # Tilt Parameters
         self.tilt_threshold = self.TILT_THRESHOLD
@@ -536,8 +536,8 @@ class SimulatedFrameCapture:
         
         self.plunger_release_speed = 1500.0 # Default
 
-        self.auto_start_enabled = True # Default to True for easier testing
-        
+        # Auto-start removed - frontend controls game starting
+
         # Load Assets
         self.assets = {}
         self._load_assets()
@@ -786,7 +786,7 @@ class SimulatedFrameCapture:
         self.thread.start()
         logger.info("Simulated camera started")
 
-    def update_physics_params(self, params):
+    def update_physics_params(self, params, save=True):
         changes = []
         cam_changed = False
         if 'table_tilt' in params:
@@ -907,6 +907,13 @@ class SimulatedFrameCapture:
                 if self.physics_engine:
                     self.physics_engine.ball_mass = val
                 changes.append(f"Ball Mass: {val}")
+
+        if 'god_mode' in params:
+            val = bool(params['god_mode'])
+            self.god_mode = val
+            if self.physics_engine:
+                self.physics_engine.god_mode = val
+            changes.append(f"God Mode: {val}")
 
         if 'tilt_threshold' in params:
             val = float(params['tilt_threshold'])
@@ -1223,12 +1230,11 @@ class SimulatedFrameCapture:
                 
                 logger.debug(f"Updated layout physics params: {self.layout.physics_params}")
                 
-                # Only save layout if we are not in the middle of loading it
-                # We can check if we have a valid layout path or name that isn't just the default init
                 if self.layout.name != 'Default' or hasattr(self, 'layout_path'):
                      self.save_layout()
 
-            self.save_config()
+            if save:
+                self.save_config()
             
             # Record settings change in history
             self.game_history.insert(0, {
@@ -1345,6 +1351,10 @@ class SimulatedFrameCapture:
         self.is_tilted = False
         self.tilt_value = 0.0
         
+        # Reset Drop Targets (Heal from previous game state)
+        if self.layout and self.layout.drop_targets:
+            self.drop_target_states = [True] * len(self.layout.drop_targets)
+        
         logger.info("Game reset.")
 
     def reset_zones(self):
@@ -1409,7 +1419,8 @@ class SimulatedFrameCapture:
             'combo_window': self.physics_engine.combo_window if self.physics_engine else 3.0,
             'multiplier_max': self.physics_engine.multiplier_max if self.physics_engine else 5.0,
             'base_combo_bonus': self.physics_engine.base_combo_bonus if self.physics_engine else 50,
-            'combo_multiplier_enabled': self.physics_engine.combo_multiplier_enabled if self.physics_engine else True
+            'combo_multiplier_enabled': self.physics_engine.combo_multiplier_enabled if self.physics_engine else True,
+            'current_layout_id': self.current_layout_id
         }
         
         return config
@@ -1479,13 +1490,13 @@ class SimulatedFrameCapture:
             with open(filepath, 'r') as f:
                 config = json.load(f)
             
-            self.update_physics_params(config)
+            # Don't save config back while loading it - this overwrites saved layout selection
+            self.update_physics_params(config, save=False)
             if 'last_model' in config:
                 self.last_model = config['last_model']
             if 'last_preset' in config:
                 self.last_preset = config['last_preset']
-            if 'current_layout_id' in config:
-                self.current_layout_id = config['current_layout_id']
+            # Removed current_layout_id assignment here to allow proper loading check below
             if 'camera_presets' in config:
                 # Merge loaded presets into existing (default) presets
                 self.camera_presets.update(config['camera_presets'])
@@ -1493,19 +1504,23 @@ class SimulatedFrameCapture:
             # Load layout configuration
             # Priority: Load from specific layout file if ID is known, or default to 'pinball_wizard'
             layout_id = config.get('current_layout_id')
+            logger.info(f"CONFIG: current_layout_id from config = {layout_id}")
+            logger.info(f"CONFIG: self.current_layout_id before loading = {self.current_layout_id}")
             
             # If config doesn't specify layout, use the one currently set (e.g. from __init__)
             if not layout_id and self.current_layout_id:
                 layout_id = self.current_layout_id
             
-            # If layout_id is missing or not in available layouts, try to find a valid one
+            # If layout_id is missing or not in available layouts, use first available
             if not layout_id or layout_id not in self.available_layouts:
                 if self.available_layouts:
-                    import random
-                    layout_id = random.choice(list(self.available_layouts.keys()))
-                    logger.info(f"Selected random layout (fallback): {layout_id}")
+                    # Use first layout alphabetically for consistency (instead of random)
+                    layout_id = sorted(self.available_layouts.keys())[0]
+                    logger.info(f"Saved layout not found, using fallback: {layout_id}")
                 else:
                     layout_id = 'default' # Fallback if nothing else
+            
+            logger.info(f"CONFIG: Final layout_id to load = {layout_id}")
             
             if layout_id in self.available_layouts:
                 if layout_id != self.current_layout_id:
@@ -1641,7 +1656,7 @@ class SimulatedFrameCapture:
                 logger.info(f"First rail p1: {self.layout.rails[0]['p1']}")
             
             # Re-initialize components dependent on layout
-            self.zone_manager = ZoneManager(self.width, self.height, self.layout)
+            # self.zone_manager = ZoneManager(self.width, self.height, self.layout) # DON'T replace instance!
             self._update_zone_contours()
             
             # Start simulation thread
@@ -1668,7 +1683,14 @@ class SimulatedFrameCapture:
                 self.rail_y_offset = getattr(self.layout, 'rail_y_offset', -0.11)
                 self.physics_engine.rail_x_offset = self.rail_x_offset
                 self.physics_engine.rail_y_offset = self.rail_y_offset
-                
+            
+                # FIX: Force sync flipper properties as PymunkEngine defaults (0.12) differ from Vision (0.21)
+                # and update_physics_params might skip update if local values match
+                self.physics_engine.update_flipper_length(self.flipper_length)
+                self.physics_engine.update_flipper_width(self.flipper_width)
+                self.physics_engine.update_flipper_elasticity(self.flipper_elasticity)
+                self.physics_engine.update_flipper_tip_width(getattr(self, 'flipper_tip_width', 0.025))
+            
                 logger.info(f"Physics engine reinitialized with new layout. Rail Offsets: {self.rail_x_offset}, {self.rail_y_offset}")
             
             # Apply saved physics parameters from layout
@@ -1885,6 +1907,7 @@ class SimulatedFrameCapture:
                             self.game_history.pop()
                         
                         # Full Game Reset (clears physics, combo, score, balls)
+                        self.games_played += 1
                         self.reset_game()
                         return
                 
@@ -1900,6 +1923,13 @@ class SimulatedFrameCapture:
                     'vel': np.array([0.0, 0.0]),
                     'lost': False
                 })
+                # Reset Tilt for new ball
+                self.is_tilted = False
+                self.tilt_value = 0.0
+                if self.physics_engine:
+                    self.physics_engine.set_tilt(False)
+                
+                logger.debug(f"Sim: Ball spawned in plunger lane ({ball_x}, {ball_y})")
                 logger.debug(f"Sim: Ball spawned in plunger lane ({ball_x}, {ball_y})")
                 
             else:
@@ -1935,6 +1965,14 @@ class SimulatedFrameCapture:
             'lost': False
         })
         
+        # Reset Tilt when starting a new game (adding ball when none exist)
+        if len(self.balls) == 1:  # First ball added (new game starting)
+            self.is_tilted = False
+            self.tilt_value = 0.0
+            if self.physics_engine:
+                self.physics_engine.set_tilt(False)
+            logger.debug("Tilt cleared for new game")
+
         logger.debug(f"Sim: Ball Added to Physics Engine at {pos}")
 
     @property
@@ -2142,6 +2180,8 @@ class SimulatedFrameCapture:
             
             # Skip if invulnerable (just reset)
             if i < len(self._drop_target_invuln_until) and current_time < self._drop_target_invuln_until[i]:
+                if random.random() < 0.05:  # Log 5% of the time
+                    logger.debug(f"Target {i} is invulnerable for {self._drop_target_invuln_until[i] - current_time:.2f}s more")
                 continue
             
             # Layout x,y are TOP-LEFT corner (to match physics.py line 127-132)
@@ -2174,6 +2214,15 @@ class SimulatedFrameCapture:
                 self.score += target['value']
                 ball['vel'][1] *= -1 # Bounce back
                 
+                # Emit sound event for frontend
+                self.frontend_events.append({
+                    'type': 'collision',
+                    'label': 'drop_target',
+                    'score': target['value'],
+                    'total_score': self.score,
+                    'combo_count': 0  # Vision system doesn't track combo
+                })
+                
                 # Remove from physics engine if using physics
                 if self.physics_engine and hasattr(self.physics_engine, 'drop_target_shapes'):
                     if i < len(self.physics_engine.drop_target_shapes):
@@ -2187,39 +2236,6 @@ class SimulatedFrameCapture:
                         logger.error(f"Drop target {i} index out of range")
                 else:
                     logger.warning("Physics engine not available for drop target removal")
-                
-                # Check if all targets hit
-                all_down = not any(self.drop_target_states)
-                
-                # Only trigger multiball/reset once when all targets first go down
-                if all_down and not getattr(self, '_all_targets_down_triggered', False):
-                    logger.info("All drop targets down!")
-                    self._all_targets_down_triggered = True
-                    
-                    # Check cooldown
-                    if time.time() > self.multiball_cooldown_timer:
-                        logger.info("Multiball activated!")
-                        self.add_ball()
-                        self.multiball_cooldown_timer = time.time() + 5.0
-                    else:
-                        remaining = self.multiball_cooldown_timer - time.time()
-                        logger.info(f"Multiball cooldown: {remaining:.1f}s remaining")
-                    
-                    # Reset targets - add them back to physics
-                    self.drop_target_states = [True] * len(self.layout.drop_targets)
-                    
-                    # Set invulnerability period to prevent immediate re-hits
-                    # Always recreate the list to ensure correct size
-                    self._drop_target_invuln_until = [time.time() + 0.5] * len(self.layout.drop_targets)
-                    
-                    if self.physics_engine and hasattr(self.physics_engine, 'drop_target_shapes'):
-                        for j, shape in enumerate(self.physics_engine.drop_target_shapes):
-                            if shape not in self.physics_engine.space.shapes:
-                                self.physics_engine.space.add(shape)
-                        logger.info(f"Reset {len(self.physics_engine.drop_target_shapes)} drop targets")
-                elif not all_down:
-                    # Reset the trigger flag when targets come back up
-                    self._all_targets_down_triggered = False
 
     def _check_capture_collision(self, ball):
         if ball['lost'] or ball.get('captured', False): return
@@ -2284,8 +2300,29 @@ class SimulatedFrameCapture:
 
         while self.running:
             with self.lock:
+                # If under external control (e.g. Viewer for Training), SKIP simulation logic
+                if getattr(self, 'external_control', False):
+                    time.sleep(0.01)
+                    continue
+
                 # Remove lost balls
                 self.balls = [b for b in self.balls if not b['lost']]
+                
+                # Auto Game Over Detection
+                if not self.balls and self.balls_remaining == 0:
+                     logger.info(f"Sim: Game Over Detected (Score: {self.score})")
+                     # Record Game History
+                     self.game_history.insert(0, {
+                        'type': 'game',
+                        'score': self.score,
+                        'timestamp': time.time(),
+                        'date': time.strftime("%Y-%m-%d %H:%M:%S")
+                     })
+                     if len(self.game_history) > 50:
+                        self.game_history.pop()
+                     
+                     self.games_played += 1
+                     self.reset_game()
                 
                 # Decay Tilt (Time-based)
                 current_time = time.time()
@@ -2301,25 +2338,11 @@ class SimulatedFrameCapture:
                             self.physics_engine.set_tilt(False)
                         logger.info("Tilt Recovered.")
                 
+                # Auto-start removed - frontend controls game starting via auto-start toggle
+                # Backend just waits for spacebar input from frontend
                 if not self.balls:
-                    # Auto-start logic
-                    if self.auto_start_enabled:
-                        current_time = time.time()
-                        if not hasattr(self, 'game_over_time') or self.game_over_time is None:
-                            self.game_over_time = current_time
-                        
-                        # Wait 1 second before restart
-                        if current_time - self.game_over_time > 1.0:
-                            self.launch_ball()
-                            # Simulate pull and release
-                            self.pull_plunger(1.0)
-                            # Schedule release? Or just release immediately?
-                            # Immediate release might be too fast for physics step?
-                            # Let's just release immediately for now, physics update will handle it
-                            self.release_plunger()
-                            self.game_over_time = None
-                    else:
-                        self.game_over_time = None
+                    # Reset game-over time tracking (not used anymore)
+                    self.game_over_time = None
                     pass
                 else:
                     self.game_over_time = None
@@ -2328,8 +2351,18 @@ class SimulatedFrameCapture:
                 if not self.physics_engine:
                     from pbwizard.physics import PymunkEngine
                     self.physics_engine = PymunkEngine(self.layout, self.width, self.height)
-                    # Initial ball
-                    self.physics_engine.add_ball((self.width * 0.9, self.height * 0.9))
+                    
+                    # Restore physics settings from vision system
+                    self.physics_engine.launch_angle = self.launch_angle
+                    self.physics_engine.plunger_release_speed = self.plunger_release_speed
+                    self.physics_engine.flipper_speed = self.flipper_speed
+                    self.physics_engine.ball_mass = self.ball_mass
+                    self.physics_engine.flipper_elasticity = self.flipper_elasticity
+                    self.physics_engine.update_flipper_tip_width(self.flipper_tip_width)
+                    logger.info(f"Physics engine recreated in simulation loop. Restored settings: launch_angle={self.launch_angle}")
+                    
+                    # No automatic ball spawn - frontend controls game start via auto-start or manual launch
+                    logger.info("Sim: Waiting for frontend to start game (auto-start or manual spacebar)")
 
                 self.physics_engine.update(dt)
                 
@@ -2377,8 +2410,8 @@ class SimulatedFrameCapture:
             # Check for ball drain (Game Over / Next Ball)
             current_ball_count = len(self.balls)
             if current_ball_count == 0 and self.last_ball_count > 0:
-                logger.info("Ball Drained! Requesting next ball...")
-                
+                logger.debug("Ball Drained!")
+
                 # Force immediate stats update to clear combo on frontend
                 if self.socketio:
                     self.socketio.emit('stats_update', {
@@ -2387,18 +2420,87 @@ class SimulatedFrameCapture:
                         'score_multiplier': 1.0,
                         'combo_timer': 0.0
                     }, namespace='/game')
-                    
-                self.launch_ball()
-                
+
+                # Auto-launch removed - frontend controls game starting
+                # Frontend will detect balls: 1->0 and trigger auto-start or wait for manual input
+
             self.last_ball_count = current_ball_count
+
+            # Execute scheduled drop target reset if time has elapsed
+            if (getattr(self, '_drop_target_reset_scheduled', False) and 
+                hasattr(self, '_drop_target_reset_time') and 
+                time.time() >= self._drop_target_reset_time):
+                
+                logger.debug("="*50)
+                logger.debug("Executing delayed drop target reset...")
+                logger.debug(f"Current state before reset: {self.drop_target_states}")
+                
+                # Reset all targets to up state
+                self.drop_target_states = [True] * len(self.layout.drop_targets)
+                logger.debug(f"State after reset: {self.drop_target_states}")
+                
+                # No invulnerability period - targets can be hit immediately after reset
+                INVULN_PERIOD = 0.0
+                self._drop_target_invuln_until = [time.time() + INVULN_PERIOD] * len(self.layout.drop_targets)
+                logger.debug(f"Drop targets reset - immediately active (no invulnerability)")
+                
+                # Re-add shapes to physics engine
+                if self.physics_engine and hasattr(self.physics_engine, 'drop_target_shapes'):
+                    logger.debug(f"Physics engine has {len(self.physics_engine.drop_target_shapes)} drop target shapes")
+                    logger.debug(f"Physics space currently has {len(self.physics_engine.space.shapes)} total shapes")
+                    reset_count = 0
+                    for j, shape in enumerate(self.physics_engine.drop_target_shapes):
+                        was_in_space = shape in self.physics_engine.space.shapes
+                        if not was_in_space:
+                            self.physics_engine.space.add(shape)
+                            reset_count += 1
+                            logger.debug(f"  Re-added drop target {j} shape to physics")
+                        else:
+                            logger.debug(f"  Drop target {j} shape was already in physics space!")
+                    logger.debug(f"Reset {reset_count}/{len(self.physics_engine.drop_target_shapes)} drop targets")
+                    logger.debug(f"Physics space now has {len(self.physics_engine.space.shapes)} total shapes")
+                else:
+                    logger.error("Physics engine or drop_target_shapes not available!")
+                
+                # Clear scheduled flag
+                self._drop_target_reset_scheduled = False
+                self._drop_target_reset_time = None
+                logger.debug("="*50)
+            
+            # Check if all targets are down (runs every frame)
+            if len(self.layout.drop_targets) > 0:
+                all_down = not any(self.drop_target_states)
+                
+                if all_down and not getattr(self, '_drop_target_reset_scheduled', False):
+                    logger.info("All drop targets down! Scheduling reset...")
+                    self._drop_target_reset_scheduled = True
+                    
+                    # Schedule reset in 2 seconds
+                    DROP_TARGET_RESET_DELAY = 2.0
+                    self._drop_target_reset_time = time.time() + DROP_TARGET_RESET_DELAY
+                    
+                    # Check multiball cooldown
+                    if time.time() > self.multiball_cooldown_timer:
+                        logger.info("Multiball activated!")
+                        self.add_ball()
+                        self.multiball_cooldown_timer = time.time() + 5.0
+                    else:
+                        remaining = self.multiball_cooldown_timer - time.time()
+                        logger.info(f"Multiball cooldown: {remaining:.1f}s remaining")
+                
+                elif not all_down:
+                    # Targets coming back up - clear any scheduled reset
+                    if getattr(self, '_drop_target_reset_scheduled', False):
+                        logger.debug("Targets back up, canceling scheduled reset")
+                    self._drop_target_reset_scheduled = False
 
             # Sync flipper angles for 2D draw
             self.current_left_angle = state['flippers']['left_angle']
             self.current_right_angle = state['flippers']['right_angle']
             self.current_upper_angles = state['flippers']['upper_angles']
 
-            # Check drop target collisions (vision system handles drop target state)
-            logger.debug(f"VISION: About to check drop targets. Balls: {len(self.balls)}, Targets: {len(self.layout.drop_targets)}, States: {self.drop_target_states}")
+            # Drop target states are managed entirely in vision system, not synced from physics
+            # Check drop target collisions for all balls
             for ball in self.balls:
                 self._check_drop_target_collision(ball)
 

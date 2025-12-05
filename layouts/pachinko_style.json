@@ -227,7 +227,7 @@
         "flipper_stroke_angle": 54.0,
         "flipper_length": 0.22,
         "plunger_release_speed": 2000.0,
-        "launch_angle": 8.0,
+        "launch_angle": 0.0,
         "tilt_threshold": 4.0,
         "nudge_cost": 5.0,
         "tilt_decay": 3.0,

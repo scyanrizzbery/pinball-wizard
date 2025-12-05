@@ -1,0 +1,203 @@
+{
+    "width": 0.6,
+    "height": 1.2,
+    "left_flipper_x_min": 0.25,
+    "left_flipper_x_max": 0.46,
+    "left_flipper_y_min": 0.8,
+    "left_flipper_y_max": 0.9,
+    "right_flipper_x_min": 0.54,
+    "right_flipper_x_max": 0.75,
+    "right_flipper_y_min": 0.8,
+    "right_flipper_y_max": 0.9,
+    "zones": [
+        {
+            "id": "gate_left",
+            "type": "left",
+            "is_screen_space": true,
+            "points": [
+                {
+                    "x": 0.1,
+                    "y": 0.75
+                },
+                {
+                    "x": 0.45,
+                    "y": 0.75
+                },
+                {
+                    "x": 0.45,
+                    "y": 0.95
+                },
+                {
+                    "x": 0.1,
+                    "y": 0.95
+                }
+            ]
+        },
+        {
+            "id": "gate_right",
+            "type": "right",
+            "is_screen_space": true,
+            "points": [
+                {
+                    "x": 0.55,
+                    "y": 0.75
+                },
+                {
+                    "x": 0.9,
+                    "y": 0.75
+                },
+                {
+                    "x": 0.9,
+                    "y": 0.95
+                },
+                {
+                    "x": 0.55,
+                    "y": 0.95
+                }
+            ]
+        }
+    ],
+    "bumpers": [
+        {
+            "x": 0.3,
+            "y": 0.2,
+            "radius_ratio": 0.03,
+            "value": 500
+        },
+        {
+            "x": 0.7,
+            "y": 0.3,
+            "radius_ratio": 0.03,
+            "value": 500
+        },
+        {
+            "x": 0.3,
+            "y": 0.4,
+            "radius_ratio": 0.03,
+            "value": 500
+        },
+        {
+            "x": 0.7,
+            "y": 0.5,
+            "radius_ratio": 0.03,
+            "value": 500
+        },
+        {
+            "x": 0.3,
+            "y": 0.6,
+            "radius_ratio": 0.03,
+            "value": 500
+        },
+        {
+            "x": 0.5,
+            "y": 0.1,
+            "radius_ratio": 0.05,
+            "value": 2000
+        }
+    ],
+    "drop_targets": [
+        {
+            "x": 0.5,
+            "y": 0.25,
+            "width": 0.02,
+            "height": 0.04,
+            "value": 1000
+        },
+        {
+            "x": 0.5,
+            "y": 0.35,
+            "width": 0.02,
+            "height": 0.04,
+            "value": 1000
+        },
+        {
+            "x": 0.5,
+            "y": 0.45,
+            "width": 0.02,
+            "height": 0.04,
+            "value": 1000
+        },
+        {
+            "x": 0.5,
+            "y": 0.55,
+            "width": 0.02,
+            "height": 0.04,
+            "value": 1000
+        }
+    ],
+    "rails": [
+        {
+            "p1": {
+                "x": 0.05,
+                "y": 0.1
+            },
+            "p2": {
+                "x": 0.05,
+                "y": 0.8
+            }
+        },
+        {
+            "p1": {
+                "x": 0.95,
+                "y": 0.1
+            },
+            "p2": {
+                "x": 0.95,
+                "y": 0.8
+            }
+        },
+        {
+            "p1": {
+                "x": 0.2,
+                "y": 0.2
+            },
+            "p2": {
+                "x": 0.4,
+                "y": 0.2
+            }
+        },
+        {
+            "p1": {
+                "x": 0.6,
+                "y": 0.3
+            },
+            "p2": {
+                "x": 0.8,
+                "y": 0.3
+            }
+        },
+        {
+            "p1": {
+                "x": 0.2,
+                "y": 0.4
+            },
+            "p2": {
+                "x": 0.4,
+                "y": 0.4
+            }
+        },
+        {
+            "p1": {
+                "x": 0.6,
+                "y": 0.5
+            },
+            "p2": {
+                "x": 0.8,
+                "y": 0.5
+            }
+        }
+    ],
+    "physics": {
+        "gravity": 2200.0,
+        "friction": 0.7,
+        "restitution": 0.9,
+        "flipper_speed": 16.0,
+        "flipper_resting_angle": -28.0,
+        "flipper_stroke_angle": 52.0,
+        "flipper_length": 0.21,
+        "plunger_release_speed": 1600.0,
+        "launch_angle": 0.0,
+        "ball_mass": 1.2,
+        "flipper_elasticity": 0.5
+    }
+}

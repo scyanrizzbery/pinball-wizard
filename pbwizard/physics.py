@@ -1,6 +1,7 @@
 import pymunk
 import numpy as np
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -75,12 +76,13 @@ class PymunkEngine(Physics):
         self.flippers = {}
         self.bumper_states = [] # List of flash timers (0.0 to 1.0)
         self.bumper_shape_map = {} # Map shape to index
+        self.drop_target_states = [] # List of drop target states (True = up, False = down)
+        self.drop_target_shape_map = {} # Map shape to index
         self.score = 0  # Track score in physics engine
         self.flipper_speed = 30.0 # Default speed
         self.is_tilted = False # Track tilt state
         self.drop_target_shapes = [] # Track drop target shapes for removal
         self.launch_angle = 0.0 # Launch angle in degrees (0 = Up)
-        self.auto_start_enabled = True # Default to True
         self.flipper_elasticity = 0.5 # Default rubber bounce
         self.flipper_friction = 0.8 # Default rubber friction
         
@@ -93,6 +95,9 @@ class PymunkEngine(Physics):
         self.combo_multiplier_enabled = True
         self. base_combo_bonus = 50  # Base points for maintaining combo
         self.multiplier_max = 5.0  # Max multiplier cap
+
+        # Bumper deflection force
+        self.bumper_force = 800.0  # Force impulse when ball hits bumper (px/s)
 
         # Rail tracking
         self.rail_shapes = []
@@ -145,7 +150,6 @@ class PymunkEngine(Physics):
 
                 if score_value > 0:
                     # Combo detection - check if this is a scoring hit
-                    import time
                     current_time = time.time()
                     time_since_last_hit = current_time - self.last_hit_time
                     
@@ -189,12 +193,51 @@ class PymunkEngine(Physics):
                     else:
                         logger.debug(f"BALL COLLISION: hit {label} (+{score_value} points, total: {self.score})")
                     
-                    # Flash Bumper if hit
+                    # Flash Bumper if hit and apply deflection force
                     if other == COLLISION_TYPE_BUMPER:
                         bumper_shape = shapes[0] if type_a == COLLISION_TYPE_BUMPER else shapes[1]
+                        ball_shape = shapes[0] if type_a == COLLISION_TYPE_BALL else shapes[1]
+
                         if bumper_shape in self.bumper_shape_map:
                             idx = self.bumper_shape_map[bumper_shape]
                             self.bumper_states[idx] = 1.0
+
+                            # Apply active deflection force (like a real pinball bumper)
+                            ball_body = ball_shape.body
+                            bumper_pos = bumper_shape.body.position
+                            ball_pos = ball_body.position
+
+                            # Calculate direction from bumper to ball
+                            dx = ball_pos.x - bumper_pos.x
+                            dy = ball_pos.y - bumper_pos.y
+                            distance = np.hypot(dx, dy)
+
+                            if distance > 0:
+                                # Normalize direction
+                                dx /= distance
+                                dy /= distance
+
+                                # Apply impulse force (adjustable strength)
+                                bumper_force = getattr(self, 'bumper_force', 800.0)  # Default 800 px/s
+                                impulse_x = dx * bumper_force
+                                impulse_y = dy * bumper_force
+
+                                # Apply impulse at contact point for realistic physics
+                                ball_body.apply_impulse_at_world_point(
+                                    (impulse_x, impulse_y),
+                                    ball_pos
+                                )
+                                logger.debug(f"Bumper {idx} deflected ball with force {bumper_force}")
+
+                    # Handle Drop Target if hit
+                    if other == COLLISION_TYPE_DROP_TARGET:
+                        drop_target_shape = shapes[0] if type_a == COLLISION_TYPE_DROP_TARGET else shapes[1]
+                        if drop_target_shape in self.drop_target_shape_map:
+                            idx = self.drop_target_shape_map[drop_target_shape]
+                            if idx < len(self.drop_target_states) and self.drop_target_states[idx]:
+                                # Mark as hit (down)
+                                self.drop_target_states[idx] = False
+                                logger.debug(f"Drop target {idx} hit! Removing from physics.")
                             
                 else:
                     logger.debug(f"BALL COLLISION: hit {label}")
@@ -207,11 +250,9 @@ class PymunkEngine(Physics):
                 random_vx = random.uniform(-50, 50)
                 ball_body.velocity = (ball_body.velocity.x + random_vx, ball_body.velocity.y)
 
-                # Auto-launch if hitting plunger while it's resting
+                # Ball touched plunger - no auto-launch, frontend controls this
                 if other == COLLISION_TYPE_PLUNGER and self.plunger_state == 'resting':
-                    if self.auto_start_enabled:
-                        logger.debug("Ball touched plunger while resting - AUTO LAUNCH")
-                        self.release_plunger()
+                    logger.debug("Ball touched plunger while resting")
 
                 # Auto-launch for left plunger (Kickback)
                 if other == COLLISION_TYPE_LEFT_PLUNGER and self.left_plunger_state == 'resting':
@@ -260,7 +301,9 @@ class PymunkEngine(Physics):
 
 
         # Drop Targets
-        for t in self.layout.drop_targets:
+        self.drop_target_states = []
+        self.drop_target_shape_map = {}
+        for i, t in enumerate(self.layout.drop_targets):
             x = t['x'] * self.width
             y = t['y'] * self.height
             w = t['width'] * self.width
@@ -269,6 +312,8 @@ class PymunkEngine(Physics):
             cy = y + h/2
             shape = self._add_static_box((cx, cy), (w, h), elasticity=0.5, collision_type=COLLISION_TYPE_DROP_TARGET)
             self.drop_target_shapes.append(shape)
+            self.drop_target_states.append(True)  # True = up/active
+            self.drop_target_shape_map[shape] = i
             
         # Upper Deck - DISABLED to remove invisible collisions
         # if self.layout.upper_deck:
@@ -441,7 +486,13 @@ class PymunkEngine(Physics):
         self.plunger_state = 'releasing'
         # Target is slightly ABOVE rest to ensure contact/follow through
         self.plunger_target_y = self.plunger_rest_y - 10 
-        
+
+    def fire_plunger(self):
+        """Fire the plunger directly (instant activation like left plunger)."""
+        self.plunger_state = 'firing'
+        # Target is slightly ABOVE rest to ensure contact/follow through
+        self.plunger_target_y = self.plunger_rest_y - 10
+
     def fire_left_plunger(self):
         """Fire the left plunger (Kickback)."""
         self.left_plunger_state = 'firing'
@@ -489,7 +540,24 @@ class PymunkEngine(Physics):
         current_y = self.plunger_body.position.y
         target_pos_y = self.plunger_target_y + self.plunger_height/2
         
-        if self.plunger_state == 'releasing':
+        if self.plunger_state == 'firing':
+            # Move FAST upward - instant fire like left plunger
+            speed = self.plunger_release_speed # Use configurable speed
+
+            if current_y > target_pos_y:
+                new_y = current_y - speed * dt
+                if new_y < target_pos_y:
+                    new_y = target_pos_y
+                    self.plunger_state = 'resting'
+
+                self.plunger_body.position = (self.plunger_body.position.x, new_y)
+                self.plunger_body.velocity = (0, -speed)
+            else:
+                self.plunger_state = 'resting'
+                self.plunger_body.velocity = (0, 0)
+                self.plunger_body.position = (self.plunger_body.position.x, target_pos_y)
+
+        elif self.plunger_state == 'releasing':
             # Move FAST upward (Negative Y direction)
             speed = self.plunger_release_speed # Pixels/sec - Configurable
             
@@ -786,7 +854,6 @@ class PymunkEngine(Physics):
 
     def launch_plunger(self):
         # Cooldown check (0.5s)
-        import time
         current_time = time.time()
         if hasattr(self, 'last_launch_time') and current_time - self.last_launch_time < 0.5:
             return False
@@ -821,7 +888,7 @@ class PymunkEngine(Physics):
                 b.apply_impulse_at_local_point(impulse_local)
                 launched = True
                 self.last_launch_time = current_time
-                logger.info(f"PLUNGER LAUNCH! Angle: {self.launch_angle}°, Speed: {base_speed}, Impulse: {impulse}, Pos: {b.position}, Vel: {b.velocity}")
+                logger.debug(f"PLUNGER LAUNCH! Angle: {self.launch_angle}°, Speed: {base_speed}, Impulse: {impulse}, Pos: {b.position}, Vel: {b.velocity}")
         
         return launched
 
@@ -856,6 +923,14 @@ class PymunkEngine(Physics):
                 self.bumper_states[i] -= dt * 5.0 # Decay speed
                 if self.bumper_states[i] < 0:
                     self.bumper_states[i] = 0.0
+        
+        # Handle drop target removal
+        for i, is_up in enumerate(self.drop_target_states):
+            if not is_up and i < len(self.drop_target_shapes):
+                shape = self.drop_target_shapes[i]
+                if shape in self.space.shapes:
+                    self.space.remove(shape)
+                    logger.debug(f"Removed drop target {i} shape from physics space")
 
         # Update combo timer
         self.update_combo_timer(dt)
@@ -864,13 +939,22 @@ class PymunkEngine(Physics):
         # Iterate copy to modify list
         for b in self.balls[:]:
             if b.position.y > self.height + 100:
+                if getattr(self, 'god_mode', False):
+                     # Teleport to plunger lane
+                     lane_x = self.width * 0.9
+                     lane_y = self.height * 0.9
+                     b.position = (lane_x, lane_y)
+                     b.velocity = (0, 0)
+                     logger.info("God Mode: Ball rescued and teleported to plunger.")
+                     continue # Skip removal
+            
                 self.space.remove(b, *b.shapes)
                 self.balls.remove(b)
                 
                 # Reset combo and multiplier on drain ONLY IF NO BALLS LEFT
                 if len(self.balls) == 0:
                     if self.combo_count > 0 or self.score_multiplier > 1.0:
-                        logger.info("Last ball drained! Combo and Multiplier reset.")
+                        logger.debug("Last ball drained! Combo and Multiplier reset.")
                         self.combo_count = 0
                         self.combo_timer = 0.0
                         self.score_multiplier = 1.0
@@ -883,16 +967,78 @@ class PymunkEngine(Physics):
         self._update_plunger(dt)
         self._update_left_plunger(dt)
         
-        # Auto-launch check
-        # If ball is resting in plunger lane, launch it
-        lane_x = self.width * 0.75
-        for b in self.balls:
-            if b.position.x > lane_x and b.position.y > self.height * 0.6:
-                if b.velocity.length < 10.0:
-                    if self.auto_start_enabled:
-                        logger.info("Auto-launching resting ball")
-                        self.launch_plunger()
-        
+        # Auto-activate plunger when ball is sitting on it
+        # Only for single ball (main plunger), multiball handles separately below
+        if len(self.balls) == 1 and hasattr(self, 'plunger_state'):
+            lane_x = self.width * 0.75  # Plunger lane threshold
+            ball = self.balls[0]
+
+            # Check if ball is in plunger lane and stationary
+            if (ball.position.x > lane_x and
+                ball.position.y > self.height * 0.5 and
+                ball.velocity.length < 50.0):  # Ball is relatively stationary
+
+                # Auto-fire plunger if in resting state
+                if self.plunger_state == 'resting':
+                    # Check cooldown to prevent rapid re-triggering
+                    current_time = time.time()
+                    if not hasattr(self, 'last_auto_plunger_time'):
+                        self.last_auto_plunger_time = 0
+
+                    if current_time - self.last_auto_plunger_time > 1.0:  # 1 second cooldown
+                        logger.info(f"Auto-firing plunger: Ball detected at {ball.position}")
+
+                        # Apply impulse directly to ball with launch angle (same as multiball logic)
+                        base_speed = getattr(self, 'plunger_release_speed', 1500.0)
+                        speed = base_speed * ball.mass
+                        angle_rad = np.radians(self.launch_angle)
+
+                        impulse_x = speed * np.sin(angle_rad)
+                        impulse_y = -speed * np.cos(angle_rad)
+                        impulse = pymunk.Vec2d(impulse_x, impulse_y)
+                        impulse_local = impulse.rotated(-ball.angle)
+
+                        ball.activate()
+                        ball.apply_impulse_at_local_point(impulse_local)
+                        logger.info(f"Auto-fire plunger launched ball with angle {self.launch_angle}°")
+
+                        self.last_auto_plunger_time = current_time
+
+        # Multiball auto-launch: If there are balls already in play,
+        # automatically launch any balls waiting in the plunger lane
+        if len(self.balls) > 1:  # More than one ball exists
+            lane_x = self.width * 0.75  # Plunger lane threshold
+
+            # Count balls in play (not in plunger lane)
+            balls_in_play = 0
+            balls_in_plunger = []
+
+            for b in self.balls:
+                if b.position.x > lane_x and b.position.y > self.height * 0.5:
+                    # Ball is in plunger lane
+                    if b.velocity.length < 50.0:  # Ball is relatively stationary
+                        balls_in_plunger.append(b)
+                else:
+                    # Ball is in play area
+                    balls_in_play += 1
+
+            # If there are balls in play AND balls waiting in plunger, auto-launch
+            if balls_in_play > 0 and len(balls_in_plunger) > 0:
+                for b in balls_in_plunger:
+                    # Apply upward impulse (same as manual launch)
+                    base_speed = getattr(self, 'plunger_release_speed', 1500.0)
+                    speed = base_speed * b.mass
+                    angle_rad = np.radians(self.launch_angle)
+
+                    impulse_x = speed * np.sin(angle_rad)
+                    impulse_y = -speed * np.cos(angle_rad)
+                    impulse = pymunk.Vec2d(impulse_x, impulse_y)
+                    impulse_local = impulse.rotated(-b.angle)
+
+                    b.activate()
+                    b.apply_impulse_at_local_point(impulse_local)
+                    logger.info(f"Multiball auto-launch: Ball at {b.position} launched into play")
+
         # Check for stuck balls
         self.check_stuck_ball(dt)
 
@@ -1005,7 +1151,9 @@ class PymunkEngine(Physics):
             'balls': ball_data,
             'flippers': flipper_data,
             'plunger': plunger_data,
-            'left_plunger': left_plunger_data
+            'left_plunger': left_plunger_data,
+            'drop_targets': self.drop_target_states,
+            'bumper_states': self.bumper_states
         }
 
     def update_combo_timer(self, dt):
@@ -1077,7 +1225,6 @@ class PymunkEngine(Physics):
 
     def check_stuck_ball(self, dt):
         """Check if any ball is stuck (low velocity for extended time)."""
-        import time
         for b in self.balls:
             speed = b.velocity.length
             # Threshold: 5.0 pixels/sec (very slow)
