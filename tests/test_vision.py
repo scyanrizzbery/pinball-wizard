@@ -1,54 +1,31 @@
 import unittest
 import numpy as np
-from pbwizard.vision import ZoneManager, SimulatedFrameCapture
+from pbwizard.vision import SimulatedFrameCapture
 
 class TestVision(unittest.TestCase):
-    def test_zone_manager_boundaries(self):
-        width, height = 1000, 1000
-        zm = ZoneManager(width, height)
+
+    def test_zone_manager(self):
+        from pbwizard.vision import ZoneManager
+        zm = ZoneManager(200, 200)
         
-        # Manually set contours for testing since ZoneManager initializes them from layout
-        # Left Zone: 200-400 width, 750-950 height
-        left_cnt = np.array([[200, 750], [400, 750], [400, 950], [200, 950]])
-        # Right Zone: 600-800 width, 750-950 height
-        right_cnt = np.array([[600, 750], [800, 750], [800, 950], [600, 950]])
-        
-        zm.set_contours([
-            {'type': 'left', 'cnt': left_cnt},
-            {'type': 'right', 'cnt': right_cnt}
-        ])
-        
-        # Check Left Zone
-        # Inside
-        status = zm.get_zone_status(300, 800)
+        # Test Left Zone
+        status = zm.get_zone_status(50, 100)
         self.assertTrue(status['left'])
         self.assertFalse(status['right'])
         
-        # Outside X
-        status = zm.get_zone_status(100, 800)
+        # Test Right Zone
+        status = zm.get_zone_status(150, 100)
         self.assertFalse(status['left'])
-        
-        status = zm.get_zone_status(500, 800)
-        self.assertFalse(status['left'])
-        
-        # Outside Y
-        status = zm.get_zone_status(300, 700)
-        self.assertFalse(status['left'])
-        
-        status = zm.get_zone_status(300, 1100)
-        self.assertFalse(status['left'])
-
-        # Check Right Zone
-        # Inside
-        status = zm.get_zone_status(700, 800)
         self.assertTrue(status['right'])
-        self.assertFalse(status['left'])
         
-        # Outside
-        status = zm.get_zone_status(500, 800)
-        self.assertFalse(status['right'])
+        # Test Edge Case (Center or boundary)
+        # 100 < 100 is False -> Right
+        status = zm.get_zone_status(100, 100)
+        self.assertFalse(status['left'])
+        self.assertTrue(status['right'])
 
     def test_flipper_line_calculation(self):
+
         sim = SimulatedFrameCapture(width=100, height=100)
         
         # Test Left Flipper Line Calculation

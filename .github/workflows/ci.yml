@@ -1,0 +1,37 @@
+name: Pinball Wizard CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest
+        
+    - name: Run Smoke Tests
+      run: |
+        # Run only the smoke tests to fail fast
+        pytest tests/test_smoke.py
+        
+    - name: Run Full Test Suite
+      if: success()
+      run: |
+        # Run the full suite if smoke tests pass
+        # Excluding slow tests if necessary, currently running all
+        pytest tests/

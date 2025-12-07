@@ -105,7 +105,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, provide } from 'vue'
 import SoundManager from './utils/SoundManager'
 
 
@@ -127,6 +127,7 @@ const sockets = {
   config: io('/config'),
   training: io('/training')
 }
+provide('sockets', sockets)
 const connected = ref(false)
 const videoSrc = ref('')
 const logs = ref([])
@@ -139,6 +140,8 @@ const viewMode = ref('3d')
 const layoutConfig = ref(null)
 const isLoadingLayout = ref(false)
 const hasUnsavedChanges = ref(false)
+const isSyncingPhysics = ref(false)
+let physicsSyncReleaseTimer = null
 
 // Track button pressed states for visual feedback
 const buttonStates = reactive({
@@ -179,6 +182,8 @@ const stats = reactive({
   combo_timer: 0.0,
   score_multiplier: 1.0,
   combo_active: true,
+  hash: null,
+  seed: null
 })
 
 const isSimulation = computed(() => stats.is_simulation || false)
@@ -229,9 +234,12 @@ const physics = reactive({
   rails: [],
   bumpers: [],
   rail_x_offset: 0,
-  rail_x_offset: 0,
   rail_y_offset: 0,
-  god_mode: false
+  god_mode: false,
+  left_flipper_pos_x: 0.25,
+  left_flipper_pos_y: 0.85,
+  right_flipper_pos_x: 0.70,
+  right_flipper_pos_y: 0.85
 })
 
 const toggles = reactive({
@@ -251,44 +259,6 @@ const handleFullscreenChange = () => {
   isFullscreen.value = !!document.fullscreenElement
 }
 
-onMounted(() => {
-  document.addEventListener('fullscreenchange', handleFullscreenChange)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('fullscreenchange', handleFullscreenChange)
-})
-
-const applyPreset = () => {
-  const preset = cameraPresets.value[selectedPreset.value]
-  if (preset) {
-    if (preset.camera_pitch !== undefined) physics.camera_pitch = preset.camera_pitch
-    if (preset.camera_x !== undefined) physics.camera_x = preset.camera_x
-    if (preset.camera_y !== undefined) physics.camera_y = preset.camera_y
-    if (preset.camera_z !== undefined) physics.camera_z = preset.camera_z
-    if (preset.camera_zoom !== undefined) physics.camera_zoom = preset.camera_zoom
-
-    sockets.config.emit('apply_preset', { name: selectedPreset.value })
-
-    sockets.config.emit('update_physics_v2', {
-      camera_pitch: physics.camera_pitch,
-      camera_x: physics.camera_x,
-      camera_y: physics.camera_y,
-      camera_z: physics.camera_z,
-      camera_zoom: physics.camera_zoom
-    })
-  }
-}
-
-const applyPresetFromSettings = (name) => {
-  selectedPreset.value = name
-  applyPreset()
-}
-
-const savePreset = (name) => {
-  sockets.config.emit('save_preset', { name: name })
-}
-
 const deletePreset = (name) => {
   sockets.config.emit('delete_preset', { name: name })
   if (selectedPreset.value === name) {
@@ -300,7 +270,6 @@ const layouts = ref([])
 const selectedLayout = ref('default')
 const selectedDifficulty = ref('medium')
 const showFlipperZones = ref(false)
-const gameHistory = ref([])
 
 const updateDifficulty = (difficulty) => {
   selectedDifficulty.value = difficulty
@@ -308,226 +277,37 @@ const updateDifficulty = (difficulty) => {
   addLog(`Set difficulty to: ${difficulty}`)
 }
 
-// Watch for combo reset to reset musical scale
-watch(() => stats.combo_count, (newCombo, oldCombo) => {
-  // If combo dropped to 0, reset the musical scale
-  if (oldCombo > 0 && newCombo === 0) {
-    SoundManager.resetScale()
-  }
-})
-
-// Watch for game over and auto-start if enabled
-// Watch ball_count (actual balls on table), not balls (balls_remaining)
-watch(() => stats.ball_count, (newBalls, oldBalls) => {
-  // If ball count increased from 0, a new game has started - cancel pending auto-start
-  if (oldBalls === 0 && newBalls > 0 && autoStartTimeoutId.value) {
-    // console.log('[Auto-Start Watcher] New game already started (balls went 0 -> 1+), cancelling auto-start')
-    clearTimeout(autoStartTimeoutId.value)
-    autoStartTimeoutId.value = null
-    return
-  }
-
-  // If balls decreased to 0, game is over
-  // Check that oldBalls exists and was > 0, and newBalls is exactly 0
-  if (oldBalls !== undefined && oldBalls > 0 && newBalls === 0) {
-    // console.log('[Auto-Start Watcher] Ball count went from >0 to 0 (game over)')
-
-    if (toggles.autoStart) {
-      // console.log('[Auto-Start Watcher] Auto-start is ENABLED')
-
-      if (!stats.is_training) {
-        // console.log('[Auto-Start Watcher] Not in training mode, scheduling auto-start in 2 seconds...')
-        addLog('Game over, auto-starting in 2 seconds...')
-
-        // Clear any existing timeout first
-        if (autoStartTimeoutId.value) {
-          clearTimeout(autoStartTimeoutId.value)
-        }
-
-        autoStartTimeoutId.value = setTimeout(() => {
-          // console.log('[Auto-Start Watcher] Executing auto-start now!')
-          startNewGame()
-        }, 2000)
-      } else {
-        // console.log('[Auto-Start Watcher] In training mode, skipping auto-start')
-      }
-    } else {
-      // console.log('[Auto-Start Watcher] Auto-start is DISABLED, not scheduling')
-    }
-  } else {
-    // console.log('[Auto-Start Watcher] Conditions not met for auto-start')
-    // console.log(`  - oldBalls: ${oldBalls} (need > 0)`)
-    // console.log(`  - newBalls: ${newBalls} (need === 0)`)
-  }
-})
-
 const handleInput = (key, type) => {
-  const getPitch = () => {
-    let pitch = 1.0
-    if (stats) {
-      const multiplier = stats.score_multiplier || 1.0
-      const combo = stats.combo_count || 0
+  if (stats.is_training) return // Block input during training
 
-      // Check for 10x combo milestone (plays jingle and switches scale)
-      SoundManager.checkComboMilestone(combo)
-
-      // Get the current musical scale (changes every 10x combo)
-      const currentScale = SoundManager.getCurrentScale()
-      const scaleIndex = SoundManager.currentScaleIndex
-
-      // Each scale starts at a higher base pitch (1.0, 1.1, 1.2, etc.)
-      // This makes scale changes clearly audible
-      // Fix: Start at 1.12 so that even the root note (1.12) triggers the "Music" threshold (>1.05)
-      const scaleBasePitch = 1.12 + (scaleIndex * 0.12)
-
-      // Use combo count for melody variation instead of multiplier (which caps at 5.0)
-      // This ensures the song continues even when max multiplier is reached
-      // Cycle through 8 notes of the scale
-      const localNoteStep = (combo - 1) % 8; // 0-7
-      const noteIndex = Math.min(Math.floor(localNoteStep), currentScale.notes.length - 1)
-
-      // Get semitones from the scale
-      const semitones = currentScale.notes[noteIndex]
-
-      // Calculate pitch: base for this scale * note interval
-      pitch = scaleBasePitch * Math.pow(2, semitones / 12)
-
-      // Cap at 3 octaves to prevent going too high
-      pitch = Math.min(pitch, 8.0)
-    }
-    return pitch
-  }
-
+  // Update button state immediately for visual feedback
   if (type === 'down') {
-    if (!activeKeys.has(key)) {
-      activeKeys.add(key)
-      sockets.control.emit('input_event', { key, type: 'down' })
-
-      if (key === 'KeyZ') {
-          buttonStates.left = true
-          SoundManager.playFlipperUp(getPitch())
-      }
-      else if (key === 'Slash') {
-          buttonStates.right = true
-          SoundManager.playFlipperUp(getPitch())
-      }
-      else if (key === 'Space') {
-          buttonStates.launch = true
-          SoundManager.playLaunch(getPitch())
-      }
-      else if (key === 'ShiftLeft') buttonStates.nudgeLeft = true
-      else if (key === 'ShiftRight') buttonStates.nudgeRight = true
-    }
+    if (key === 'KeyZ') buttonStates.left = true
+    if (key === 'Slash') buttonStates.right = true
+    if (key === 'Space') buttonStates.launch = true
+    if (key === 'ShiftLeft') buttonStates.nudgeLeft = true
+    if (key === 'ShiftRight') buttonStates.nudgeRight = true
   } else {
-    if (activeKeys.has(key)) {
-      activeKeys.delete(key)
-      sockets.control.emit('input_event', { key, type: 'up' })
-
-      if (key === 'KeyZ') {
-          buttonStates.left = false
-          SoundManager.playFlipperDown(getPitch())
-      }
-      else if (key === 'Slash') {
-          buttonStates.right = false
-          SoundManager.playFlipperDown(getPitch())
-      }
-      else if (key === 'Space') buttonStates.launch = false
-      else if (key === 'ShiftLeft') buttonStates.nudgeLeft = false
-      else if (key === 'ShiftRight') buttonStates.nudgeRight = false
-    }
-  }
-}
-
-// Watch all physics properties to trigger updates automatically
-// This avoids race conditions between v-model and @input events
-Object.keys(physics).forEach(key => {
-  watch(() => physics[key], (newVal) => {
-    updatePhysics(key, newVal)
-  })
-})
-
-const updatePhysics = (param, value) => {
-  // If value is undefined (e.g. called from @input without value), use current physics value
-  const val = value !== undefined ? value : physics[param]
-  
-  physics[param] = val // Update local state (redundant if v-model used, but safe)
-  
-  // Also update layoutConfig so Pinball3D sees the change immediately
-  if (layoutConfig.value) {
-    layoutConfig.value[param] = val
+    if (key === 'KeyZ') buttonStates.left = false
+    if (key === 'Slash') buttonStates.right = false
+    if (key === 'Space') buttonStates.launch = false
+    if (key === 'ShiftLeft') buttonStates.nudgeLeft = false
+    if (key === 'ShiftRight') buttonStates.nudgeRight = false
   }
 
-  if (debounceTimers[param]) clearTimeout(debounceTimers[param])
-  debounceTimers[param] = setTimeout(() => {
-    sockets.config.emit('update_physics_v2', { [param]: val })
-    // sockets.config.emit('save_physics') // Redundant, update_physics_v2 saves automatically
-    delete debounceTimers[param]
-  }, 300)
-}
-
-const handleZoneUpdate = (newZones) => {
-  physics.zones = newZones
-  if (layoutConfig.value) layoutConfig.value.zones = newZones
-  hasUnsavedChanges.value = true
-}
-
-const handleRailUpdate = (newRails) => {
-  physics.rails = newRails
-  if (layoutConfig.value) layoutConfig.value.rails = newRails
-  hasUnsavedChanges.value = true
-}
-
-const handleBumperUpdate = (newBumpers) => {
-  physics.bumpers = newBumpers
-  if (layoutConfig.value) layoutConfig.value.bumpers = newBumpers
-  hasUnsavedChanges.value = true
-}
-
-const saveChanges = () => {
-  if (!layoutConfig.value) return
-  
-  sockets.config.emit('update_zones', physics.zones)
-  sockets.config.emit('update_rails', physics.rails)
-  sockets.config.emit('update_bumpers', physics.bumpers)
-  
-  hasUnsavedChanges.value = false
-  addLog('Layout saved manually')
-}
-
-const handleResetZones = () => {
-  sockets.config.emit('reset_zones')
-}
-
-const resetConfig = () => {
-  sockets.config.emit('reset_physics')
-}
-
-const loadModel = () => {
-  if (selectedModel.value) {
-    sockets.training.emit('load_model', { model: selectedModel.value })
-  }
+  // Send to backend
+  sockets.control.emit('input_event', { key, type })
 }
 
 const toggleAI = () => {
-  sockets.training.emit('toggle_ai', { enabled: !toggles.ai })
+  toggles.ai = !toggles.ai
+  sockets.training.emit('toggle_ai', { enabled: toggles.ai })
+  addLog(`AI ${toggles.ai ? 'Enabled' : 'Disabled'}`)
 }
 
 const toggleAutoStart = () => {
-  // Toggle the UI state (source of truth)
-  const oldValue = toggles.autoStart
   toggles.autoStart = !toggles.autoStart
-
-  console.log(`[Auto-Start Toggle] Changed from ${oldValue} to ${toggles.autoStart}`)
-  console.log(`[Auto-Start Toggle] toggles.autoStart is now: ${toggles.autoStart}`)
-
-  addLog(`Auto-Start: ${toggles.autoStart ? 'ON' : 'OFF'}`)
-
-  // If toggled ON and no balls in play, immediately start a game
-  if (toggles.autoStart && stats.ball_count === 0) {
-    console.log('[Auto-Start Toggle] Enabled with no balls - starting game immediately')
-    addLog('Auto-Start enabled, starting game...')
-    startNewGame()
-  }
+  addLog(`Auto-start ${toggles.autoStart ? 'Enabled' : 'Disabled'}`)
 
   // Cancel pending auto-start if disabled (check against toggles.autoStart)
   if (!toggles.autoStart && autoStartTimeoutId.value) {
@@ -551,8 +331,6 @@ const startNewGame = () => {
 
   sockets.control.emit('start_game')
 }
-
-
 
 const changeLayout = (layoutId) => {
   if (layoutId && typeof layoutId === 'string') {
@@ -601,13 +379,99 @@ const stopTraining = () => {
   }
 }
 
+const loadModel = (filename) => {
+  addLog(`Loading model: ${filename}`)
+  sockets.training.emit('load_model', { filename })
+}
+
+const updatePhysics = (key, value) => {
+  console.log(`[updatePhysics] ${key} = ${value}`)
+
+  // Update local immediately
+  if (key in physics) {
+    physics[key] = value
+  }
+
+  // Debounce network call
+  if (debounceTimers[key]) {
+    clearTimeout(debounceTimers[key])
+  }
+
+  debounceTimers[key] = setTimeout(() => {
+    console.log('[updatePhysics] Config socket connected:', sockets.config.connected)
+    console.log(`[updatePhysics] Emitting update_physics_v2 for ${key} = ${value}`)
+    sockets.config.emit('update_physics_v2', { [key]: value })
+  }, 500)
+}
+
+const applyPreset = (name) => {
+  const preset = cameraPresets.value[name]
+  if (!preset) {
+    console.error('Preset not found:', name)
+    return
+  }
+
+  selectedPreset.value = name
+
+  // Apply all camera properties from preset
+  Object.keys(preset).forEach(key => {
+    if (key in physics) {
+      physics[key] = preset[key]
+    }
+  })
+
+  // Send to backend
+  sockets.config.emit('apply_preset', { name })
+  addLog(`Applied camera preset: ${name}`)
+}
+
+const savePreset = (name, config) => {
+  sockets.config.emit('save_preset', { name, config })
+  addLog(`Saved camera preset: ${name}`)
+}
+
+const handleZoneUpdate = (newZones) => {
+  console.log("Zone update:", newZones)
+  physics.zones = newZones
+  if (layoutConfig.value) layoutConfig.value.zones = newZones
+  hasUnsavedChanges.value = true
+}
+
+const handleRailUpdate = (newRails) => {
+  console.log("Rail update:", newRails)
+  physics.rails = newRails
+  if (layoutConfig.value) layoutConfig.value.rails = newRails
+  hasUnsavedChanges.value = true
+  sockets.config.emit('update_rails', physics.rails)
+}
+
+const handleBumperUpdate = (newBumpers) => {
+  console.log("Bumper update:", newBumpers)
+  physics.bumpers = newBumpers
+  if (layoutConfig.value) layoutConfig.value.bumpers = newBumpers
+  hasUnsavedChanges.value = true
+}
+
+const handleResetZones = () => {
+  console.log("Reset zones")
+  physics.zones = []
+  hasUnsavedChanges.value = true
+  sockets.config.emit('update_bumpers', physics.bumpers)
+}
+
+const saveChanges = () => {
+  console.log("Saving changes")
+  sockets.config.emit('save_layout')
+  hasUnsavedChanges.value = false
+}
+
 const handleKeydown = (e) => {
   // Ignore keyboard events if user is typing in an input field
   const target = e.target
   if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
     return // Don't process game controls when typing
   }
-  
+
   if (e.repeat) return
   if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space' || e.code === 'ShiftLeft' ||
     e.code === 'ShiftRight') {
@@ -622,54 +486,125 @@ const handleKeyup = (e) => {
   if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
     return // Don't process game controls when typing
   }
-  
+
   if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space' || e.code === 'ShiftLeft' ||
     e.code === 'ShiftRight') {
     handleInput(e.code, 'up')
   }
 }
 
+// Watch for combo reset to reset musical scale
+watch(() => stats.combo_count, (newCombo, oldCombo) => {
+  // If combo dropped to 0, reset the musical scale
+  if (oldCombo > 0 && newCombo === 0) {
+    SoundManager.resetScale()
+  }
+})
+
+// Watch for ball count changes to detect game over and auto-restart
+watch(() => stats.ball_count, (newCount, oldCount) => {
+  console.log(`[Ball Count Watch] ${oldCount} → ${newCount}, balls remaining: ${stats.balls}`)
+
+  // If all balls drained (ball_count went to 0) and we have balls remaining
+  if (oldCount > 0 && newCount === 0) {
+    console.log('[Ball Count Watch] All balls drained!')
+
+    // If we still have balls remaining, add a new one after a short delay
+    if (stats.balls > 0) {
+      console.log(`[Ball Count Watch] ${stats.balls} balls remaining, auto-adding ball in 2 seconds...`)
+      setTimeout(() => {
+        if (toggles.autoStart && stats.ball_count === 0) {
+          console.log('[Ball Count Watch] Adding new ball...')
+          startNewGame()
+        }
+      }, 2000)
+    } else {
+      // Game over - all balls drained and no balls remaining
+      console.log('[Ball Count Watch] GAME OVER! Starting new game in 3 seconds...')
+      if (stats.score > 0) {
+        addLog(`Game Over! Final Score: ${stats.score}`)
+      }
+
+      // Auto-start new game after game over
+      setTimeout(() => {
+        if (toggles.autoStart) {
+          console.log('[Ball Count Watch] Starting new game after game over...')
+          startNewGame()
+        }
+      }, 3000)
+    }
+  }
+})
+
 onMounted(() => {
+  // Resume AudioContext on first user interaction (required by browsers)
+  const resumeAudio = () => {
+    console.log('[Audio] Resuming AudioContext on user interaction...')
+    SoundManager.resume()
+    console.log('[Audio] AudioContext state:', SoundManager.audioContext?.state)
+
+    // Test sound immediately after resume
+    setTimeout(() => {
+      console.log('[Audio] Playing test bumper sound...')
+      SoundManager.playBumper(1.0)
+    }, 100)
+
+    document.removeEventListener('click', resumeAudio)
+    document.removeEventListener('keydown', resumeAudio)
+    document.removeEventListener('touchstart', resumeAudio)
+  }
+  document.addEventListener('click', resumeAudio, { once: true })
+  document.addEventListener('keydown', resumeAudio, { once: true })
+  document.addEventListener('touchstart', resumeAudio, { once: true })
+
   sockets.config.on('physics_config_loaded', (config) => {
     console.log('Physics Config Loaded:', config)
     if (config) {
-      window.__PHYSICS__ = config // Expose for E2E testing
-      layoutConfig.value = config // Store full config for 3D view
-      
-      Object.keys(config).forEach(key => {
-        if (key in physics) {
-          physics[key] = config[key]
-        }
-      })
-      if (config.camera_presets) {
-        cameraPresets.value = config.camera_presets
-        // Auto-select Default preset if none selected
-        if (!selectedPreset.value && 'Default' in config.camera_presets) {
-          selectedPreset.value = 'Default'
-        }
+      isSyncingPhysics.value = true
+      if (physicsSyncReleaseTimer) {
+        clearTimeout(physicsSyncReleaseTimer)
+        physicsSyncReleaseTimer = null
       }
-      addLog('Physics config loaded')
-      if (config.last_model) {
-        selectedModel.value = config.last_model
-        addLog(`Restored last model selection: ${config.last_model}`)
-      }
-      if (config.last_preset) {
-        selectedPreset.value = config.last_preset
-        // Apply the preset to ensure the view matches the selection
-        // This handles cases where saved physics params might be out of sync
-        const preset = cameraPresets.value[config.last_preset]
-        if (preset) {
-           if (preset.camera_pitch !== undefined) physics.camera_pitch = preset.camera_pitch
-           if (preset.camera_x !== undefined) physics.camera_x = preset.camera_x
-           if (preset.camera_y !== undefined) physics.camera_y = preset.camera_y
-           if (preset.camera_z !== undefined) physics.camera_z = preset.camera_z
-           if (preset.camera_zoom !== undefined) physics.camera_zoom = preset.camera_zoom
+      try {
+        window.__PHYSICS__ = config // Expose for E2E testing
+        layoutConfig.value = config // Store full config for 3D view
+        Object.keys(config).forEach(key => {
+          if (key in physics) {
+            physics[key] = config[key]
+          }
+        })
+        if (config.camera_presets) {
+          cameraPresets.value = config.camera_presets
+          if (!selectedPreset.value && 'Default' in config.camera_presets) {
+            selectedPreset.value = 'Default'
+          }
         }
-        addLog(`Restored last camera preset: ${config.last_preset}`)
-      }
-      if (config.current_layout_id && !isLoadingLayout.value) {
-        selectedLayout.value = config.current_layout_id
-        addLog(`Restored last layout: ${config.current_layout_id}`)
+        addLog('Physics config loaded')
+        if (config.last_model) {
+          selectedModel.value = config.last_model
+          addLog(`Restored last model selection: ${config.last_model}`)
+        }
+        if (config.last_preset) {
+          selectedPreset.value = config.last_preset
+          const preset = cameraPresets.value[config.last_preset]
+          if (preset) {
+            if (preset.camera_pitch !== undefined) physics.camera_pitch = preset.camera_pitch
+            if (preset.camera_x !== undefined) physics.camera_x = preset.camera_x
+            if (preset.camera_y !== undefined) physics.camera_y = preset.camera_y
+            if (preset.camera_z !== undefined) physics.camera_z = preset.camera_z
+            if (preset.camera_zoom !== undefined) physics.camera_zoom = preset.camera_zoom
+          }
+          addLog(`Restored last camera preset: ${config.last_preset}`)
+        }
+        if (config.current_layout_id) {
+          selectedLayout.value = config.current_layout_id
+          addLog(`Restored last layout: ${config.current_layout_id}`)
+        }
+      } finally {
+        physicsSyncReleaseTimer = setTimeout(() => {
+          isSyncingPhysics.value = false
+          physicsSyncReleaseTimer = null
+        }, 0)
       }
     }
   })
@@ -733,6 +668,19 @@ onMounted(() => {
     if (data.nudge) {
       nudgeEvent.value = data.nudge
     }
+  })
+
+  sockets.game.on('game_init', (data) => {
+    console.log('Game Initialized:', data)
+    stats.seed = data.seed
+    stats.hash = data.hash
+    // We could set is_replay flag if we had one in stats
+  })
+  
+  sockets.game.on('game_hash', (data) => {
+    console.log('Game Hash Received:', data)
+    stats.seed = data.seed
+    stats.hash = data.hash
   })
   
   sockets.config.on('layout_loaded', (data) => {
@@ -803,6 +751,7 @@ onMounted(() => {
   })
 
   sockets.training.on('models_list', (data) => {
+    console.log("Provably Fair / Model Verification Hashes:", data)
     const currentSelection = selectedModel.value
     models.value = data
     

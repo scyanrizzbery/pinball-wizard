@@ -12,7 +12,8 @@ from pbwizard.vision import SimulatedFrameCapture
 class TestMultiball(unittest.TestCase):
     def setUp(self):
         print("Initializing Simulation...")
-        self.sim = SimulatedFrameCapture(width=450, height=800, headless=True)
+        # Sim does not accept headless arg, reads from env
+        self.sim = SimulatedFrameCapture(width=450, height=800)
         self.sim.start()
         
         # Wait for auto-start (due to 1s delay)

@@ -194,7 +194,7 @@ def train_worker(config, state_queue, command_queue, status_queue):
                 logger.warning(f"Layout file not found: {layout_path}")
 
         # Always use simulated capture for training
-        cap = vision.SimulatedFrameCapture(layout_config=layout_config, width=width, height=height, headless=True)
+        cap = vision.SimulatedFrameCapture(layout_config=layout_config, width=width, height=height)
         
         # Apply Physics Config if provided
         physics_config = config.get('physics')

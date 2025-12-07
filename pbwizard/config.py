@@ -1,0 +1,81 @@
+
+from dataclasses import dataclass, field, asdict
+from typing import Optional
+
+@dataclass
+class PhysicsConfig:
+    """Configuration schema for pinball physics parameters."""
+    
+    # Global Physics
+    gravity_magnitude: float = 9000.0
+    table_tilt: float = 8.5  # degrees
+    friction: float = 0.5
+    restitution: float = 0.5
+    
+    # Ball
+    ball_mass: float = 1.0
+    ball_radius: float = 10.0 # Pixel radius, usually derived but good to catch
+    
+    # Flippers
+    flipper_speed: float = 30.0
+    flipper_resting_angle: float = 0.0 # degrees check default
+    flipper_stroke_angle: float = 0.0 # degrees check default
+    flipper_length: float = 0.12 # Ratio of simplified width? Or layout unit? previously flipper_length_ratio
+    flipper_width: float = 0.05
+    flipper_tip_width: float = 0.025
+    flipper_elasticity: float = 0.5
+    flipper_friction: float = 0.8
+    
+    # Plunger
+    launch_angle: float = 0.0
+    plunger_release_speed: float = 1800.0
+    
+    # Bumpers
+    bumper_force: float = 800.0
+    
+    # Tilt / Nudge
+    nudge_cost: float = 0.1
+    tilt_decay: float = 0.005 # per step?
+    tilt_threshold: float = 1.0
+    
+    # Combo System
+    combo_window: float = 3.0
+    multiplier_max: float = 5.0
+    base_combo_bonus: int = 50
+    combo_multiplier_enabled: bool = True
+    
+    # Rails / Guides (Visual/Physics alignment)
+    rail_x_offset: float = 0.0
+    rail_y_offset: float = 0.0
+    guide_thickness: float = 10.0
+    guide_length_scale: float = 1.0
+    guide_angle_offset: float = 0.0
+
+    def to_dict(self):
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        # Filter unknown keys to prevent init errors
+        valid_keys = cls.__dataclass_fields__.keys()
+        filtered_data = {k: v for k, v in data.items() if k in valid_keys}
+        # Handle type conversion if necessary (e.g. strings to floats from JSON)
+        # relying on runtime usage or pydantic would be better but this is stdlib
+        return cls(**filtered_data)
+        
+    def update(self, data: dict):
+        """Update existing config from dictionary."""
+        valid_keys = self.__dataclass_fields__.keys()
+        for k, v in data.items():
+            if k in valid_keys and v is not None:
+                # Basic type casting can be added here if needed
+                try:
+                    target_type = self.__annotations__[k]
+                    if target_type == bool and isinstance(v, str):
+                        v = v.lower() == 'true'
+                    elif target_type in (int, float) and isinstance(v, str):
+                        v = target_type(v)
+                    
+                    setattr(self, k, v)
+                except (ValueError, TypeError):
+                    pass # Keep original if cast fails

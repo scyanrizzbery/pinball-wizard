@@ -9,54 +9,6 @@
     "right_flipper_x_max": 0.75,
     "right_flipper_y_min": 0.8,
     "right_flipper_y_max": 0.9,
-    "zones": [
-        {
-            "id": "default_left",
-            "type": "left",
-            "is_screen_space": true,
-            "points": [
-                {
-                    "x": 0.15,
-                    "y": 0.75
-                },
-                {
-                    "x": 0.45,
-                    "y": 0.75
-                },
-                {
-                    "x": 0.5,
-                    "y": 0.97
-                },
-                {
-                    "x": 0.15,
-                    "y": 0.95
-                }
-            ]
-        },
-        {
-            "id": "default_right",
-            "type": "right",
-            "is_screen_space": true,
-            "points": [
-                {
-                    "x": 0.55,
-                    "y": 0.75
-                },
-                {
-                    "x": 0.85,
-                    "y": 0.75
-                },
-                {
-                    "x": 0.85,
-                    "y": 0.95
-                },
-                {
-                    "x": 0.53,
-                    "y": 0.97
-                }
-            ]
-        }
-    ],
     "bumpers": [
         {
             "x": 0.25,
@@ -197,8 +149,8 @@
         "flipper_resting_angle": -29.0,
         "flipper_stroke_angle": 54.0,
         "flipper_length": 0.2,
-        "plunger_release_speed": 1270.0,
-        "launch_angle": -70.0,
+        "plunger_release_speed": 900.0,
+        "launch_angle": -12.0,
         "tilt_threshold": 4.0,
         "nudge_cost": 5.0,
         "tilt_decay": 0.1,

@@ -15,15 +15,16 @@ class TestLayoutPersistence:
         """Verify table_tilt is included in physics persistence."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a simulated capture
-            capture = SimulatedFrameCapture(width=450, height=800, headless=True)
+            capture = SimulatedFrameCapture(width=450, height=800)
             
             # Change table_tilt
-            original_tilt = capture.table_tilt
+            original_tilt = capture.physics_engine.config.table_tilt
             new_tilt = 8.5
             capture.update_physics_params({'table_tilt': new_tilt})
             
             # Verify it was updated
-            assert capture.table_tilt == new_tilt
+            # Check physics engine config instead of capture attribute
+            assert capture.physics_engine.config.table_tilt == new_tilt
             
             # Verify it's in layout.physics_params
             assert 'table_tilt' in capture.layout.physics_params

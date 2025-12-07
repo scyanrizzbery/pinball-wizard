@@ -84,7 +84,7 @@
             <span>Table Tilt</span>
             <span>{{ formatNumber(physics.table_tilt, 1) }}°</span>
           </div>
-          <input type="range" min="1.0" max="60.0" step="0.1" v-model.number="physics.table_tilt">
+          <input type="range" min="-180.0" max="180.0" step="5" v-model.number="physics.table_tilt">
         </div>
         <div class="slider-container">
           <div class="slider-label">
@@ -106,7 +106,7 @@
             <span>Plunger Force</span>
             <span>{{ formatNumber(physics.plunger_release_speed, 0) }}</span>
           </div>
-          <input type="range" min="100" max="2000" step="10" v-model.number="physics.plunger_release_speed"
+          <input type="range" min="0" max="4000" step="100" v-model.number="physics.plunger_release_speed"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">

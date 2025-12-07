@@ -2,61 +2,13 @@
     "width": 0.6,
     "height": 1.2,
     "left_flipper_x_min": 0.25,
-    "left_flipper_x_max": 0.46,
+    "left_flipper_x_max": 0.3,
     "left_flipper_y_min": 0.8,
     "left_flipper_y_max": 0.9,
-    "right_flipper_x_min": 0.54,
+    "right_flipper_x_min": 0.7,
     "right_flipper_x_max": 0.75,
     "right_flipper_y_min": 0.8,
     "right_flipper_y_max": 0.9,
-    "zones": [
-        {
-            "id": "gate_left",
-            "type": "left",
-            "is_screen_space": true,
-            "points": [
-                {
-                    "x": 0.1,
-                    "y": 0.75
-                },
-                {
-                    "x": 0.45,
-                    "y": 0.75
-                },
-                {
-                    "x": 0.45,
-                    "y": 0.95
-                },
-                {
-                    "x": 0.1,
-                    "y": 0.95
-                }
-            ]
-        },
-        {
-            "id": "gate_right",
-            "type": "right",
-            "is_screen_space": true,
-            "points": [
-                {
-                    "x": 0.55,
-                    "y": 0.75
-                },
-                {
-                    "x": 0.9,
-                    "y": 0.75
-                },
-                {
-                    "x": 0.9,
-                    "y": 0.95
-                },
-                {
-                    "x": 0.55,
-                    "y": 0.95
-                }
-            ]
-        }
-    ],
     "bumpers": [
         {
             "x": 0.3,
@@ -125,6 +77,11 @@
             "value": 1000
         }
     ],
+    "captures": [],
+    "ramps": [],
+    "teleports": [],
+    "upper_deck": null,
+    "upper_flippers": [],
     "rails": [
         {
             "p1": {
@@ -133,16 +90,6 @@
             },
             "p2": {
                 "x": 0.05,
-                "y": 0.8
-            }
-        },
-        {
-            "p1": {
-                "x": 0.95,
-                "y": 0.1
-            },
-            "p2": {
-                "x": 0.95,
                 "y": 0.8
             }
         },
@@ -187,17 +134,60 @@
             }
         }
     ],
+    "rail_x_offset": 0.0,
+    "rail_y_offset": 0.0,
     "physics": {
-        "gravity": 2200.0,
+        "gravity": 1830.954928190792,
         "friction": 0.7,
         "restitution": 0.9,
         "flipper_speed": 16.0,
-        "flipper_resting_angle": -28.0,
+        "flipper_resting_angle": -35,
         "flipper_stroke_angle": 52.0,
         "flipper_length": 0.21,
-        "plunger_release_speed": 1600.0,
-        "launch_angle": 0.0,
+        "plunger_release_speed": 2000.0,
+        "launch_angle": -3.0,
         "ball_mass": 1.2,
-        "flipper_elasticity": 0.5
-    }
+        "flipper_elasticity": 0.5,
+        "table_tilt": 4.2,
+        "flipper_width": 0.05,
+        "flipper_tip_width": 0.016,
+        "tilt_threshold": 5.5,
+        "nudge_cost": 4.5,
+        "camera_zoom": 1,
+        "camera_pitch": 75,
+        "camera_x": 1.5,
+        "camera_y": 0.5,
+        "camera_z": 0.5
+    },
+    "camera_presets": {
+        "Top Down": {
+            "camera_x": 0.5,
+            "camera_y": 0.6,
+            "camera_z": 1.2,
+            "camera_pitch": 45,
+            "camera_zoom": 0.9999999999999999
+        },
+        "Player View": {
+            "camera_x": 0.5,
+            "camera_y": 0.9,
+            "camera_z": 0.3,
+            "camera_pitch": 60,
+            "camera_zoom": 1.0
+        },
+        "Isometric": {
+            "camera_x": 0.5,
+            "camera_y": 0.6,
+            "camera_z": 1.2,
+            "camera_pitch": 45,
+            "camera_zoom": 1.0
+        },
+        "Side View": {
+            "camera_x": 1.5,
+            "camera_y": 0.5,
+            "camera_z": 0.5,
+            "camera_pitch": 75,
+            "camera_zoom": 1.0
+        }
+    },
+    "last_preset": ""
 }

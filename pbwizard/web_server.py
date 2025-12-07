@@ -188,7 +188,7 @@ def handle_input(data):
     key = data.get('key')
     event_type = data.get('type')
 
-    logger.debug(f"Input Event: {key} {event_type}")
+    logger.info(f"🎮 Input Event: {key} {event_type}")
 
     if key == 'KeyZ':
         if event_type == 'down':
@@ -246,24 +246,66 @@ def handle_start_game():
 
             # Let the auto-fire plunger logic in physics.py handle the launch
             # This is more reliable than firing immediately
-            logger.info("Auto-start: Ball added, auto-fire will launch it")
+            logger.debug("Auto-start: Ball added, auto-fire will launch it")
         else:
-            logger.info("Auto-start: Ball already exists, skipping")
+            logger.debug("Auto-start: Ball already exists, skipping")
+
+# Replay Endpoints
+@socketio.on('load_replay', namespace='/game')
+def handle_load_replay(data):
+    """Load and play a replay from JSON data"""
+    if not vision_system: return
+    
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    
+    if hasattr(capture, 'handle_load_replay'):
+        # Pass the replay JSON data directly to the capture system
+        # Data should contain: seed, events, layout
+        capture.handle_load_replay(data)
+        
+@socketio.on('get_game_hash', namespace='/game')
+def handle_get_game_hash():
+    """Get current game hash/seed"""
+    if not vision_system: return
+    
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    
+    if hasattr(capture, 'physics_engine'):
+        socketio.emit('game_hash', {
+            'seed': getattr(capture.physics_engine, 'seed', ''),
+            'hash': getattr(capture.physics_engine, 'game_hash', ''),
+            'is_replay': capture.replay_manager.is_playing if hasattr(capture, 'replay_manager') else False
+        }, namespace='/game')
 
 
 @socketio.on('update_physics_v2', namespace='/config')
 def handle_physics_update(data):
+    logger.info(f"🔵 handle_physics_update CALLED with data: {data}")
     if not vision_system:
+        logger.error("🔴 vision_system is None!")
         return
 
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    logger.info(f"🟡 capture type: {type(capture).__name__}")
+    logger.info(f"🟡 capture has update_physics_params: {hasattr(capture, 'update_physics_params')}")
+    logger.info(f"🟡 Available methods: {[m for m in dir(capture) if not m.startswith('_') and 'update' in m.lower()]}")
+    
     if hasattr(capture, 'update_physics_params'):
-        capture.update_physics_params(data)
+        # Check if only camera parameters are being updated
+        camera_params = {'camera_x', 'camera_y', 'camera_z', 'camera_pitch', 'camera_zoom'}
+        data_keys = set(data.keys())
+        only_camera = data_keys.issubset(camera_params)
+        
+        logger.info(f"Physics update: keys={list(data_keys)}, only_camera={only_camera}, will_save={not only_camera}")
+        
+        # Don't save layout/config if only camera parameters changed
+        capture.update_physics_params(data, save=not only_camera)
         # Emit updated config to sync clients (e.g. Pinball3D view)
         # if hasattr(capture, 'get_config'):
         #     config = capture.get_config()
         #     socketio.emit('physics_config_loaded', config, namespace='/config')
-
+    else:
+        logger.error("🔴 capture does not have update_physics_params method!")
 
 @socketio.on('save_new_layout', namespace='/config')
 def handle_save_new_layout(data):

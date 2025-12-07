@@ -5,7 +5,7 @@ from pbwizard.vision import SimulatedFrameCapture
 
 class TestDynamicLayout(unittest.TestCase):
     def test_load_layout(self):
-        sim = SimulatedFrameCapture(headless=True)
+        sim = SimulatedFrameCapture()
         
         # Define a custom layout
         custom_layout = {

@@ -1,7 +1,7 @@
 <template>
   <div class="sound-settings">
     <div class="header">
-      <h3>Sound Settings</h3>
+      <h3>Game Settings</h3>
       <button @click="$emit('close')" class="close-btn">×</button>
     </div>
     
@@ -35,20 +35,51 @@
         <button @click="testSound" class="test-btn">Test Sound</button>
       </div>
     </div>
+
+    <!-- Visuals Section -->
+    <div class="section">
+      <h4 class="section-title">Visuals</h4>
+
+      <div class="control-group">
+        <label>Smoke Intensity: {{ Math.round(localSmokeIntensity * 100) }}%</label>
+        <input
+          type="range"
+          min="0"
+          max="2"
+          step="0.1"
+          v-model.number="localSmokeIntensity"
+          @input="updateSmokeIntensity"
+        >
+      </div>
+    </div>
+
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import SoundManager from '../utils/SoundManager'
+
+const props = defineProps({
+  smokeIntensity: { type: Number, default: 1.0 }
+})
+
+const emit = defineEmits(['close', 'update-smoke-intensity'])
 
 const volume = ref(0.5)
 const muted = ref(false)
+const localSmokeIntensity = ref(1.0)
 
 onMounted(() => {
     // Initialize from SoundManager defaults
     volume.value = SoundManager.volume
     muted.value = SoundManager.muted
+    // Initialize visual settings
+    localSmokeIntensity.value = props.smokeIntensity
+})
+
+watch(() => props.smokeIntensity, (newVal) => {
+  localSmokeIntensity.value = newVal
 })
 
 const updateVolume = () => {
@@ -57,6 +88,10 @@ const updateVolume = () => {
 
 const updateMute = () => {
     SoundManager.setMute(muted.value)
+}
+
+const updateSmokeIntensity = () => {
+    emit('update-smoke-intensity', localSmokeIntensity.value)
 }
 
 const testSound = () => {

@@ -26,29 +26,30 @@ class TestComboSystem:
         
         # Hit 1 (Start)
         engine.combo_count = 1
-        engine.score_multiplier = min(engine.combo_count, engine.multiplier_max)
+        engine.score_multiplier = min(engine.combo_count, engine.config.multiplier_max)
         assert engine.combo_count == 1
         assert engine.get_multiplier() == 1.0 
         
         # Hit 2 (2x)
         engine.combo_count = 2
-        engine.score_multiplier = min(engine.combo_count, engine.multiplier_max)
+        engine.score_multiplier = min(engine.combo_count, engine.config.multiplier_max)
         assert engine.combo_count == 2
         assert engine.get_multiplier() == 2.0
         
         # Hit 5 (5x - Max default)
         engine.combo_count = 5
-        engine.score_multiplier = min(engine.combo_count, engine.multiplier_max)
+        engine.score_multiplier = min(engine.combo_count, engine.config.multiplier_max)
         assert engine.get_multiplier() == 5.0
         
         # Hit 10 (Above Max)
         engine.combo_count = 10
-        engine.score_multiplier = min(engine.combo_count, engine.multiplier_max)
+        engine.score_multiplier = min(engine.combo_count, engine.config.multiplier_max)
         assert engine.get_multiplier() == 5.0 # Should still be capped at 5.0 (or whatever multiplier_max is)
 
     def test_combo_expiration(self, engine):
         """Verify combo expires after timer runs out."""
         engine.combo_count = 3
+        # Use config for window
         engine.combo_timer = 0.1
         engine.score_multiplier = 3.0
         

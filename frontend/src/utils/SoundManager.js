@@ -76,6 +76,13 @@ class SoundManager {
                     baseFreq: 110, // A2 (lower for bluesy feel)
                     waveform: 'sawtooth'
                 },
+                {
+                    name: 'Katseye',
+                    notes: [0, 3, 5, 7, 10, 12], // Trap/Phonk minor pentatonic
+                    instrument: 'gnarly808',
+                    baseFreq: 45, // Deep sub bass
+                    waveform: 'sine'
+                }
             ];
 
             console.log("SoundManager: Initialized successfully")
@@ -94,6 +101,21 @@ class SoundManager {
         for (let i = 0; i < n_samples; ++i) {
             x = i * 2 / n_samples - 1;
             curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+        }
+        return curve;
+    }
+
+    // Hard clipping curve for aggressive 808s
+    makeHardClipCurve(amount) {
+        const k = amount;
+        const n_samples = 44100;
+        const curve = new Float32Array(n_samples);
+        for (let i = 0; i < n_samples; ++i) {
+            let x = i * 2 / n_samples - 1;
+            // Hard clip with some smoothing
+            if (x > k) x = k;
+            else if (x < -k) x = -k;
+            curve[i] = x;
         }
         return curve;
     }
@@ -182,66 +204,98 @@ class SoundManager {
     // --- Electric Guitar Synth ---
 
     playGuitar(baseFreq, duration = 0.5, vol = 1.0) {
+        // ... (existing playGuitar implementation) ...
         if (!this.enabled) return;
         this.resume();
         const t = this.ctx.currentTime;
-
-        // 1. Source: Sawtooth (rich harmonics)
         const osc = this.ctx.createOscillator();
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(baseFreq, t);
-
-        // 2. Distortion (WaveShaper)
         const distortion = this.ctx.createWaveShaper();
         distortion.curve = this.distortionCurve;
         distortion.oversample = '4x';
-
-        // 3. Filter (Lowpass to tame highs, maybe some Q/Resonance)
         const filter = this.ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        // Open filter for higher notes to avoid silencing them
-        // Keep at least 2000Hz for body, but scale up with pitch
         filter.frequency.setValueAtTime(Math.max(2000, baseFreq * 4), t);
         filter.Q.value = 1.0;
-
-        // 4. Envelope (Gain)
         const gain = this.ctx.createGain();
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(vol, t + 0.05); // Fast attack
-        gain.gain.exponentialRampToValueAtTime(vol * 0.5, t + 0.2); // Decay
-        gain.gain.exponentialRampToValueAtTime(0.01, t + duration); // Release
-
-        // Route: Osc -> Filter -> Distortion -> Gain -> Master
-        // Placing distortion after filter changes character heavily.
-        // Classic pedal chain: Guitar -> Distortion -> Amp (Filter/EQ)
-        // Let's try: Osc -> Distortion -> Filter -> Gain
-
+        gain.gain.linearRampToValueAtTime(vol, t + 0.05);
+        gain.gain.exponentialRampToValueAtTime(vol * 0.5, t + 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.01, t + duration);
         osc.connect(distortion);
         distortion.connect(filter);
         filter.connect(gain);
         gain.connect(this.masterGain);
-
         osc.start(t);
         osc.stop(t + duration);
-
-        // Add a second detuned oscillator for thickness (Chorus effect)
         const osc2 = this.ctx.createOscillator();
         osc2.type = 'sawtooth';
-        osc2.frequency.setValueAtTime(baseFreq * 1.01, t); // Detune
-
+        osc2.frequency.setValueAtTime(baseFreq * 1.01, t);
         const gain2 = this.ctx.createGain();
         gain2.gain.setValueAtTime(0, t);
         gain2.gain.linearRampToValueAtTime(vol * 0.7, t + 0.05);
         gain2.gain.exponentialRampToValueAtTime(0.01, t + duration);
-
         const dist2 = this.ctx.createWaveShaper();
         dist2.curve = this.distortionCurve;
-
         osc2.connect(dist2);
-        dist2.connect(filter); // Shared filter
-
+        dist2.connect(filter);
         osc2.start(t);
         osc2.stop(t + duration);
+    }
+
+    // --- Gnarly 808 (Katseye Style) ---
+    playGnarly808(baseFreq, duration = 0.8, vol = 1.0) {
+        if (!this.enabled) return;
+        this.resume();
+        const t = this.ctx.currentTime;
+
+        // 1. Core Sub Oscillator (Sine for weight)
+        const subOsc = this.ctx.createOscillator();
+        subOsc.type = 'sine';
+        // Pitch envelope: Start high, drop fast (the "kick" part)
+        subOsc.frequency.setValueAtTime(baseFreq * 4, t);
+        subOsc.frequency.exponentialRampToValueAtTime(baseFreq, t + 0.1);
+
+        const subGain = this.ctx.createGain();
+        subGain.gain.setValueAtTime(vol, t);
+        subGain.gain.exponentialRampToValueAtTime(vol, t + 0.1); // Hold volume during punch
+        subGain.gain.exponentialRampToValueAtTime(0.01, t + duration); // Long tail
+
+        // 2. Distortion Layer (Triangle/Saw mix)
+        const harmOsc = this.ctx.createOscillator();
+        harmOsc.type = 'triangle';
+        harmOsc.frequency.setValueAtTime(baseFreq * 4, t);
+        harmOsc.frequency.exponentialRampToValueAtTime(baseFreq, t + 0.1);
+
+        // Distortion chain
+        const distortion = this.ctx.createWaveShaper();
+        // Use a harder clipping curve for that "fried" sound
+        distortion.curve = this.makeHardClipCurve(0.6);
+        distortion.oversample = '4x';
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(800, t); // Open up for harmonics
+        filter.Q.value = 1;
+
+        const harmGain = this.ctx.createGain();
+        harmGain.gain.setValueAtTime(vol * 0.8, t);
+        harmGain.gain.exponentialRampToValueAtTime(0.01, t + duration);
+
+        // Connections
+        subOsc.connect(subGain);
+        subGain.connect(this.masterGain);
+
+        harmOsc.connect(distortion);
+        distortion.connect(filter);
+        filter.connect(harmGain);
+        harmGain.connect(this.masterGain);
+
+        subOsc.start(t);
+        subOsc.stop(t + duration);
+        harmOsc.start(t);
+        harmOsc.stop(t + duration);
     }
 
     // --- TR-808 Generators ---
@@ -441,6 +495,9 @@ class SoundManager {
                 case 'strings':
                     this.playStrings(baseFreq, this.ctx.currentTime, 0.4, 0.4);
                     break;
+                case 'gnarly808':
+                    this.playGnarly808(baseFreq, 0.5, 0.6);
+                    break;
                 default:
                     this.playGuitar(baseFreq, 0.4, 0.4);
             }
@@ -451,7 +508,7 @@ class SoundManager {
     }
 
     playFlipperDown(pitch = 1.0) {
-        if (pitch > 1.05) {
+        if (pitch >= 1.05) {
             const scale = this.getCurrentScale();
             const baseFreq = 110.0 * pitch;
 
@@ -460,6 +517,10 @@ class SoundManager {
                 case 'bell':
                     // Bells don't have "release" sounds really, simple click
                     this.playNoise(0.05, 0.1, 2000);
+                    break;
+                case 'gnarly808':
+                    // Short, low thud for release
+                    this.playKick(0.3, 0.5);
                     break;
                 default:
                     // Muted guitar/synth release
@@ -497,6 +558,10 @@ class SoundManager {
                     break;
                 case 'organ':
                     this.playOrgan(baseFreq, this.ctx.currentTime, 0.4, 0.5);
+                    break;
+                case 'gnarly808':
+                    // Punchy short 808 for bumpers
+                    this.playGnarly808(baseFreq * 2, 0.3, 0.6);
                     break;
                 default:
                     this.playGuitar(baseFreq, 0.4, 0.5);
@@ -560,7 +625,7 @@ class SoundManager {
         return false;
     }
 
-    // Play the Close Encounters five-note motif (D-E-C-C-G)
+    // Play the Close Encounters five-note motif (D-E-C-C-G) followed by alien response
     playCloseEncounters(baseFreq = 293.66) { // D4 as base
         if (!this.enabled) return;
         this.resume();
@@ -571,7 +636,7 @@ class SoundManager {
 
         // The iconic five notes: D4, E4, C4 (down octave), C3 (down octave), G3
         // Using clean sine waves like the original
-        const motif = [
+        const humanMotif = [
             { freq: baseFreq, duration: noteDuration },           // D4 (293.66 Hz)
             { freq: baseFreq * Math.pow(2, 2 / 12), duration: noteDuration }, // E4
             { freq: baseFreq * Math.pow(2, -2 / 12), duration: noteDuration }, // C4
@@ -579,8 +644,14 @@ class SoundManager {
             { freq: baseFreq * Math.pow(2, -5 / 12), duration: noteDuration * 1.5 }  // G3 (longer)
         ];
 
+        // Alien response: The iconic deep bass blast (shatters glass/blows lights)
+        // A single, massive, low frequency tone
+        const blastDuration = 2.5;
+
         let currentTime = t;
-        motif.forEach((note) => {
+
+        // Play human motif
+        humanMotif.forEach((note) => {
             const osc = this.ctx.createOscillator();
             const gain = this.ctx.createGain();
 
@@ -602,7 +673,41 @@ class SoundManager {
             currentTime += note.duration + gap;
         });
 
-        console.log('🛸 Close Encounters motif played!');
+        // Pause before alien response - dramatic pause
+        currentTime += 0.5;
+
+        // Play alien bass blast
+        // Multiple oscillators for thickness
+        const freqs = [55.0, 55.5, 110.0]; // A1 and A2, slightly detuned
+
+        freqs.forEach((freq, i) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const filter = this.ctx.createBiquadFilter(); // Filter to darken the sawtooth
+
+            osc.type = 'sawtooth'; // Rich harmonic content
+            osc.frequency.setValueAtTime(freq, currentTime);
+
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(300, currentTime); // Cut off high buzz
+            filter.Q.value = 1;
+
+            // Heavy envelope
+            const vol = i === 2 ? 0.4 : 0.6; // Lower octave louder
+            gain.gain.setValueAtTime(0, currentTime);
+            gain.gain.exponentialRampToValueAtTime(vol, currentTime + 0.1); // Punchy attack
+            gain.gain.setValueAtTime(vol, currentTime + blastDuration - 0.5);
+            gain.gain.exponentialRampToValueAtTime(0.01, currentTime + blastDuration);
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.masterGain);
+
+            osc.start(currentTime);
+            osc.stop(currentTime + blastDuration);
+        });
+
+        console.log('🛸 Close Encounters full sequence played (human + alien bass blast)!');
     }
 
     // Play a celebratory jingle when reaching a combo milestone
@@ -647,6 +752,9 @@ class SoundManager {
                     break;
                 case 'strings':
                     this.playStrings(freq, startTime, noteDuration, 0.5);
+                    break;
+                case 'gnarly808':
+                    this.playGnarly808(freq, noteDuration * 1.5, 0.7);
                     break;
                 default:
                     this.playGuitar(freq, noteDuration * 1.5, 0.7);

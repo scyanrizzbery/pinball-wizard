@@ -1,6 +1,11 @@
 <template>
-  <div ref="container" class="pinball-container" 
-       @mousedown="onMouseDown" 
+  <div ref="container" 
+       class="pinball-container" 
+       :class="{ 'controls-active': controlsActive }"
+       style="touch-action: pan-y"
+       @mousedown="onMouseDown"
+       @click="activateControls"
+       @touchstartPassive="activateControls"
        @mousemove="onMouseMove" 
        @mouseup="onMouseUp"
        @mouseleave="onMouseUp"
@@ -79,14 +84,18 @@
         </div>
     </div>
     
-    <!-- Sound Settings Overlay -->
-    <div v-if="showSoundSettings" class="sound-settings-overlay">
-        <SoundSettings @close="showSoundSettings = false" />
+    <!-- Game Settings Overlay -->
+    <div v-if="showSettings" class="sound-settings-overlay">
+        <GameSettings 
+            :smokeIntensity="smokeIntensity"
+            @update-smoke-intensity="(val) => smokeIntensity = val"
+            @close="showSettings = false" 
+        />
     </div>
 
-    <!-- Sound Toggle Button (Top Right) -->
-    <button class="sound-toggle-btn" @click="showSoundSettings = !showSoundSettings">
-        🔊
+    <!-- Settings Toggle Button (Top Right) -->
+    <button class="sound-toggle-btn" @click="showSettings = !showSettings">
+        ⚙️
     </button>
     
     <!-- Stuck Ball Dialog -->
@@ -106,8 +115,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import SoundManager from '../utils/SoundManager'
-import SoundSettings from './SoundSettings.vue'
+import GameSettings from './GameSettings.vue'
 
 const props = defineProps({
     socket: Object,
@@ -121,7 +131,7 @@ const props = defineProps({
 })
 
 const container = ref(null)
-let scene, camera, renderer
+let scene, camera, renderer, controls
 let resizeObserver
 // let socket // Use props.socket
 let balls = [] // Array of mesh objects
@@ -132,15 +142,25 @@ let zoneMeshes = [] // Store zone meshes for show/hide
 
 // Ball effects for combo-based visuals
 let ballGlows = []
-let ballTrails = []
+let ballTrails = [] // { mesh: THREE.Mesh, positions: THREE.Vector3[] }
 let ballParticles = []
 
 // Physics Config (to sync dimensions)
 let physicsConfig = ref(null)
+// Store previous flipper values for change detection (not reactive)
+let lastFlipperValues = {
+    length: null,
+    width: null,
+    tipWidth: null
+}
 const cameraDebug = ref({ x: 0, y: 0, z: 0 })
 const showDebug = ref(false)
-const showSoundSettings = ref(false)
+const showSettings = ref(false)
+const smokeIntensity = ref(1.0)
 let debugTimeout = null
+
+// Mobile Controls State
+const controlsActive = ref(false)
 
 // Stuck Ball State
 const stuckBallDialog = ref(false)
@@ -466,45 +486,8 @@ const onMouseUp = () => {
     // End camera panning
     if (isPanning.value) {
         isPanning.value = false
-        
-        // Persist the new camera position to config so it doesn't reset
-        if (props.config) {
-             // 1. Calculate new X (Inverse of mapX)
-             const newCameraX = (camera.position.x / 0.6) + 0.5
-             
-             // 2. Calculate new Pitch and Zoom
-             // Current position relative to X-center (0, Y, Z) involves Y and Z.
-             // Radius from (0,0,0) in YZ plane
-             const currentRadius = Math.sqrt(camera.position.y * camera.position.y + camera.position.z * camera.position.z)
-             
-             // Base distance from config (what it would be at zoom 1.0)
-             // cy, cz from config
-             const cy = mapY(physicsConfig.value.camera_y)
-             const cz = physicsConfig.value.camera_z
-             const baseDistance = Math.sqrt(cy * cy + cz * cz)
-             
-             // New Zoom = Base / Current
-             const newZoom = baseDistance / currentRadius
-             
-             // New Pitch: angle in YZ plane
-             // tan(pitch) = z / -y
-             const pitchRad = Math.atan2(camera.position.z, -camera.position.y)
-             const newPitch = pitchRad * (180 / Math.PI)
-             
-             // Update local config
-             physicsConfig.value.camera_x = newCameraX
-             physicsConfig.value.camera_pitch = newPitch
-             physicsConfig.value.camera_zoom = newZoom
-             
-             console.log('Persisting Pan:', { x: newCameraX, pitch: newPitch, zoom: newZoom })
-             
-             // Emit update
-             props.configSocket.emit('update_physics_v2', {
-                 camera_x: newCameraX,
-                 camera_pitch: newPitch,
-                 camera_zoom: newZoom
-             })
-        }
+        // Don't persist camera pan - let it be a temporary adjustment
+        // Camera will reset to config values on reload or view change
         return
     }
     
@@ -714,6 +697,8 @@ const createTable = (config = null) => {
       const ringGeo = new THREE.TorusGeometry(0.035, 0.008, 16, 32)
       // Larger light spheres
       const lightGeo = new THREE.SphereGeometry(0.006, 16, 16)
+      // 2D representation for top-down view - bright circle on the floor
+      const bumper2DGeo = new THREE.CircleGeometry(0.04, 32)
 
       config.bumpers.forEach((b, i) => {
          // Create group for UFO bumper
@@ -772,6 +757,15 @@ const createTable = (config = null) => {
            lights.push(lightMesh)
          }
 
+         // Add 2D representation for top-down view (flat circle on floor)
+         const bumper2DMat = new THREE.MeshBasicMaterial({
+           color: 0xffff00,
+           side: THREE.DoubleSide
+         })
+         const bumper2D = new THREE.Mesh(bumper2DGeo, bumper2DMat)
+         bumper2D.position.z = 0.001 // Just above floor
+         bumperGroup.add(bumper2D)
+
          bumperGroup.position.set(mapX(b.x), mapY(b.y), 0)
          bumperGroup.userData = {
            bumperIndex: i,
@@ -780,7 +774,8 @@ const createTable = (config = null) => {
            ringMesh,
            lights,
            lightColors,
-           isActive: false
+           isActive: false,
+           bumper2D // Store reference for updates
          }
          tableGroup.add(bumperGroup)
          flippers.bumpers.push(bumperGroup)
@@ -791,6 +786,10 @@ const createTable = (config = null) => {
     // Drop Targets - Enhanced with beveled edges and gradient colors
     if (config.drop_targets) {
       flippers.dropTargets = [] // Initialize array
+
+      // 2D representation for top-down view
+      const target2DGeo = new THREE.PlaneGeometry(1, 1)
+
       config.drop_targets.forEach((t, idx) => {
         const w = t.width * 0.6
         const h = 0.04 // Slightly taller
@@ -811,86 +810,80 @@ const createTable = (config = null) => {
         const target = new THREE.Mesh(new THREE.BoxGeometry(w, d, h), targetMat)
         target.position.set(mapX(t.x), mapY(t.y), h/2)
         target.castShadow = true
+
+        // Add 2D representation for top-down view (flat rectangle on floor)
+        const target2DMat = new THREE.MeshBasicMaterial({
+          color: targetColor,
+          side: THREE.DoubleSide
+        })
+        const target2D = new THREE.Mesh(target2DGeo, target2DMat)
+        target2D.scale.set(w, d, 1)
+        target2D.position.set(mapX(t.x), mapY(t.y), 0.001) // Just above floor
+        tableGroup.add(target2D)
+
         tableGroup.add(target)
         flippers.dropTargets.push(target)
       })
     }
 
-
-
-
-
-    // Zones
-    if (config.zones) {
-      config.zones.forEach(zone => {
-        if (!zone.points || zone.points.length < 3) return
-
-        const shape = new THREE.Shape()
-        const first = zone.points[0]
-        shape.moveTo(mapX(first.x), mapY(first.y))
-        
-        for (let i = 1; i < zone.points.length; i++) {
-          const p = zone.points[i]
-          shape.lineTo(mapX(p.x), mapY(p.y))
-        }
-        shape.closePath()
-
-        const geometry = new THREE.ShapeGeometry(shape)
-        const color = zone.type === 'left' ? 0x00ff00 : 0x0000ff
-        const material = new THREE.MeshBasicMaterial({ 
-          color: color, 
-          transparent: true, 
-          opacity: 0.2,
-          side: THREE.DoubleSide
-        })
-        
-        const mesh = new THREE.Mesh(geometry, material)
-        mesh.position.z = 0.01 // Slightly above floor
-        mesh.visible = props.showFlipperZones // Set initial visibility
-        zoneMeshes.push(mesh) // Store for later show/hide
-        tableGroup.add(mesh)
-      })
-    }
-
-    // Rails - Enhanced chrome finish
+    // Rails - Chrome-finished guide tubes
     if (config.rails) {
+      const railRadius = 0.008 // Thickness of rail tube
+      const railHeight = 0.04 // Height above playfield
+
+      // Rail material - chrome finish
       const railMat = new THREE.MeshStandardMaterial({
-        color: 0xaaaaaa,
+        color: 0xcccccc,
         roughness: 0.2,
         metalness: 0.9,
-        emissive: 0x333333,
-        emissiveIntensity: 0.1
+        emissive: 0x444444,
+        emissiveIntensity: 0.2
       })
-      const railHeight = 0.05
-      const railThickness = 0.02
-      
-      // Decoupled: 3D Rail should match Visual Rail (static), not Physics Rail (offset)
-      // const offsetX = config.rail_x_offset || 0
-      // const offsetY = config.rail_y_offset || 0
 
       config.rails.forEach((rail, index) => {
-        const p1 = rail.p1
-        const p2 = rail.p2
-        
-        const x1 = mapX(p1.x)
-        const y1 = mapY(p1.y)
-        const x2 = mapX(p2.x)
-        const y2 = mapY(p2.y)
-        
-        // Debug log removed
-        // if (index === 0) console.log(...)
-        
-        const vec = new THREE.Vector2(x2 - x1, y2 - y1)
-        const len = vec.length()
-        const angle = Math.atan2(vec.y, vec.x)
-        
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, railHeight), railMat)
-        mesh.position.set(x1 + vec.x/2, y1 + vec.y/2, railHeight/2)
-        mesh.rotation.z = angle
-        mesh.scale.set(len, railThickness, 1)
-        mesh.userData = { railIndex: index, type: 'body' }
-        railMeshes.push(mesh)
-        tableGroup.add(mesh)
+        // Calculate start and end positions in 3D space
+        const x1 = mapX(rail.p1.x)
+        const y1 = mapY(rail.p1.y)
+        const x2 = mapX(rail.p2.x)
+        const y2 = mapY(rail.p2.y)
+
+        // Calculate distance between points
+        const dx = x2 - x1
+        const dy = y2 - y1
+        const length = Math.sqrt(dx * dx + dy * dy)
+
+        // Create cylinder geometry for the rail
+        const railGeo = new THREE.CylinderGeometry(railRadius, railRadius, length, 16)
+
+        // Rotate cylinder to be horizontal (cylinders default to vertical along Y-axis)
+        railGeo.rotateZ(Math.PI / 2)
+
+        const railMesh = new THREE.Mesh(railGeo, railMat)
+
+        // Position at midpoint between p1 and p2
+        railMesh.position.set(
+          (x1 + x2) / 2,
+          (y1 + y2) / 2,
+          railHeight / 2
+        )
+
+        // Rotate to align with the rail direction
+        const angle = Math.atan2(dy, dx)
+        railMesh.rotation.z = angle
+
+        railMesh.castShadow = true
+        railMesh.receiveShadow = true
+
+        // Store rail metadata for editing
+        railMesh.userData = {
+          railIndex: index,
+          type: 'rail',
+          p1: rail.p1,
+          p2: rail.p2
+        }
+
+        tableGroup.add(railMesh)
+        railMeshes.push(railMesh)
       })
     }
   }
@@ -903,24 +896,43 @@ const createTable = (config = null) => {
   const flipperTipWidth = (config && config.flipper_tip_width !== undefined) ? config.flipper_tip_width * 0.6 : flipperWidth
   const flipperHeight = 0.04
   
-  // Create rounded flipper shape (Stadium/Capsule 2D shape)
+  // Create rounded flipper shape (Stadium/Capsule 2D shape with taper)
   const flipperShape = new THREE.Shape()
   const baseRadius = flipperWidth / 2
   const tipRadius = flipperTipWidth / 2
   
+  // Calculate the length of the straight segment between the two semicircles
   const segLen = flipperLength - baseRadius - tipRadius
   
-  // Start at bottom of base circle
-  flipperShape.moveTo(baseRadius, -baseRadius)
-  // Line to bottom of tip circle
-  flipperShape.lineTo(baseRadius + segLen, -tipRadius)
-  // Semicircle at right end (tip)
-  flipperShape.absarc(baseRadius + segLen, 0, tipRadius, -Math.PI/2, Math.PI/2, false)
-  // Line to top of base circle
-  flipperShape.lineTo(baseRadius, baseRadius)
-  // Semicircle at left end (base)
-  flipperShape.absarc(baseRadius, 0, baseRadius, Math.PI/2, -Math.PI/2, false)
-  
+  if (segLen < 0) {
+    // If length is too short for both radii, just create a simple capsule
+    console.warn('Flipper length too short for given widths, using simple capsule')
+    const avgRadius = (baseRadius + tipRadius) / 2
+    const simpleLen = flipperLength - avgRadius * 2
+
+    flipperShape.moveTo(0, -avgRadius)
+    flipperShape.lineTo(simpleLen, -avgRadius)
+    flipperShape.absarc(simpleLen, 0, avgRadius, -Math.PI/2, Math.PI/2, false)
+    flipperShape.lineTo(0, avgRadius)
+    flipperShape.absarc(0, 0, avgRadius, Math.PI/2, -Math.PI/2, false)
+  } else {
+    // Create tapered flipper shape
+    // Start at bottom of base (pivot) semicircle
+    flipperShape.moveTo(0, -baseRadius)
+
+    // Line from base bottom to tip bottom (tapered)
+    flipperShape.lineTo(baseRadius + segLen, -tipRadius)
+
+    // Tip semicircle (right end) - arc around center at (baseRadius + segLen, 0)
+    flipperShape.absarc(baseRadius + segLen, 0, tipRadius, -Math.PI/2, Math.PI/2, false)
+
+    // Line from tip top back to base top (tapered)
+    flipperShape.lineTo(0, baseRadius)
+
+    // Base semicircle (left end/pivot) - arc around center at (0, 0)
+    flipperShape.absarc(0, 0, baseRadius, Math.PI/2, -Math.PI/2, false)
+  }
+
   const flipperGeo = new THREE.ExtrudeGeometry(flipperShape, {
     depth: flipperHeight,
     bevelEnabled: false
@@ -1001,7 +1013,6 @@ const createTable = (config = null) => {
   // If angle is 0 (Resting is -30).
   // If we rotate by 180, it points Left.
   // So if mesh extends Right (default), rotating 180 makes it extend Left.
-  // So Pivot is at "Left" of the mesh (which is now Right in world space due to rotation).
   // So the mesh setup is actually symmetric (both extend Right from pivot), and rotation handles the direction.
   // So we keep the mesh position as is.
   
@@ -1071,7 +1082,7 @@ const updateBalls = (ballData) => {
 
   // Create new balls if needed
   while (balls.length < ballData.length) {
-    const ball = new THREE.Mesh(ballGeo, ballMat.clone()) // Clone material for individual control
+    const ball = new THREE.Mesh(ballGeo, ballMat.clone()) 
     ball.castShadow = true
 
     // Add point light for glow effect
@@ -1079,38 +1090,15 @@ const updateBalls = (ballData) => {
     ball.add(glowLight)
     ballGlows.push(glowLight)
 
-    // Add trail for high combos (initially invisible)
-    const trailGeo = new THREE.SphereGeometry(0.012, 16, 16)
-    const trailMat = new THREE.MeshBasicMaterial({
-      transparent: true,
-      opacity: 0,
-      color: 0xffffff
-    })
-    const trail = new THREE.Mesh(trailGeo, trailMat)
-    ball.add(trail)
-    trail.position.z = -0.01
-    ballTrails.push(trail)
-
-    // Add fire particles container (for 42+ combo)
-    const particlesGroup = new THREE.Group()
-    ball.add(particlesGroup)
-    ballParticles.push(particlesGroup)
-
-    // Create fire particles (8 particles per ball)
-    for (let i = 0; i < 8; i++) {
-      const particleGeo = new THREE.SphereGeometry(0.003, 8, 8)
-      const particleMat = new THREE.MeshBasicMaterial({
-        color: 0xff6600,
-        transparent: true,
-        opacity: 0
-      })
-      const particle = new THREE.Mesh(particleGeo, particleMat)
-      particle.userData = {
-        velocity: { x: (Math.random() - 0.5) * 0.01, y: (Math.random() - 0.5) * 0.01, z: Math.random() * 0.02 },
-        life: Math.random()
-      }
-      particlesGroup.add(particle)
+    // Particle System Group (World Space)
+    const pGroup = new THREE.Group()
+    pGroup.userData = { 
+        pool: [],
+        lastPos: new THREE.Vector3(),
+        velocity: new THREE.Vector3()
     }
+    tableGroup.add(pGroup)
+    ballParticles.push(pGroup) // Reuse ballParticles array for the new system
 
     tableGroup.add(ball)
     balls.push(ball)
@@ -1120,147 +1108,247 @@ const updateBalls = (ballData) => {
   while (balls.length > ballData.length) {
     const ball = balls.pop()
     ballGlows.pop()
-    ballTrails.pop()
-    ballParticles.pop()
+    const pGroup = ballParticles.pop()
+    tableGroup.remove(pGroup)
     tableGroup.remove(ball)
   }
   
-  // Update ball positions and effects based on combo
+  // Update ball positions and stats
   ballData.forEach((data, i) => {
     const tx = (data.x - 0.5) * 0.6
     const ty = (0.5 - data.y) * 1.2
-    balls[i].position.set(tx, ty, 0.03)
+    const currentPos = new THREE.Vector3(tx, ty, 0.03)
+    
+    // Calculate velocity for trail direction (opposite to movement)
+    const pGroup = ballParticles[i]
+    let prevPos = currentPos.clone() // Default to current if no history
+
+    if (pGroup) {
+        prevPos = pGroup.userData.lastPos.clone()
+        // Simple velocity estimation
+        pGroup.userData.velocity.subVectors(currentPos, pGroup.userData.lastPos).multiplyScalar(0.5) // Dampen
+        pGroup.userData.lastPos.copy(currentPos)
+    }
+
+    balls[i].position.copy(currentPos)
 
     // Apply combo-based visual effects
-    updateBallAppearance(balls[i], ballGlows[i], ballTrails[i], ballParticles[i], combo)
+    updateBallAppearance(balls[i], ballGlows[i], ballParticles[i], combo, currentPos, prevPos)
   })
 }
 
-// Update ball appearance based on combo level
-const updateBallAppearance = (ball, glow, trail, particles, combo) => {
-  if (!ball || !ball.material) {
-    console.warn('[Ball Appearance] Invalid ball object')
-    return
-  }
+// Update ball appearance and emit particles
+const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
+  if (!ball || !ball.material) return
 
   const material = ball.material
 
-  // Progressive intensity system - blue glow that increases with combo (more subtle)
-  if (combo < 12) {
-    // 0-11: Silver ball, no glow yet
-    material.color.setHex(0xcccccc)
-    material.emissive.setHex(0x000000)
-    material.emissiveIntensity = 0
-    glow.intensity = 0
-    if (trail) trail.material.opacity = 0
-    if (particles) hideParticles(particles)
-  } else if (combo < 22) {
-    // 12-21: Blue glow with increasing intensity
-    const progress = (combo - 12) / 10 // 0.0 to 0.9
+  // Visual settings based on combo
+  let emitRate = 0 // Particles per frame
+  let pColor = 0x888888
+  let pOpacity = 0.4
+  let pSize = 0.01
+  let pGrowth = 1.05 // Expansion rate
+  let pLifeDecay = 0.01 // Base decay (Slow and lingering)
+  let pType = 'smoke' // smoke, sparkle, fire
 
-    material.color.setHex(0xbbccdd)
-    material.emissive.setHex(0x0066ff)
-    material.emissiveIntensity = 0.02 + (progress * 0.04) // More subtle: 0.02-0.06
-    glow.color.setHex(0x0066ff)
-    glow.intensity = 0.04 + (progress * 0.06) // More subtle: 0.04-0.10
-    if (trail) trail.material.opacity = 0
-    if (particles) hideParticles(particles)
-  } else if (combo < 32) {
-    // 22-31: Purple glow + trail with increasing intensity
-    const progress = (combo - 22) / 10 // 0.0 to 0.9
-
-    material.color.setHex(0xddbbdd)
-    material.emissive.setHex(0xff00ff)
-    material.emissiveIntensity = 0.04 + (progress * 0.05) // More subtle: 0.04-0.09
-    glow.color.setHex(0xff00ff)
-    glow.intensity = 0.06 + (progress * 0.09) // More subtle: 0.06-0.15
-    if (trail) {
-      trail.material.color.setHex(0xff00ff)
-      trail.material.opacity = 0.03 + (progress * 0.05) // More subtle: 0.03-0.08
-    }
-    if (particles) hideParticles(particles)
-  } else if (combo < 44) {
-    // 32-43: Green energy ball with increasing intensity
-    const progress = (combo - 32) / 12 // 0.0 to ~0.9
-
-    material.color.setHex(0xbbddbb)
-    material.emissive.setHex(0x00ff00)
-    material.emissiveIntensity = 0.06 + (progress * 0.07) // More subtle: 0.06-0.13
-    glow.color.setHex(0x00ff00)
-    glow.intensity = 0.09 + (progress * 0.11) // More subtle: 0.09-0.20
-    if (trail) {
-      trail.material.color.setHex(0x00ff00)
-      trail.material.opacity = 0.05 + (progress * 0.06) // More subtle: 0.05-0.11
-    }
-    if (particles) hideParticles(particles)
+  if (combo < 10) {
+      // Basic Silver - No effects
+      material.color.setHex(0xcccccc)
+      material.emissive.setHex(0x000000)
+      material.emissiveIntensity = 0
+      glow.intensity = 0
+      emitRate = 0
   } else {
-    // 44+: FIRE BALL! 🔥 with increasing intensity (more subtle)
-    const progress = Math.min((combo - 44) / 20, 1.0) // 0.0 to 1.0 (caps at combo 64)
+      // Dynamic settings - TUNED FOR SUBTLETY & VOLUME
+      if (combo < 20) {
+          // Grey Smoke - Ball Gold/Orange
+          material.color.setHex(0xffaa00) // Gold
+          material.emissive.setHex(0xff4400) // Orange glow
+          material.emissiveIntensity = 0.5 
+          glow.intensity = 0.5
+          
+          emitRate = 1 // 1 per frame
+          pColor = 0xaaaaaa
+          pSize = 0.015
+          pType = 'smoke'
+          pOpacity = 0.05 // Very transparent (was 0.15+)
+          pLifeDecay = 0.005 // Lingers for ~200 frames (3s)
+          pGrowth = 1.02 // Steady growth
+      } else if (combo < 30) {
+          // Blue/Cyan Smoke
+          material.color.setHex(0xccffff) 
+          material.emissive.setHex(0x00ffff)
+          material.emissiveIntensity = 0.6 
+          glow.color.setHex(0x00ffff)
+          glow.intensity = 0.6
+          
+          emitRate = 2
+          pColor = 0x0088ff
+          pOpacity = 0.08 // Very transparent
+          pSize = 0.02
+          pLifeDecay = 0.008 
+          pGrowth = 1.03
+      } else if (combo < 40) {
+           // Purple Magic
+           material.color.setHex(0xffccff)
+           material.emissive.setHex(0xff00ff)
+           material.emissiveIntensity = 0.7
+           glow.color.setHex(0xff00ff)
+           glow.intensity = 0.7
+           
+           emitRate = 3
+           pColor = 0xff00ff
+           pOpacity = 0.10
+           pSize = 0.022
+           pLifeDecay = 0.01 
+           pGrowth = 1.04
+      } else if (combo < 50) {
+           // Green Toxic
+           material.color.setHex(0xbbddbb)
+           material.emissive.setHex(0x00ff00)
+           material.emissiveIntensity = 0.6
+           glow.color.setHex(0x00ff00)
+           glow.intensity = 0.6
+           
+           emitRate = 4
+           pColor = 0x00ff00
+           pOpacity = 0.12
+           pSize = 0.025
+           pGrowth = 1.05
+           pLifeDecay = 0.012
+      } else {
+           // FIRE!!!
+           const firePhase = (Date.now() % 500) / 500
+           const fireColor = firePhase < 0.5 ? 0xff6600 : 0xffaa00
+           
+           material.color.setHex(0xffaa00)
+           material.emissive.setHex(fireColor)
+           material.emissiveIntensity = 0.8
+           glow.color.setHex(fireColor)
+           glow.intensity = 1.0
 
-    // Animate between orange and yellow for fire effect
-    const firePhase = (Date.now() % 500) / 500
-    const fireColor = firePhase < 0.5 ? 0xff6600 : 0xffaa00
+           emitRate = 5
+           pColor = fireColor
+           pOpacity = 0.15 // Still transparent even for fire
+           pSize = 0.03
+           pGrowth = 1.06 
+           pLifeDecay = 0.015 
+      }
+  }
 
-    material.color.setHex(0xeeddbb)
-    material.emissive.setHex(fireColor)
-    material.emissiveIntensity = 0.09 + (progress * 0.09) // More subtle: 0.09-0.18
-    glow.color.setHex(fireColor)
-    glow.intensity = 0.12 + (progress * 0.18) // More subtle: 0.12-0.30
-    glow.distance = 0.12 + (progress * 0.12) // More subtle: 0.12-0.24
+  // Apply Smoke Intensity Setting
+  if (smokeIntensity.value !== 1.0) {
+      if (smokeIntensity.value <= 0) {
+          emitRate = 0
+      } else {
+          emitRate = Math.round(emitRate * smokeIntensity.value)
+          pOpacity = Math.min(1.0, pOpacity * Math.sqrt(smokeIntensity.value))
+      }
+  }
 
-    if (trail) {
-      trail.material.color.setHex(fireColor)
-      trail.material.opacity = 0.07 + (progress * 0.08) // More subtle: 0.07-0.15
-      // Scale up trail for fire effect
-      const trailScale = 1.1 + (progress * 0.2) // Subtle: 1.1-1.3
-      trail.scale.set(trailScale, trailScale, trailScale)
-    }
-
-    // Animate fire particles with increasing intensity
-    if (particles) {
-      animateFireParticles(particles, fireColor, progress)
-    }
+  // Emit Particles with Interpolation
+  if (pGroup) {
+      if (emitRate > 0) {
+          spawnParticles(pGroup, emitRate, ballPos, prevPos, pColor, pOpacity, pSize, pGrowth, pLifeDecay)
+      } else {
+          // Allow natural decay - Removing the forced rapid decay
+          // This lets the smoke "hang" in the air as requested
+      }
+      animateParticleSystem(pGroup)
   }
 }
 
-// Hide particle effects
-const hideParticles = (particlesGroup) => {
-  particlesGroup.children.forEach(particle => {
-    particle.material.opacity = 0
-  })
+const spawnParticles = (pGroup, count, currentPos, prevPos, color, opacity, size, growth, decay) => {
+    const pool = pGroup.userData.pool
+    let spawned = 0
+    
+    // Determine how many particles to reuse/create
+    const totalToSpawn = count
+    
+    // Spawn loop - Use FOR loop to guarantee termination
+    for (let i = 0; i < totalToSpawn; i++) {
+        let p = pool.find(p => !p.visible)
+        
+        // If no dead particle found, try to create new if under limit
+        if (!p && pool.length < 300) { 
+            const geo = new THREE.SphereGeometry(1, 6, 6)
+            const mat = new THREE.MeshBasicMaterial({ transparent: true })
+            p = new THREE.Mesh(geo, mat)
+            pGroup.add(p)
+            pool.push(p)
+        }
+
+        // If still no particle (limit reached and all active), recycle the oldest one?
+        // Or just skip. For now, let's recycle random/oldest to keep density up.
+        if (!p && pool.length > 0) {
+             // Find particle with lowest life (oldest)
+             p = pool.reduce((prev, curr) => (prev.userData.life < curr.userData.life) ? prev : curr)
+        }
+        
+        if (p) {
+            // Interpolate position based on spawn index
+            const t = i / totalToSpawn
+            const pos = new THREE.Vector3().lerpVectors(prevPos, currentPos, t)
+            
+            resetParticle(p, pos, color, opacity, size, growth, decay)
+        }
+    }
 }
 
-// Animate fire particles for 42+ combo (more subtle)
-const animateFireParticles = (particlesGroup, fireColor, progress = 0) => {
-  const baseOpacity = 0.15 + (progress * 0.10) // Subtle: 0.15-0.25 (was 0.4-0.6)
-
-  particlesGroup.children.forEach(particle => {
-    // Update particle life
-    const lifeSpeed = 0.05 + (progress * 0.03) // Faster at higher combos
-    particle.userData.life += lifeSpeed
-    if (particle.userData.life > 1) {
-      particle.userData.life = 0
-      particle.position.set(0, 0, 0)
+const resetParticle = (p, pos, color, opacity, size, growth, decay) => {
+    p.position.copy(pos)
+    // More random offset for natural smoke look
+    p.position.x += (Math.random() - 0.5) * 0.02
+    p.position.y += (Math.random() - 0.5) * 0.02
+    p.position.z += (Math.random() - 0.5) * 0.01
+    
+    // Vary size slightly
+    const randomSize = size * (0.8 + Math.random() * 0.4)
+    p.scale.set(randomSize, randomSize, randomSize)
+    
+    p.material.color.setHex(color)
+    p.material.opacity = opacity
+    p.visible = true
+    
+    p.userData = {
+        life: 1.0,
+        decay: decay * (0.8 + Math.random() * 0.4), // Vary decay
+        growth: growth,
+        baseOpacity: opacity,
+        velocity: new THREE.Vector3(
+            (Math.random() - 0.5) * 0.01, 
+            (Math.random() - 0.5) * 0.01, 
+            0.005 + Math.random() * 0.01 // Generally upwards/outwards
+        )
     }
+}
 
-    // Move particle with velocity (faster at higher combos)
-    const velocityMultiplier = 1.0 + (progress * 0.5)
-    particle.position.x += particle.userData.velocity.x * velocityMultiplier
-    particle.position.y += particle.userData.velocity.y * velocityMultiplier
-    particle.position.z += particle.userData.velocity.z * velocityMultiplier
-
-    // Fade out as life progresses
-    particle.material.opacity = (1 - particle.userData.life) * baseOpacity
-    particle.material.color.setHex(fireColor)
-
-    // Scale with progress for bigger particles at high combos (more subtle)
-    const baseScale = 1.0 + (progress * 0.15) // Subtle: 1.0-1.15 (was 1.0-1.3)
-    const scale = baseScale * (1 - particle.userData.life * 0.5)
-    particle.scale.set(scale, scale, scale)
-  })
+const animateParticleSystem = (pGroup) => {
+    const pool = pGroup.userData.pool
+    pool.forEach(p => {
+        if (!p.visible) return
+        
+        const data = p.userData
+        
+        // Move
+        p.position.add(data.velocity)
+        
+        // Grow
+        p.scale.multiplyScalar(data.growth)
+        
+        // Fade
+        data.life -= data.decay
+        if (data.life <= 0) {
+            p.visible = false
+        } else {
+            p.material.opacity = data.life * data.baseOpacity
+        }
+    })
 }
 
 const updateFlippers = (state) => {
+  if (!state.flippers) return
   const flipperData = state.flippers
   if (flippers.left) {
     // Negate angle because Physics +30 is Down, but Three.js +30 is Up
@@ -1279,15 +1367,15 @@ const updateFlippers = (state) => {
   }
   
   if (flippers.plunger && state.plunger) {
-      // Physics Y is in pixels (0 to height)
-      // MapY expects normalized 0-1
-      const normalizedY = state.plunger.y / 800 // Use fixed physics height for normalization
-      flippers.plunger.position.y = mapY(normalizedY)
+      // Both x and y are already normalized (0-1) from backend
+      flippers.plunger.position.x = mapX(state.plunger.x)
+      flippers.plunger.position.y = mapY(state.plunger.y)
   }
 
   if (flippers.leftPlunger && state.left_plunger) {
-      const normalizedY = state.left_plunger.y / 800
-      flippers.leftPlunger.position.y = mapY(normalizedY)
+      // Both x and y are already normalized (0-1) from backend
+      flippers.leftPlunger.position.x = mapX(state.left_plunger.x)
+      flippers.leftPlunger.position.y = mapY(state.left_plunger.y)
   }
 }
 
@@ -1307,6 +1395,8 @@ const animate = () => {
     
     // Animate UFO bumper lights continuously
     animateUFOLights()
+
+    if (controls) controls.update()
 
     renderer.render(scene, camera)
     
@@ -1460,6 +1550,21 @@ const initThree = () => {
   accentLight2.position.set(-0.2, -0.3, 0.4)
   scene.add(accentLight2)
 
+  // OrbitControls
+  controls = new OrbitControls(camera, renderer.domElement)
+  controls.enableDamping = true
+  controls.dampingFactor = 0.05
+  controls.screenSpacePanning = true
+  controls.enableRotate = false 
+  controls.enabled = false // Start disabled (Locked)
+
+  // Mobile Gestures Configuration
+  controls.touches = {
+      ONE: THREE.TOUCH.NONE, // Disable 1-finger interaction 
+      TWO: THREE.TOUCH.DOLLY_PAN // 2-finger zoom/pan
+  }
+  scene.add(accentLight2)
+
   // Rim light from behind for definition - brighter
   const rimLight = new THREE.DirectionalLight(0x8888ff, 0.6) // Increased from 0.4
   rimLight.position.set(0, 2, -1)
@@ -1475,7 +1580,11 @@ const initThree = () => {
   
   // Ensure camera is updated to match config immediately
   updateCamera()
-  
+
+  // Set initial visibility based on camera mode
+  updateVisibilityForCameraMode(props.cameraMode)
+
+  // Start the animation loop
   animate()
 }
 
@@ -1483,6 +1592,7 @@ const initThree = () => {
   const activeBallCount = ref(0)
   const showGameOver = ref(false)
   const lastGamesPlayed = ref(null) // Local track of games played
+  const isInitialMount = ref(true) // Track if component just mounted
   let gameOverTimeout = null
 
   onMounted(() => {
@@ -1508,7 +1618,7 @@ const initThree = () => {
   const socket = props.socket
   
   // Remove existing listeners to avoid duplicates if re-mounted?
-  // Socket.io ensures one listener per event usually if using .on, but if we remount we might duplicate.
+  // Socket.io ensures one listener per event usually if using .on, but if we re-mount we might duplicate.
   // Ideally we should clean up in onUnmounted.
   
   const onConnect = () => {
@@ -1589,6 +1699,14 @@ const initThree = () => {
       // Initialize if null
       if (lastGamesPlayed.value === null) {
           lastGamesPlayed.value = newCount
+          isInitialMount.value = true // Mark as initial mount
+          return
+      }
+
+      // Skip game over trigger on first real update after mount (view change scenario)
+      if (isInitialMount.value) {
+          isInitialMount.value = false
+          lastGamesPlayed.value = newCount
           return
       }
       
@@ -1623,6 +1741,7 @@ const initThree = () => {
   })
 
   const onGameState = (state) => {
+    if (!state || !state.balls) return
     updateBalls(state.balls)
     activeBallCount.value = state.balls.length // Track active balls
     updateFlippers(state)
@@ -1667,6 +1786,7 @@ const initThree = () => {
 
       state.events.forEach(event => {
         if (event.type === 'collision') {
+          console.log('[Sound Event]', event.label, 'pitch:', pitch.toFixed(2))
           if (event.label === 'bumper') {
             SoundManager.playBumper(pitch)
           } else if (event.label === 'rail') {
@@ -1683,7 +1803,7 @@ const initThree = () => {
     }
   }
 
-  // If already connected
+ // If already connected
   if (socket.connected) {
       onConnect()
   }
@@ -1760,7 +1880,42 @@ const updateCamera = () => {
 watch(() => props.cameraMode, (newMode) => {
     console.log('Pinball3D: cameraMode changed to', newMode)
     updateCamera()
+    updateVisibilityForCameraMode(newMode)
 })
+
+// Function to update visibility of 3D vs 2D elements based on camera mode
+const updateVisibilityForCameraMode = (mode) => {
+    const is2D = mode === 'top-down'
+
+    // Update bumpers: show/hide 3D dome vs 2D circle
+    if (flippers.bumpers) {
+        flippers.bumpers.forEach(bumperGroup => {
+            const domeMesh = bumperGroup.userData.domeMesh
+            const ringMesh = bumperGroup.userData.ringMesh
+            const lights = bumperGroup.userData.lights
+            const bumper2D = bumperGroup.userData.bumper2D
+
+            if (domeMesh) domeMesh.visible = !is2D
+            if (ringMesh) ringMesh.visible = !is2D
+            if (lights) {
+                lights.forEach(light => {
+                    light.visible = !is2D
+                })
+            }
+            if (bumper2D) bumper2D.visible = is2D
+        })
+    }
+
+    // Update drop targets: in 2D mode they should already be visible as flat planes
+    // The 3D boxes are positioned at h/2 (above ground) so they're visible in both modes
+    // But we can make them more visible in 2D by ensuring proper material
+    if (flippers.dropTargets) {
+        flippers.dropTargets.forEach(target => {
+            // Drop targets work in both modes, but we can adjust if needed
+            // For now, leave them as-is since they're boxes that look ok from above
+        })
+    }
+}
 
 // Watch for flipper zone visibility changes
 watch(() => props.showFlipperZones, (newValue) => {
@@ -1789,7 +1944,7 @@ const updateTable = (config) => {
   // But we don't store rail meshes in a convenient list matching config index?
   // createTable adds them to tableGroup but doesn't store them in flippers list (except bumpers/dropTargets).
   // I need to update createTable to store rails in flippers.rails or similar.
-  // For now, let's just rebuild if we suspect rail changes?
+  // For now, let's just call createTable for now if it's not just bumpers.
   // Or better: Update createTable to store rails.
   
   // Since I can't easily update createTable in this Replace block without changing more code,
@@ -1801,6 +1956,15 @@ const updateTable = (config) => {
   // But if I use this block, I can at least debug.
   
   createTable(config)
+  camera.updateProjectionMatrix()
+}
+
+const activateControls = () => {
+    if (controls && !controlsActive.value) {
+        controls.enabled = true
+        controlsActive.value = true
+        // Optional: Reset if needed, or just unlock
+    }
 }
 
 // Cache last camera config to detect actual changes
@@ -1808,13 +1972,66 @@ const lastCameraConfig = ref({})
 
 // Watch for config changes from parent (must be after createTable is defined)
 watch(() => props.config, (newConfig, oldConfig) => {
-  if (isDragging.value) return
-  if (newConfig) {
-    // console.log(`Pinball3D watcher fired.`)
+    if (!newConfig) return
+    if (isDragging.value) return
+
+    console.log('[Pinball3D] Config watcher fired')
+
+    // Compare against our stored non-reactive values
+    const flipperLengthChanged = newConfig.flipper_length !== lastFlipperValues.length
+    const flipperWidthChanged = newConfig.flipper_width !== lastFlipperValues.width
+    const flipperTipWidthChanged = newConfig.flipper_tip_width !== lastFlipperValues.tipWidth
+    const flipperChanged = flipperLengthChanged || flipperWidthChanged || flipperTipWidthChanged
+
+    // Update physicsConfig
     physicsConfig.value = newConfig
     
-    // Always rebuild table for physics changes (could be optimized later)
-    createTable(newConfig)
+    // Always rebuild if no old config (first load)
+    if (lastFlipperValues.length === null) {
+        console.log('[Pinball3D] Initial load, rebuilding table')
+        lastFlipperValues.length = newConfig.flipper_length
+        lastFlipperValues.width = newConfig.flipper_width
+        lastFlipperValues.tipWidth = newConfig.flipper_tip_width
+        createTable(newConfig)
+        updateCamera()
+        return
+    }
+
+    if (flipperChanged) {
+        console.log('[Pinball3D] Flipper properties changed, rebuilding table')
+        if (flipperLengthChanged) console.log(`  flipper_length: ${lastFlipperValues.length} -> ${newConfig.flipper_length}`)
+        if (flipperWidthChanged) console.log(`  flipper_width: ${lastFlipperValues.width} -> ${newConfig.flipper_width}`)
+        if (flipperTipWidthChanged) console.log(`  flipper_tip_width: ${lastFlipperValues.tipWidth} -> ${newConfig.flipper_tip_width}`)
+
+        // Update stored values
+        lastFlipperValues.length = newConfig.flipper_length
+        lastFlipperValues.width = newConfig.flipper_width
+        lastFlipperValues.tipWidth = newConfig.flipper_tip_width
+
+        createTable(newConfig)
+        updateCamera()
+        return
+    }
+
+    // Check if any non-camera property changed
+    const cameraProps = ['camera_x', 'camera_y', 'camera_z', 'camera_pitch', 'camera_zoom']
+    const allKeys = Object.keys(newConfig)
+    const nonCameraChanged = allKeys.some(key => {
+        if (cameraProps.includes(key)) return false
+
+        // Deep equality check for arrays/objects
+        if (Array.isArray(newConfig[key]) && Array.isArray(oldConfig[key])) {
+            return JSON.stringify(newConfig[key]) !== JSON.stringify(oldConfig[key])
+        }
+        return newConfig[key] !== oldConfig[key]
+    })
+
+    if (nonCameraChanged) {
+        console.log('[Pinball3D] Non-camera properties changed, rebuilding table')
+        createTable(newConfig)
+    } else {
+        console.log('[Pinball3D] Only camera properties changed, skipping table rebuild')
+    }
 
     // Update Camera Position if in perspective mode AND camera params changed
     if (props.cameraMode === 'perspective') {
@@ -1844,8 +2061,8 @@ watch(() => props.config, (newConfig, oldConfig) => {
             updateCamera()
         }
     }
-  }
 }, { deep: true })
+
 
 
 // Nudge Animation (Camera Shake)
@@ -1997,15 +2214,17 @@ const handleKeydown = (e) => {
 
 <style scoped>
 .pinball-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
   width: 100%;
   height: 100%;
+  position: relative;
   overflow: hidden;
-  position: absolute; /* Fill the aspect-ratio parent */
-  top: 0;
-  left: 0;
+  background: #000;
+  border: 1px solid transparent; /* Prepare for border transition */
+  transition: border-color 0.3s ease;
+}
+
+.pinball-container.controls-active {
+  border-color: #0088ff; /* Blue border to indicate active state */
 }
 
 .debug-overlay {

@@ -61,15 +61,53 @@ class Physics:
         ]
 
 
+import hashlib
+import random
+from pbwizard.config import PhysicsConfig
+
 class PymunkEngine(Physics):
-    def __init__(self, layout, width, height):
+    def __init__(self, layout, width, height, seed=None, config: PhysicsConfig = None):
         self.layout = layout
+        
+        # Initialize Config
+        if config:
+            self.config = config
+        else:
+            self.config = PhysicsConfig()
+            # Try to load initial values from layout if present (legacy support / initial load)
+            if hasattr(layout, 'physics_params') and layout.physics_params:
+                self.config.update(layout.physics_params)
+
+        # Deterministic Seeding
+        if seed is None:
+            # Generate a random seed if none provided (simulating "luck")
+            seed = str(time.time_ns())
+        self.seed = str(seed)
+        
+        # Initialize RNGs with seed
+        # Use hashlib to create a robust integer seed from string
+        seed_int = int(hashlib.sha256(self.seed.encode('utf-8')).hexdigest(), 16) % (2**32)
+        self.rng = random.Random(seed_int)
+        np.random.seed(seed_int)
+        
+        # Generate Game Hash (Seed + Layout Name)
+        # This is what ensures the "Game" is unique
+        self.game_hash = hashlib.sha256((f"{self.seed}_{layout.name if hasattr(layout, 'name') else 'custom'}").encode('utf-8')).hexdigest()[:16]
+        logger.info(f"Physics Initialized. Seed: {self.seed}, Game Hash: {self.game_hash}")
+
         self.width = width
         self.height = height
         
         # Physics Space
         self.space = pymunk.Space()
-        self.space.gravity = (0.0, 2500.0) # Pixels/s^2 (Snappy gravity)
+
+        # Apply initial physics settings from config
+        self._update_gravity()  # Set initial gravity based on tilt
+        
+        # Legacy attribute support (properties could be better but sticking to direct access for now where possible or redirecting)
+        # To avoid breaking extensive external access immediately, we might want properties or just update usages.
+        # Given the task is to "remove hasattr stuff in vision.py to a solid interface", using self.config explicit is better.
+        
         print(f"DEBUG: Init static_body pos: {self.space.static_body.position}")
         
         self.balls = []
@@ -79,34 +117,18 @@ class PymunkEngine(Physics):
         self.drop_target_states = [] # List of drop target states (True = up, False = down)
         self.drop_target_shape_map = {} # Map shape to index
         self.score = 0  # Track score in physics engine
-        self.flipper_speed = 30.0 # Default speed
+        
         self.is_tilted = False # Track tilt state
         self.drop_target_shapes = [] # Track drop target shapes for removal
-        self.launch_angle = 0.0 # Launch angle in degrees (0 = Up)
-        self.flipper_elasticity = 0.5 # Default rubber bounce
-        self.flipper_friction = 0.8 # Default rubber friction
         
-        # Combo System
+        # Combo System (State) - Config is in self.config
         self.combo_count = 0
         self.combo_timer = 0.0
         self.last_hit_time = 0.0
-        self.combo_window = 3.0  # seconds - can be overridden by config
         self.score_multiplier = 1.0
-        self.combo_multiplier_enabled = True
-        self. base_combo_bonus = 50  # Base points for maintaining combo
-        self.multiplier_max = 5.0  # Max multiplier cap
-
-        # Bumper deflection force
-        self.bumper_force = 800.0  # Force impulse when ball hits bumper (px/s)
-
+        
         # Rail tracking
         self.rail_shapes = []
-        self.rail_thickness = 10.0
-        self.rail_length_scale = 1.0
-        self.rail_angle_offset = getattr(layout, 'rail_angle_offset', 0.0)
-        self.rail_x_offset = getattr(layout, 'rail_x_offset', 0.0)
-        self.rail_y_offset = getattr(layout, 'rail_y_offset', 0.0)
-        logger.info(f"PymunkEngine initialized with rail offsets: x={self.rail_x_offset}, y={self.rail_y_offset}")
         
         # Event tracking for RL
         self.events = []
@@ -118,6 +140,22 @@ class PymunkEngine(Physics):
         self._setup_collision_logging()
         print(f"DEBUG: After setup_collision_logging static_body pos: {self.space.static_body.position}")
         
+    def apply_config_changes(self):
+        """Apply any changes made to the configuration."""
+        self._update_gravity()
+        self._rebuild_flippers()
+        self._rebuild_rails()
+
+    def _update_gravity(self):
+        """Update the gravity vector based on the table tilt angle (pitch)."""
+        angle_rad = np.radians(self.config.table_tilt)
+        # Gravity acts down the slope (Y-axis).
+        # We assume X-axis is level (no roll).
+        gravity_x = 0
+        gravity_y = self.config.gravity_magnitude * np.sin(angle_rad)
+        self.space.gravity = (gravity_x, gravity_y)
+        logger.info(f"Gravity updated: tilt={self.config.table_tilt}°, vector=({gravity_x:.1f}, {gravity_y:.1f})")
+
     def _setup_collision_logging(self):
         """Setup collision handlers to log what ball hits and award scores"""
         # Score values for different features
@@ -126,27 +164,47 @@ class PymunkEngine(Physics):
             COLLISION_TYPE_DROP_TARGET: 500
         }
         
-        handler = self.space.add_default_collision_handler()
+        # Setup collision handler - API changed in pymunk 7.x
+        handler = None
+        try:
+            # Pymunk 6.x API
+            handler = self.space.add_default_collision_handler()
+            logger.info("Using pymunk 6.x collision handler API")
+        except AttributeError:
+            # Pymunk 7.x API - use add_collision_handler with wildcard
+            try:
+                handler = self.space.add_collision_handler(0, 0)
+                logger.info("Using pymunk 7.x collision handler API")
+            except Exception as e:
+                import pymunk
+                logger.error(f"Pymunk version {pymunk.version}: Could not set up collision handler: {e}")
+                logger.warning("Collision logging and scoring is DISABLED!")
+                return
+        
+        if handler is None:
+            logger.error("Failed to create collision handler")
+            return
+
         def begin_collision(arbiter, space, data):
             shapes = arbiter.shapes
             type_a = shapes[0].collision_type
             type_b = shapes[1].collision_type
+            
+            # log every collision for debugging
+            # logger.info(f"DEBUG: Collision {type_a} <-> {type_b}")
+
             if type_a == COLLISION_TYPE_BALL or type_b == COLLISION_TYPE_BALL:
                 other = type_b if type_a == COLLISION_TYPE_BALL else type_a
                 label = COLLISION_LABELS.get(other, f"unknown({other})")
+                
+                # Debug logging for bumper
+                if other == COLLISION_TYPE_BUMPER:
+                    logger.debug(f"DEBUG: Ball hit BUMPER! Label={label}")
                 
                 # Award score for certain collision types
                 score_value = SCORE_VALUES.get(other, 0)
                 
                 # Record event for RL and Sound
-                self.events.append({
-                    'type': 'collision',
-                    'label': label,
-                    'score': score_value,
-                    'total_score': self.score, # Note: this will be pre-score-update if score > 0, but that's fine
-                    'combo_count': self.combo_count
-                })
-                # logger.info(f"Physics: Added event {label}")
 
                 if score_value > 0:
                     # Combo detection - check if this is a scoring hit
@@ -154,26 +212,26 @@ class PymunkEngine(Physics):
                     time_since_last_hit = current_time - self.last_hit_time
                     
                     # Combo logic: consecutive hits within combo_window
-                    if self.combo_count > 0 and time_since_last_hit <= self.combo_window:
-                        # Extend combo
+                    if self.combo_count > 0 and time_since_last_hit <= self.config.combo_window:
+                        # Extend existing combo
                         self.combo_count += 1
-                        self.combo_timer = self.combo_window  # Reset timer
+                        self.combo_timer = self.config.combo_window  # Reset timer
                         logger.debug(f"COMBO x{self.combo_count}! Time since last: {time_since_last_hit:.2f}s")
-                    elif time_since_last_hit <= self.combo_window or self.combo_count == 0:
-                        # Start new combo
+                    else:
+                        # Start new combo (either first hit ever, or combo expired)
+                        if self.combo_count == 0 or time_since_last_hit > self.config.combo_window:
+                            logger.debug(f"Starting new combo chain (prev: {self.combo_count}, time: {time_since_last_hit:.2f}s)")
                         self.combo_count = 1
-                        self.combo_timer = self.combo_window
-                        if time_since_last_hit > self.combo_window and self.combo_count == 0:
-                            logger.debug("Starting new combo chain")
+                        self.combo_timer = self.config.combo_window
                     
                     self.last_hit_time = current_time
                     
                     # Calculate multiplier based on combo
-                    if self.combo_multiplier_enabled and self.combo_count > 1:
+                    if self.config.combo_multiplier_enabled and self.combo_count > 1:
                         # Multiplier increases with combo: 2x, 3x, 4x, up to max
                         self.score_multiplier = min(
                             float(self.combo_count), 
-                            self.multiplier_max
+                            self.config.multiplier_max
                         )
                     else:
                         self.score_multiplier = 1.0
@@ -184,7 +242,7 @@ class PymunkEngine(Physics):
                     
                     # Award combo bonus for maintaining chains
                     if self.combo_count > 2:
-                        combo_bonus = self.base_combo_bonus * (self.combo_count - 1)
+                        combo_bonus = self.config.base_combo_bonus * (self.combo_count - 1)
                         self.score += combo_bonus
                         logger.debug(f"Combo bonus: +{combo_bonus} points")
                     
@@ -217,8 +275,9 @@ class PymunkEngine(Physics):
                                 dx /= distance
                                 dy /= distance
 
+
                                 # Apply impulse force (adjustable strength)
-                                bumper_force = getattr(self, 'bumper_force', 800.0)  # Default 800 px/s
+                                bumper_force = self.config.bumper_force
                                 impulse_x = dx * bumper_force
                                 impulse_y = dy * bumper_force
 
@@ -238,9 +297,48 @@ class PymunkEngine(Physics):
                                 # Mark as hit (down)
                                 self.drop_target_states[idx] = False
                                 logger.debug(f"Drop target {idx} hit! Removing from physics.")
-                            
+
+                                # Check if all drop targets are now down
+                                if len(self.drop_target_states) > 0 and all(not state for state in self.drop_target_states):
+                                    # All drop targets hit! Trigger MULTIBALL!
+                                    logger.info("🎯 All drop targets hit! MULTIBALL ACTIVATED! 🎉")
+                                    self.drop_target_states = [True] * len(self.drop_target_states)
+
+                                    # Award bonus score (e.g., 10000 points for multiball activation)
+                                    bonus_score = 10000 * self.score_multiplier
+                                    self.score += int(bonus_score)
+                                    final_score += int(bonus_score)
+
+                                    # Add a new ball to plunger lane (multiball!)
+                                    lane_x = self.width * 0.94
+                                    lane_y = self.height * 0.9
+                                    self.add_ball((lane_x, lane_y))
+                                    logger.info(f"🎱 Multiball: Added ball #{len(self.balls)} to plunger lane")
+
+                                    # Log the multiball event
+                                    self.events.append({
+                                        'type': 'multiball_start',
+                                        'score': int(bonus_score),
+                                        'total_score': self.score,
+                                        'combo_count': self.combo_count,
+                                        'multiplier': self.score_multiplier,
+                                        'ball_count': len(self.balls)
+                                    })
+
                 else:
                     logger.debug(f"BALL COLLISION: hit {label}")
+                    final_score = 0
+
+                # Record event for RL and Sound (AFTER updates)
+                logger.debug(f"Physics: Creating event for collision: label={label}, score={final_score}, combo={self.combo_count}")
+                self.events.append({
+                    'type': 'collision',
+                    'label': label,
+                    'score': final_score,
+                    'total_score': self.score,
+                    'combo_count': self.combo_count,
+                    'multiplier': self.score_multiplier
+                })
                 
                 # Add random horizontal deflection to prevent stuck bouncing
                 ball_shape = shapes[0] if type_a == COLLISION_TYPE_BALL else shapes[1]
@@ -295,6 +393,8 @@ class PymunkEngine(Physics):
         for i, b in enumerate(self.layout.bumpers):
             pos = (b['x'] * self.width, b['y'] * self.height)
             radius = 20.0 # Pixels
+            if 'radius_ratio' in b:
+                radius = b['radius_ratio'] * self.width
             shape = self._add_static_circle(pos, radius, elasticity=1.5)
             self.bumper_states.append(0.0)
             self.bumper_shape_map[shape] = i
@@ -700,7 +800,7 @@ class PymunkEngine(Physics):
         # r_p2 = (r_pivot_x - 70, r_pivot_y - 120)
         # r_p3 = (r_pivot_x - 25, r_pivot_y - 120)
         # 
-        # self._add_static_triangle(r_p1, r_p2, r_p3, elasticity=1.5, collision_type=COLLISION_TYPE_BUMPER)
+        # self._add_static_triangle(r_p1, r_pivot_y, r_p3, elasticity=1.5, collision_type=COLLISION_TYPE_BUMPER)
 
     def _setup_flippers(self):
         # Left Flipper - pivot at BOTTOM-left to match visuals
@@ -733,6 +833,11 @@ class PymunkEngine(Physics):
         self.flipper_elasticity = elasticity
         self._rebuild_flippers()
 
+    def update_table_tilt(self, tilt_angle):
+        """Update table tilt angle and recalculate gravity vector."""
+        self.table_tilt = tilt_angle
+        self._update_gravity()
+
     def _rebuild_flippers(self):
         """Remove and recreate flippers with current settings."""
         # Remove existing flippers
@@ -752,12 +857,12 @@ class PymunkEngine(Physics):
         body.position = pivot
         
         # Use stored ratio or default
-        ratio = getattr(self, 'flipper_length_ratio', 0.12)
+        ratio = self.config.flipper_length
         length = self.width * ratio * length_scale 
         
         # Use stored width ratio or default (0.025 ~ 11px)
-        width_ratio = getattr(self, 'flipper_width_ratio', 0.025)
-        tip_width_ratio = getattr(self, 'flipper_tip_width_ratio', width_ratio) # Default to base width if not set
+        width_ratio = self.config.flipper_width
+        tip_width_ratio = self.config.flipper_tip_width # Default to base width if not set
         
         base_width = self.width * width_ratio
         tip_width = self.width * tip_width_ratio
@@ -789,8 +894,8 @@ class PymunkEngine(Physics):
             ]
             
         shape = pymunk.Poly(body, vertices, radius=poly_radius)
-        shape.elasticity = getattr(self, 'flipper_elasticity', 0.5)
-        shape.friction = getattr(self, 'flipper_friction', 0.8)
+        shape.elasticity = self.config.flipper_elasticity
+        shape.friction = self.config.flipper_friction
         shape.collision_type = COLLISION_TYPE_FLIPPER
         self.space.add(body, shape)
         
@@ -888,7 +993,8 @@ class PymunkEngine(Physics):
                 b.apply_impulse_at_local_point(impulse_local)
                 launched = True
                 self.last_launch_time = current_time
-                logger.debug(f"PLUNGER LAUNCH! Angle: {self.launch_angle}°, Speed: {base_speed}, Impulse: {impulse}, Pos: {b.position}, Vel: {b.velocity}")
+                logger.info(f"Auto-firing plunger: Ball detected at {b.position}")
+                logger.info(f"Auto-fire plunger launched ball with angle {self.launch_angle}°, speed={base_speed}, impulse={impulse}")
         
         return launched
 
@@ -897,6 +1003,34 @@ class PymunkEngine(Physics):
         events = self.events[:]
         self.events.clear()
         return events
+
+    def update_bumpers(self, bumpers_data):
+        """Update physics bumpers to match new layout data."""
+        # 1. Remove old bumpers
+        if hasattr(self, 'bumper_shape_map'):
+            for shape in self.bumper_shape_map.keys():
+                self.space.remove(shape)
+                # Note: Static bodies generally aren't removed/recreated for each shape, 
+                # but we used self.space.static_body so we don't remove the body.
+        
+        # 2. Update layout reference (optional, but good for consistency)
+        self.layout.bumpers = bumpers_data
+        
+        # 3. Recreate Bumpers
+        self.bumper_states = []
+        self.bumper_shape_map = {}
+        
+        for i, b in enumerate(bumpers_data):
+            pos = (b['x'] * self.width, b['y'] * self.height)
+            radius = 20.0 # Pixels (Make sure this matches init)
+            if 'radius_ratio' in b:
+                radius = b['radius_ratio'] * self.width
+            
+            shape = self._add_static_circle(pos, radius, elasticity=1.5)
+            self.bumper_states.append(0.0)
+            self.bumper_shape_map[shape] = i
+        
+        logger.info(f"Updated physics bumpers: {len(bumpers_data)} bumpers active")
 
     def reset(self):
         """Reset the physics simulation to initial state."""
@@ -914,6 +1048,15 @@ class PymunkEngine(Physics):
         # Reset bumper states
         self.bumper_states = [0.0] * len(self.bumper_states)
         
+        # Reset drop targets - restore all to "up" position
+        if hasattr(self, 'drop_target_states'):
+            self.drop_target_states = [True] * len(self.drop_target_states)
+            # Re-add drop target shapes to physics space
+            for i, shape in enumerate(self.drop_target_shapes):
+                if shape not in self.space.shapes:
+                    self.space.add(shape)
+            logger.info(f"Reset drop targets: {len(self.drop_target_states)} targets restored")
+
         logger.info("Physics engine reset.")
 
     def update(self, dt):
@@ -961,7 +1104,7 @@ class PymunkEngine(Physics):
                 
         # Update Flipper Physics (Kinematic rotation)
         # Use dynamic speed (default 30.0)
-        flipper_speed = self.flipper_speed 
+        flipper_speed = self.config.flipper_speed 
         
         # Update Plunger
         self._update_plunger(dt)
@@ -976,7 +1119,7 @@ class PymunkEngine(Physics):
             # Check if ball is in plunger lane and stationary
             if (ball.position.x > lane_x and
                 ball.position.y > self.height * 0.5 and
-                ball.velocity.length < 50.0):  # Ball is relatively stationary
+                ball.velocity.length < 100.0):  # Ball is relatively stationary (increased threshold)
 
                 # Auto-fire plunger if in resting state
                 if self.plunger_state == 'resting':
@@ -989,9 +1132,10 @@ class PymunkEngine(Physics):
                         logger.info(f"Auto-firing plunger: Ball detected at {ball.position}")
 
                         # Apply impulse directly to ball with launch angle (same as multiball logic)
-                        base_speed = getattr(self, 'plunger_release_speed', 1500.0)
+                        # Apply impulse directly to ball with launch angle (same as multiball logic)
+                        base_speed = self.config.plunger_release_speed
                         speed = base_speed * ball.mass
-                        angle_rad = np.radians(self.launch_angle)
+                        angle_rad = np.radians(self.config.launch_angle)
 
                         impulse_x = speed * np.sin(angle_rad)
                         impulse_y = -speed * np.cos(angle_rad)
@@ -1000,7 +1144,7 @@ class PymunkEngine(Physics):
 
                         ball.activate()
                         ball.apply_impulse_at_local_point(impulse_local)
-                        logger.info(f"Auto-fire plunger launched ball with angle {self.launch_angle}°")
+                        logger.info(f"Auto-fire plunger launched ball with angle {self.config.launch_angle}°, speed={base_speed}, impulse={impulse}")
 
                         self.last_auto_plunger_time = current_time
 
@@ -1016,19 +1160,20 @@ class PymunkEngine(Physics):
             for b in self.balls:
                 if b.position.x > lane_x and b.position.y > self.height * 0.5:
                     # Ball is in plunger lane
-                    if b.velocity.length < 50.0:  # Ball is relatively stationary
+                    if b.velocity.length < 100.0:  # Ball is relatively stationary (increased threshold)
                         balls_in_plunger.append(b)
                 else:
                     # Ball is in play area
                     balls_in_play += 1
 
-            # If there are balls in play AND balls waiting in plunger, auto-launch
-            if balls_in_play > 0 and len(balls_in_plunger) > 0:
+            # Auto-launch any balls waiting in plunger lane during multiball
+            # Changed: removed balls_in_play > 0 requirement to prevent all balls getting stuck in lane
+            if len(balls_in_plunger) > 0:
                 for b in balls_in_plunger:
                     # Apply upward impulse (same as manual launch)
-                    base_speed = getattr(self, 'plunger_release_speed', 1500.0)
+                    base_speed = self.config.plunger_release_speed
                     speed = base_speed * b.mass
-                    angle_rad = np.radians(self.launch_angle)
+                    angle_rad = np.radians(self.config.launch_angle)
 
                     impulse_x = speed * np.sin(angle_rad)
                     impulse_y = -speed * np.cos(angle_rad)
@@ -1037,7 +1182,29 @@ class PymunkEngine(Physics):
 
                     b.activate()
                     b.apply_impulse_at_local_point(impulse_local)
-                    logger.info(f"Multiball auto-launch: Ball at {b.position} launched into play")
+                    logger.debug(f"Multiball auto-launch: Ball at {b.position} launched into play")
+
+        # Left Plunger (Kickback) Auto-Fire Proximity Check
+        # Check if any ball is in the left plunger lane and stationary
+        if hasattr(self, 'left_plunger_state') and self.left_plunger_state == 'resting':
+            left_lane_x = self.width * 0.15 # Approx left lane boundary
+            
+            for b in self.balls:
+                # Check if in left lane (x < boundary) and near bottom (y > 0.5 height)
+                if b.position.x < left_lane_x and b.position.y > self.height * 0.5:
+                     if b.velocity.length < 100.0: # Stationary (increased threshold)
+                         # Check cooldown
+                         current_time = time.time()
+                         if not hasattr(self, 'last_left_plunger_time'):
+                             self.last_left_plunger_time = 0
+                         
+                         if current_time - self.last_left_plunger_time > 1.0:
+                             logger.info(f"Auto-firing LEFT plunger (Kickback): Ball detected at {b.position}")
+                             self.fire_left_plunger()
+                             self.last_left_plunger_time = current_time
+                             
+                             # Also wake up the ball to ensure it moves with the plunger
+                             b.activate()
 
         # Check for stuck balls
         self.check_stuck_ball(dt)
@@ -1045,8 +1212,8 @@ class PymunkEngine(Physics):
         
         # Configurable angles (degrees)
         # Use stored values or defaults
-        rest_val = getattr(self, 'flipper_resting_angle', -30.0)
-        up_val = getattr(self, 'flipper_stroke_angle', 30.0)
+        rest_val = self.config.flipper_resting_angle
+        up_val = self.config.flipper_stroke_angle
         
         # Convert to radians
         # Left Flipper (Points Right):
@@ -1102,7 +1269,7 @@ class PymunkEngine(Physics):
         diff = target - current
         
         # Limit speed
-        max_speed = self.flipper_speed * dt
+        max_speed = self.config.flipper_speed * dt
         change = np.clip(diff, -max_speed, max_speed)
         
         # For Kinematic bodies, we set velocity and let the simulation move it.
@@ -1153,7 +1320,10 @@ class PymunkEngine(Physics):
             'plunger': plunger_data,
             'left_plunger': left_plunger_data,
             'drop_targets': self.drop_target_states,
-            'bumper_states': self.bumper_states
+            'bumper_states': self.bumper_states,
+            'combo_count': getattr(self, 'combo_count', 0),
+            'combo_timer': getattr(self, 'combo_timer', 0.0),
+            'multiplier': getattr(self, 'score_multiplier', 1.0)
         }
 
     def update_combo_timer(self, dt):
@@ -1198,14 +1368,21 @@ class PymunkEngine(Physics):
         # Ensure static body is at origin to prevent double offsets
         self.space.static_body.position = (0, 0)
         
-        logger.info(f"Rebuilding rails with: thickness={self.rail_thickness}, length_scale={self.rail_length_scale}, angle_offset={self.rail_angle_offset}, offsets=({self.rail_x_offset}, {self.rail_y_offset})")
+        # Use config values
+        thickness = self.config.guide_thickness
+        length_scale = self.config.guide_length_scale
+        angle_offset = self.config.guide_angle_offset
+        x_offset = self.config.rail_x_offset
+        y_offset = self.config.rail_y_offset
+        
+        logger.info(f"Rebuilding rails with: thickness={thickness}, length_scale={length_scale}, angle_offset={angle_offset}, offsets=({x_offset}, {y_offset})")
         if hasattr(self.layout, 'rails'):
             for i, rail in enumerate(self.layout.rails):
                 # Apply offsets (normalized coordinates)
-                p1_x = rail['p1']['x'] + self.rail_x_offset
-                p1_y = rail['p1']['y'] + self.rail_y_offset
-                p2_x = rail['p2']['x'] + self.rail_x_offset
-                p2_y = rail['p2']['y'] + self.rail_y_offset
+                p1_x = rail['p1']['x'] + x_offset
+                p1_y = rail['p1']['y'] + y_offset
+                p2_x = rail['p2']['x'] + x_offset
+                p2_y = rail['p2']['y'] + y_offset
                 
                 p1 = self._layout_to_world(p1_x, p1_y)
                 p2 = self._layout_to_world(p2_x, p2_y)
@@ -1213,11 +1390,11 @@ class PymunkEngine(Physics):
                 length = np.hypot(dx, dy)
                 if length > 0:
                     ux, uy = dx / length, dy / length
-                    scaled_length = length * self.rail_length_scale
+                    scaled_length = length * length_scale
                     p1_final = (p2[0] + ux * scaled_length, p2[1] + uy * scaled_length)
                 else:
                     p1_final = p1
-                vertices = self._create_thick_line_poly(p1_final, p2, thickness=self.rail_thickness)
+                vertices = self._create_thick_line_poly(p1_final, p2, thickness=thickness)
                 if vertices:
                     shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.8, collision_type=8)
                     self.rail_shapes.append(shape)

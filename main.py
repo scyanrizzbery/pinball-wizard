@@ -38,7 +38,28 @@ def main():
     # 1. Initialize Vision System (First, so we can pass it to HW)
     if sim_mode.lower() == 'true':
         logger.info("Simulation Mode: Using Simulated Video Feed")
-        cap = vision.SimulatedFrameCapture(width=450, height=800, socketio=web_server.socketio)
+        
+        # Create capture with default layout first
+        cap = vision.SimulatedFrameCapture(width=450, height=800, layout_config=None, socketio=web_server.socketio)
+
+        # Try to load last selected layout (this will properly set filepath)
+        last_layout_name = None
+        try:
+            import json
+            if os.path.exists("config.json"):
+                with open("config.json", 'r') as f:
+                    config_data = json.load(f)
+                    last_layout_name = config_data.get('current_layout_id', None)
+                    if last_layout_name:
+                        layout_path = f"layouts/{last_layout_name}.json"
+                        if os.path.exists(layout_path):
+                            logger.info(f"Loading last selected layout: {last_layout_name}")
+                            # Use load_layout() to properly set the filepath
+                            cap.load_layout(last_layout_name)
+                        else:
+                            logger.warning(f"Last layout not found: {layout_path}, using default")
+        except Exception as e:
+            logger.error(f"Error loading last layout: {e}")
     else:
         camera_index = int(os.getenv('CAMERA_INDEX', 0))
         logger.info(f"Using Camera Index: {camera_index}")
@@ -174,7 +195,7 @@ def main():
                             else:
                                 self.current_ball_count = 0
                     return ball_pos
-
+            
             # Fallback to CV tracking
             raw_frame = self.capture.get_frame()
             if raw_frame is not None:
@@ -203,13 +224,17 @@ def main():
             if current_score > self.high_score:
                 self.high_score = current_score
                 
-            if current_score > self.high_score:
-                self.high_score = current_score
-
             # Get real-time ball count directly from physics engine for accurate stats
             current_balls = 0
+            engine = None
+            game_hash = None
+            seed = None
+            
             if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
-                current_balls = len(self.capture.physics_engine.balls)
+                engine = self.capture.physics_engine
+                current_balls = len(engine.balls)
+                game_hash = getattr(engine, 'game_hash', None)
+                seed = getattr(engine, 'seed', None)
             else:
                 current_balls = self.current_ball_count
 
@@ -217,18 +242,15 @@ def main():
                 self.games_played += 1
                 
                 is_high_score = False
-                if current_score > self.high_score: # Check against previous high score? 
-                    # Actually self.high_score is already updated above.
-                    # We need to know if it WAS a high score.
-                    # Let's just check if it equals the current high score (which we just updated)
-                    # AND it's > 0.
-                    if current_score == self.high_score and current_score > 0:
+                if current_score == self.high_score and current_score > 0:
                         is_high_score = True
 
                 # Add to history
                 self.game_history.append({
                     'type': 'game',
                     'score': current_score,
+                    'hash': game_hash, 
+                    'seed': seed,
                     'timestamp': time.time(),
                     'is_high_score': is_high_score
                 })
@@ -239,15 +261,15 @@ def main():
                 # Reset score for new game
                 if hasattr(self.capture, 'score'):
                     self.capture.score = 0
-                if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
-                    self.capture.physics_engine.score = 0
+                if engine:
+                    engine.score = 0
+                    engine.set_tilt(False)
                 # Reset tilt
                 if hasattr(self.capture, 'tilt_value'):
                     self.capture.tilt_value = 0.0
                 if hasattr(self.capture, 'is_tilted'):
                     self.capture.is_tilted = False
-                    if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
-                        self.capture.physics_engine.set_tilt(False)
+
                 # Reset balls_remaining for new game
                 if hasattr(self.capture, 'balls_remaining'):
                     self.capture.balls_remaining = 1
@@ -272,14 +294,30 @@ def main():
                 'score': current_score,
                 'high_score': self.high_score,
                 'balls': current_balls,
-                'ball_count': current_balls,  # Actual balls on table (same as balls in this context)
+                'ball_count': current_balls,  # Actual balls on table
                 'games_played': self.games_played,
                 'nudge': nudge_data,
                 'tilt_value': tilt_value,
                 'is_tilted': is_tilted,
                 'is_simulation': self.is_simulation,
-                'game_history': self.game_history
+                'game_history': self.game_history,
+                'hash': game_hash,
+                'seed': seed
             }
+            
+            # Fetch Hash/Seed from Physics Engine
+            if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
+                 engine = self.capture.physics_engine
+                 stats['hash'] = getattr(engine, 'game_hash', None)
+                 stats['seed'] = getattr(engine, 'seed', None)
+                 
+            # Note: We need to also add hash to history events when a game ends.
+            # But the 'game_history' append happened above, before we fetched the hash?
+            # Actually, the hash is persistent for the CURRENT game.
+            # When current game ENDS (current_balls == 0), we append logic.
+            # Let's verify if we need to update the append block above.
+            # Yes, we should include the hash of the FINISHED game in the history.
+            
             
 
             # Merge training stats
@@ -460,25 +498,37 @@ def main():
                 time.sleep(0.01)
                 
             else:
-                # PLAY Mode (Normal Inference)
+                # PLAY Mode (Normal Inference with Fixed Timestep)
                 
                 # Ensure external control is off
                 if hasattr(vision_wrapper.capture, 'external_control'):
                     vision_wrapper.capture.external_control = False
 
+                current_time = time.time()
+                dt = 0.016 # Target ~60Hz
+                
                 # 1. Update Vision
+                # ball_pos = vision_wrapper.update() # Legacy variable update
+                
+                # Fixed Timestep Update
+                # We enforce this via vision_wrapper.update() if it passes it down, or relies on internal fixed update of sim
+                # Currently vision.py's SimulatedFrameCapture uses its own time.sleep().
+                # For strict determinism, we should control the step here.
+                # However, modifying that deeply might break things.
+                # For now, let's stick to the previous loop style BUT with calculated DT if possible
+                # Actually, simply calling update() triggers one frame step which is 1/60s in simulation.
+                
                 ball_pos = vision_wrapper.update()
                 
                 if ball_pos is not None:
-                    current_time = time.time()
                     
                     # Calculate velocity only if position changed (new frame)
                     # This prevents v=0 when main loop is faster than camera
                     if last_ball_pos is not None and (ball_pos[0] != last_ball_pos[0] or ball_pos[1] != last_ball_pos[1]):
-                        dt = current_time - last_pos_time
-                        if dt > 0:
-                            last_vx = (ball_pos[0] - last_ball_pos[0]) / dt
-                            last_vy = (ball_pos[1] - last_ball_pos[1]) / dt
+                        real_dt = current_time - last_pos_time
+                        if real_dt > 0:
+                            last_vx = (ball_pos[0] - last_ball_pos[0]) / real_dt
+                            last_vy = (ball_pos[1] - last_ball_pos[1]) / real_dt
                             last_pos_time = current_time
                             last_ball_pos = ball_pos
                     elif last_ball_pos is None:
@@ -555,7 +605,7 @@ def main():
                         # # Safety Override: If ball is in right zone and moving down, force flip
                         # if vision_wrapper.ai_enabled and zones['right'] and vy > 100: # Pixel/sec threshold
                         #     should_flip_right = True
-
+                        
                         if should_flip_right and zones['right']:
                             hw.hold_right()
                         else:
@@ -573,7 +623,10 @@ def main():
                     last_vx, last_vy = 0.0, 0.0
                 
                 # Rate limiting (approx 60 Hz)
-                time.sleep(0.016)
+                # Ensure we don't drift too far from realtime
+                elapsed = time.time() - current_time
+                if elapsed < 0.016:
+                    time.sleep(0.016 - elapsed)
 
     except KeyboardInterrupt:
         logger.info("Stopping...")

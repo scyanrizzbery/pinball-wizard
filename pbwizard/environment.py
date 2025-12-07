@@ -52,18 +52,13 @@ class PinballEnv(gym.Env):
         Returns:
             tuple: (observation, reward, terminated, truncated, info)
         """
-        # 1. Enforce Zone Restrictions
-        allowed_action = self._enforce_zones(action)
+        # Execute action (may be overridden by heuristics later)
+        self._execute_action(action)
 
-        # 2. Execute Action
-
-
-        self._execute_action(allowed_action)
-            
         # 3. Wait for Latency/Physics
         if not self.headless:
-            time.sleep(0.033) # ~30Hz control loop 
-        
+            time.sleep(0.033) # ~30Hz control loop
+
         # 4. Get New State (Observation)
         frame = None
         if not self.headless:
@@ -178,7 +173,7 @@ class PinballEnv(gym.Env):
              reward += (1.0 - (ball_pos[1] / height)) * 0.01
              
              # Flipper Hit Reward: Detect if we imparted upward velocity
-             # If we are in flipper zone (y > 0.8) and have strong upward velocity (vy < -50)
+             # If we are in lower area (y > 0.8) and have strong upward velocity (vy < -50)
              if ball_pos[1] / height > 0.8 and vy < -100: # Moving UP fast
                  reward += 0.02 # Strong feedback for successful shot (was 2.0)
                  logger.debug("Reward: Strong Upward Shot (+0.02)")
@@ -197,111 +192,29 @@ class PinballEnv(gym.Env):
                  
                  # STUCK BALL HEURISTIC: Force Nudge if stuck for too long
                  if self.holding_steps > holding_threshold + 20:
-                     import random
-                     # Force Nudge Left (4) or Right (5)
-                     nudge_action = random.choice([4, 5])
-                     allowed_action = nudge_action
-                     logger.debug(f"STUCK BALL DETECTED: Forcing Nudge Action {nudge_action}")
-                     # Reset holding steps to prevent rapid-fire nudging
-                     self.holding_steps = 0
-        else:
-            self.holding_steps = 0
-        
-        # 6. Check Termination
-        terminated, truncated = self._check_termination(ball_pos, height)
-        
-        if terminated:
-            reward -= 1.0 # Stronger penalty for draining (was -0.5)
-        
-        return obs, reward, terminated, truncated, {}
+                      import random
+                      # Force Nudge Left or Right
+                      nudge_action = random.choice([constants.ACTION_NUDGE_LEFT, constants.ACTION_NUDGE_RIGHT])
+                      self._execute_action(nudge_action)
+                      logger.warning(f"Stuck ball detected. Forcing nudge action. Steps: {self.holding_steps}")
+                      self.holding_steps = 0 # Reset to prevent log spam and give physics time to react
 
-    def _enforce_zones(self, action: int) -> int:
-        if self.last_ball_pos is None or not hasattr(self.vision, 'zone_manager'):
-            return action
-            
-        # Check Plunger Lane (Right 15% of screen)
-        # If ball is here, disable flippers to prevent "Ghost Flipping"
-        width = self.vision.width
-        if self.last_ball_pos[0] > width * 0.85:
-            return 0 # No Action
-            
-        if hasattr(self.vision, 'check_zones'):
-            zones = self.vision.check_zones(self.last_ball_pos[0], self.last_ball_pos[1])
-        else:
-            # Fallback (shouldn't happen with updated vision)
-            zones = {'left': False, 'right': False}
-        allowed_action = action
-        
-        # Check Left
-        if (action == constants.ACTION_FLIP_LEFT or action == constants.ACTION_FLIP_BOTH) and not zones['left']:
-            allowed_action = constants.ACTION_FLIP_RIGHT if action == constants.ACTION_FLIP_BOTH else constants.ACTION_NOOP
-        
-        # Check Right (on potentially modified action)
-        current_check = allowed_action
-        if (current_check == constants.ACTION_FLIP_RIGHT or current_check == constants.ACTION_FLIP_BOTH) and not zones['right']:
-            allowed_action = constants.ACTION_FLIP_LEFT if current_check == constants.ACTION_FLIP_BOTH else constants.ACTION_NOOP
-            
-        return allowed_action
-
-    def _execute_action(self, action: int):
-        if action == constants.ACTION_FLIP_LEFT:
-            self.hw.hold_left()
-            self.hw.release_right()
-        elif action == constants.ACTION_FLIP_RIGHT:
-            self.hw.release_left()
-            self.hw.hold_right()
-        elif action == constants.ACTION_FLIP_BOTH:
-            self.hw.hold_left()
-            self.hw.hold_right()
-        else: # constants.ACTION_NOOP
-            self.hw.release_left()
-            self.hw.release_right()
-
-    def _get_current_frame(self):
-        if hasattr(self.vision, 'get_raw_frame'):
-            return self.vision.get_raw_frame()
-        return self.vision.get_frame()
-
-    def _create_observation(self, ball_pos, vx, vy, width, height):
-        obs = np.zeros(8, dtype=np.float32)
-        if ball_pos is not None:
-            obs[0] = ball_pos[0] / width
-            obs[1] = ball_pos[1] / height
-            # Velocity normalization: 50.0 covers typical range better than 1000.0
-            obs[2] = np.clip(vx / 50.0, -1, 1)
-            obs[3] = np.clip(vy / 50.0, -1, 1)
-            self.steps_without_ball = 0
-        else:
-            self.steps_without_ball += 1
-            
-        # Add Drop Target States
-        target_states = []
-        if hasattr(self.vision, 'drop_target_states'):
-            target_states = self.vision.drop_target_states
-        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'drop_target_states'):
-            target_states = self.vision.capture.drop_target_states
-            
-        # Pad or Truncate to fixed size 4
-        for i in range(4):
-            if i < len(target_states):
-                obs[4 + i] = 1.0 if target_states[i] else 0.0
-            else:
-                obs[4 + i] = 0.0 # Pad with 0 (Inactive/Down)
-                
-        return obs
-
-    def _update_score(self, frame):
-        if hasattr(self.vision, 'get_score'):
-            self.current_score = self.vision.get_score()
-        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'get_score'):
-             self.current_score = self.vision.capture.get_score()
-        else:
-            self.current_score = self.score_reader.get_score(frame) if frame is not None else 0
-
-    def _check_termination(self, ball_pos, height):
-        terminated = False 
+        terminated = False
         truncated = False
-        
+        info = {}
+
+        # Episode termination conditions
+        if ball_pos is None:
+            self.steps_without_ball += 1
+            logger.info("Ball not detected! Incrementing steps_without_ball.")
+
+            if self.steps_without_ball >= self.max_steps_without_ball:
+                terminated = True
+                logger.warning("Max steps without ball reached. Terminating episode.")
+        else:
+            self.steps_without_ball = 0 # Reset counter if ball is detected
+
+        # Ball Lost Check (Termination)
         ball_lost = False
         if hasattr(self.vision, 'ball_lost'):
             ball_lost = self.vision.ball_lost
@@ -317,56 +230,109 @@ class PinballEnv(gym.Env):
         
         if self.steps_without_ball > self.max_steps_without_ball:
             truncated = True
-            
-        return terminated, truncated
 
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
+
+        return obs, reward, terminated, truncated, info
+
+    def reset(self, *, seed=None, options=None):
+        if seed is not None:
+            super().reset(seed=seed)
+
+        # Reset counters and state
         self.last_score = 0
         self.current_score = 0
         self.last_ball_pos = None
         self.steps_without_ball = 0
         self.holding_steps = 0
         self.last_time = time.time()
-        
-        # Call reset_game on vision system
-        if hasattr(self.vision, 'reset_game'):
-            self.vision.reset_game()
-        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'reset_game'):
-            self.vision.capture.reset_game()
-        
+
+        # Call reset_game on vision system to reset physics engine
+        if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'reset_game_state'):
+            self.vision.capture.reset_game_state()
+            logger.debug("Reset game state via vision.capture.reset_game_state()")
+        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'physics_engine'):
+            # Manually reset physics engine if reset_game_state doesn't exist
+            if hasattr(self.vision.capture.physics_engine, 'balls'):
+                self.vision.capture.physics_engine.balls.clear()
+            logger.info("Cleared balls from physics engine")
+
+        # Random layouts if enabled
         if self.random_layouts and hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'layout'):
-             # Only randomize if it's a simulated capture with a layout
-             if hasattr(self.vision.capture.layout, 'randomize'):
-                 self.vision.capture.layout.randomize()
-                 # Reload to apply changes
-                 self.vision.capture.load_layout(self.vision.capture.layout.to_dict())
-                 logger.info("Randomized layout for new episode")
-        
-        # Launch ball if in simulation (always launch during training)
-        if hasattr(self.vision, 'launch_ball'):
-            self.vision.launch_ball()
-        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'launch_ball'):
-            self.vision.capture.launch_ball()
+            if hasattr(self.vision.capture.layout, 'randomize'):
+                self.vision.capture.layout.randomize()
+                self.vision.capture.load_layout(self.vision.capture.layout.to_dict())
+                logger.info("Randomized layout for new episode")
+
+        # Add a ball to start the episode
+        if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'add_ball'):
+            self.vision.capture.add_ball()
+            logger.debug("Ball added during environment reset")
+        elif hasattr(self.vision, 'add_ball'):
+            self.vision.add_ball()
+            logger.debug("Ball added during environment reset")
 
         # Initial observation
-        frame = None
-        if not self.headless:
-            if hasattr(self.vision, 'get_raw_frame'):
-                frame = self.vision.get_raw_frame()
-            elif hasattr(self.vision, 'get_frame'):
-                frame = self.vision.get_frame()
-            
-        # Process frame for visualization
-        if hasattr(self.vision, 'process_frame') and frame is not None:
-            self.vision.process_frame(frame)
+        observation = np.zeros(self.observation_space.shape, dtype=np.float32)
+        info = {}
+        return observation, info
 
-        # For simplicity, return zeros or wait for ball
-        return np.zeros(8, dtype=np.float32), {}
+    def render(self):
+        return None
+
+    def close(self):
+        pass
+
+    def _execute_action(self, action: int):
+        # Map discrete actions to hardware controller methods
+        if action == constants.ACTION_FLIP_LEFT:
+            self.hw.hold_left()
+            self.hw.release_right()
+        elif action == constants.ACTION_FLIP_RIGHT:
+            self.hw.hold_right()
+            self.hw.release_left()
+        elif action == constants.ACTION_FLIP_BOTH:
+            self.hw.hold_left()
+            self.hw.hold_right()
+        elif action == constants.ACTION_NUDGE_LEFT:
+            if hasattr(self.vision, 'nudge_left'):
+                self.vision.nudge_left()
+            elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'nudge_left'):
+                self.vision.capture.nudge_left()
+        elif action == constants.ACTION_NUDGE_RIGHT:
+            if hasattr(self.vision, 'nudge_right'):
+                self.vision.nudge_right()
+            elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'nudge_right'):
+                self.vision.capture.nudge_right()
+        else:
+            self.hw.release_left()
+            self.hw.release_right()
+
+    def _get_current_frame(self):
+        if hasattr(self.vision, 'get_frame'):
+            return self.vision.get_frame()
+        if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'get_frame'):
+            return self.vision.capture.get_frame()
+        return None
+
+    def _create_observation(self, ball_pos, vx, vy, width, height):
+        obs = np.zeros(self.observation_space.shape, dtype=np.float32)
+        if ball_pos is not None:
+            obs[0] = np.clip(ball_pos[0] / width, 0.0, 1.0)
+            obs[1] = np.clip(ball_pos[1] / height, 0.0, 1.0)
+        obs[2] = np.clip(vx / width, -1.0, 1.0)
+        obs[3] = np.clip(vy / height, -1.0, 1.0)
+        return obs
+
+    def _update_score(self, frame):
+        # Prefer vision capture score if available
+        if hasattr(self.vision, 'get_score'):
+            self.current_score = self.vision.get_score()
+        elif hasattr(self.score_reader, 'read_score') and frame is not None:
+            self.current_score = self.score_reader.read_score(frame)
 
     def _get_difficulty_params(self):
-        """Return difficulty-specific reward scaling parameters."""
-        params = {
+        # Tuned difficulty parameters
+        presets = {
             'easy': {
                 'survival_reward': 0.0001,  # Reduced from 0.01
                 'holding_threshold': 120,  # 4 seconds - more lenient
@@ -383,7 +349,11 @@ class PinballEnv(gym.Env):
                 'holding_penalty': 0.008
             }
         }
-        return params.get(self.difficulty, params['medium'])
+        return presets.get(self.difficulty, presets['medium'])
 
-    def render(self):
-        pass # Visualization is handled by the web server
+    def get_game_state(self):
+        return {
+            'score': self.current_score,
+            'last_ball_pos': self.last_ball_pos,
+            'steps_without_ball': self.steps_without_ball,
+        }

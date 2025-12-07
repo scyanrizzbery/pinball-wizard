@@ -9,9 +9,6 @@ from stable_baselines3 import PPO
 
 logger = logging.getLogger(__name__)
 
-
-
-
 class ReflexAgent:
     
     # Difficulty Presets
@@ -39,8 +36,7 @@ class ReflexAgent:
         }
     }
 
-    def __init__(self, zone_manager, hardware_controller, difficulty='medium'):
-        self.zone_manager = zone_manager
+    def __init__(self, hardware_controller, difficulty='medium'):
         self.hw = hardware_controller
         self.difficulty = difficulty
         self.enabled = True  # AI enabled by default
@@ -72,11 +68,10 @@ class ReflexAgent:
 
         x, y = ball_pos
         vx, vy = velocity
-        zones = self.zone_manager.get_zone_status(x, y)
-        
+
         # Debug Log (Throttle?)
         if random.random() < 0.1: # Log 10% of frames
-             logger.info(f"Agent Act [{self.difficulty}]: Pos=({x:.1f}, {y:.1f}), Vel=({vx:.1f}, {vy:.1f}), Zones={zones}, LeftCooldown={self.left_cooldown}, RightCooldown={self.right_cooldown}")
+             logger.info(f"Agent Act [{self.difficulty}]: Pos=({x:.1f}, {y:.1f}), Vel=({vx:.1f}, {vy:.1f}), LeftCooldown={self.left_cooldown}, RightCooldown={self.right_cooldown}")
 
         # Only flip if ball is moving down (vy > threshold) to prevent flailing
         
@@ -86,14 +81,14 @@ class ReflexAgent:
             self.hw.release_left()
         else:
             # Check if we should START flipping
-            should_flip = zones['left'] and vy > self.VY_THRESHOLD
-            
+            should_flip = vy > self.VY_THRESHOLD
+
             # Hard mode: predictive flipping based on velocity
             if self.USE_VELOCITY_PREDICTION and not should_flip:
                 # Predict if ball will be in zone soon based on velocity
                 frames_ahead = 5
                 predicted_y = y + (vy * frames_ahead / 30.0)  # Approximate position
-                if zones['left'] and vy > self.VY_THRESHOLD * 0.5:
+                if vy > self.VY_THRESHOLD * 0.5:
                     should_flip = True
                     logger.debug("Predictive flip (hard mode)")
             
@@ -107,8 +102,8 @@ class ReflexAgent:
                 # 2. We haven't reached MAX_HOLD AND (ball is still in zone OR moving down)
                 
                 force_hold = self.left_hold_steps < self.MIN_HOLD
-                valid_hold = (zones['left'] or vy > self.VY_THRESHOLD) and self.left_hold_steps < self.MAX_HOLD
-                
+                valid_hold = (vy > self.VY_THRESHOLD) and self.left_hold_steps < self.MAX_HOLD
+
                 if force_hold or valid_hold:
                     self.hw.flip_left()
                     self.left_hold_steps += 1
@@ -118,7 +113,7 @@ class ReflexAgent:
                     self.left_hold_steps = 0
             elif should_flip:
                 # Start flipping
-                logger.debug("Ball in Left Zone & Moving Down -> Flip Left")
+                logger.debug("Ball Moving Down -> Flip Left")
                 self.hw.flip_left()
                 self.left_hold_steps = 1
             else:
@@ -130,13 +125,13 @@ class ReflexAgent:
             self.right_cooldown -= 1
             self.hw.release_right()
         else:
-            should_flip = zones['right'] and vy > self.VY_THRESHOLD
-            
+            should_flip = vy > self.VY_THRESHOLD
+
             # Hard mode: predictive flipping
             if self.USE_VELOCITY_PREDICTION and not should_flip:
                 frames_ahead = 5
                 predicted_y = y + (vy * frames_ahead / 30.0)
-                if zones['right'] and vy > self.VY_THRESHOLD * 0.5:
+                if vy > self.VY_THRESHOLD * 0.5:
                     should_flip = True
                     logger.debug("Predictive flip (hard mode)")
             
@@ -144,8 +139,8 @@ class ReflexAgent:
             
             if is_holding:
                 force_hold = self.right_hold_steps < self.MIN_HOLD
-                valid_hold = (zones['right'] or vy > self.VY_THRESHOLD) and self.right_hold_steps < self.MAX_HOLD
-                
+                valid_hold = (vy > self.VY_THRESHOLD) and self.right_hold_steps < self.MAX_HOLD
+
                 if force_hold or valid_hold:
                     self.hw.flip_right()
                     self.right_hold_steps += 1
@@ -154,7 +149,7 @@ class ReflexAgent:
                     self.right_cooldown = self.COOLDOWN
                     self.right_hold_steps = 0
             elif should_flip:
-                logger.debug("Ball in Right Zone & Moving Down -> Flip Right")
+                logger.debug("Ball Moving Down -> Flip Right")
                 self.hw.flip_right()
                 self.right_hold_steps = 1
             else:

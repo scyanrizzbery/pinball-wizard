@@ -26,13 +26,32 @@
         style="flex: 1; display: flex; align-items: center; justify-content: center; color: #666; font-style: italic;">
         Play at least 3 games to see history
       </div>
-      <highcharts v-show="showChart" :key="'timeline-' + gamesPlayed + '-' + isVertical" :options="chartOptions" ref="chartRef" style="width:100%; flex: 1;"></highcharts>
+      <highcharts v-show="showChart" :key="'timeline-' + gamesPlayed + '-' + isVertical" :options="chartOptions" ref="chartRef" style="width:100%; height:50%; min-height: 150px;"></highcharts>
+
+      <!-- Recent Games List with Replay -->
+      <div class="recent-list-container">
+        <h4>Recent Games</h4>
+        <div class="recent-list">
+          <div v-for="(game, index) in recentGamesReversed" :key="index" class="history-item">
+            <div class="history-score">{{ formatScore(game.score) }}</div>
+            <div class="history-meta">
+              <span v-if="game.hash" class="hash-tag" :title="'Seed: ' + game.seed">#{{ game.hash.substring(0,6) }}</span>
+              <span class="time-tag">{{ new Date(game.timestamp * 1000).toLocaleTimeString() }}</span>
+            </div>
+            <div class="history-actions">
+               <button v-if="game.hash" @click="loadReplay(game.hash)" class="replay-btn" title="Watch Replay">
+                 ▶
+               </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, inject } from 'vue'
 import { Chart } from 'highcharts-vue'
 
 const props = defineProps({
@@ -40,8 +59,20 @@ const props = defineProps({
   gamesPlayed: { type: Number, default: 0 }
 })
 
+const sockets = inject('sockets')
 const chartRef = ref(null)
 const isVertical = ref(window.innerWidth >= 1200)
+
+const recentGamesReversed = computed(() => {
+  return props.gameHistory.filter(g => g.type === 'game').slice().reverse().slice(0, 10)
+})
+
+const loadReplay = (hash) => {
+  console.log("Loading replay for hash:", hash)
+  if (sockets && sockets.game) {
+    sockets.game.emit('load_replay', { hash: hash })
+  }
+}
 
 // Stable history to prevent flickering (only update when content actually changes)
 const stableGameHistory = ref([])
@@ -487,4 +518,78 @@ const formatScore = (num) => {
     max-height: 300px;
   }
 }
+
+.recent-list-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-top: 1px solid #333;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.recent-list-container h4 {
+  margin: 0 0 5px 0;
+  font-size: 0.9em;
+  color: #888;
+}
+
+.recent-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  scrollbar-width: thin;
+}
+
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1a1a1a;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.history-score {
+  color: #fff;
+  font-weight: bold;
+  width: 60px;
+}
+
+.history-meta {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  color: #666;
+  font-size: 0.9em;
+}
+
+.hash-tag {
+  color: #2196f3;
+  font-family: monospace;
+  background: rgba(33, 150, 243, 0.1);
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+.replay-btn {
+  background: transparent;
+  border: 1px solid #4caf50;
+  color: #4caf50;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.8em;
+  transition: all 0.2s;
+}
+
+.replay-btn:hover {
+  background: #4caf50;
+  color: #000;
+}
+
 </style>

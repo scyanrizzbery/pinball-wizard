@@ -52,7 +52,7 @@ const props = defineProps({
   highScore: { type: Number, default: 0 },
   comboCount: { type: Number, default: 0 },
   scoreMultiplier: { type: Number, default: 1.0 },
-  comboActive: { type: Boolean, default: false }
+  comboActive: { type: Boolean, default: false },
 })
 
 const getReelItems = (num, minDigits) => {
@@ -143,6 +143,26 @@ const highScoreReels = computed(() => getReelItems(props.highScore, 7))
   opacity: 0.8; /* Slightly less opaque */
   margin-top: 5px; /* Adjust alignment */
 }
+
+.hash-box {
+  position: absolute;
+  top: 5px;
+  right: 15px;
+  transform: scale(0.6);
+  transform-origin: top right;
+  opacity: 0.6;
+}
+
+.hash-display {
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  color: #2196f3;
+  background: rgba(0,0,0,0.8);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #2196f3;
+}
+
 
 .label {
   font-family: 'Segoe UI', sans-serif;
