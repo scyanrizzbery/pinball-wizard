@@ -34,7 +34,7 @@ watch(() => props.logs.length, () => {
 .game-log-container {
   flex: 0 0 auto;
   overflow-y: auto;
-  background: #1e1e1e;
+  background: #0a0a0a;
   border: 1px solid #3d3d3d;
   border-radius: 12px;
   padding: 15px;

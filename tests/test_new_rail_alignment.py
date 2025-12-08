@@ -22,9 +22,9 @@ class TestNewRailAlignment(unittest.TestCase):
         }
         self.layout = PinballLayout(config=config)
         
-        # Verify offsets are reset after baking (initially empty rails)
-        self.assertEqual(self.layout.rail_x_offset, 0.0)
-        self.assertEqual(self.layout.rail_y_offset, 0.0)
+        # Verify offsets are PERSISTED (not baked)
+        self.assertEqual(self.layout.rail_x_offset, -0.61)
+        self.assertEqual(self.layout.rail_y_offset, -0.11)
         
         # Setup Physics Engine
         self.physics = PymunkEngine(self.layout, 100, 200) # 100x200 pixels

@@ -625,8 +625,12 @@ class SoundManager {
         return false;
     }
 
+    setAlienResponseCallback(callback) {
+        this.alienResponseCallback = callback;
+    }
+
     // Play the Close Encounters five-note motif (D-E-C-C-G) followed by alien response
-    playCloseEncounters(baseFreq = 293.66) { // D4 as base
+    playCloseEncounters(baseFreq = 293.66, onResponseCallback = null) { // D4 as base
         if (!this.enabled) return;
         this.resume();
 
@@ -675,6 +679,25 @@ class SoundManager {
 
         // Pause before alien response - dramatic pause
         currentTime += 0.5;
+
+        // Determine which callback to use
+        const callbackToUse = onResponseCallback || this.alienResponseCallback;
+
+        // Trigger callback (for UI shake/nudge)
+        if (callbackToUse) {
+            const delay = (currentTime - t) * 1000;
+            console.log(`[SoundManager] Scheduling alien response callback in ${delay.toFixed(0)}ms`);
+            setTimeout(() => {
+                console.log('[SoundManager] Executing alien response callback now');
+                try {
+                    callbackToUse();
+                } catch (e) {
+                    console.error('[SoundManager] Error in alien response callback:', e);
+                }
+            }, delay); // Convert encoded time offset to ms
+        } else {
+            console.warn('[SoundManager] No callback provided for alien response');
+        }
 
         // Play alien bass blast
         // Multiple oscillators for thickness

@@ -41,6 +41,8 @@ class PinballEnv(gym.Env):
         self.steps_without_ball = 0
         self.max_steps_without_ball = 100 # Reset if ball lost for too long
         self.holding_steps = 0
+        self.last_combo_count = 0
+        self.last_multiplier = 1.0
 
     def step(self, action: int):
         """
@@ -119,26 +121,43 @@ class PinballEnv(gym.Env):
         difficulty_params = self._get_difficulty_params()
         
         # Reward Shaping
-        reward = score_diff / 5000.0 # Scale score (e.g. 500 -> 0.1) - Increased from /50
+        # Log scaling to handle exponential score explosion (e.g. 100 -> 4.6, 1M -> 13.8)
+        # We scale by 0.1 to keep rewards in a manageable range (~0-1.5 mostly)
+        # Clip negative diffs to 0 to ignore read errors/resets
+        clipped_diff = max(0, score_diff)
+        reward = np.log1p(clipped_diff) * 0.1
         reward += difficulty_params['survival_reward'] # Survival reward (scaled by difficulty)
         
         # Combo Bonus Reward - encourage maintaining combos
-        # FIX: Corrected attribute name from 'engine' to 'physics_engine'
+        # CHANGE: Only award bonus on INCREASE to prevent per-frame explosion
         if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'physics_engine'):
             combo_status = self.vision.capture.physics_engine.get_combo_status()
             multiplier = self.vision.capture.physics_engine.get_multiplier()
+            
+            current_combo = combo_status['combo_count']
+            
+            # Award bonus only when combo count INCREASES
+            if combo_status['combo_active'] and current_combo > self.last_combo_count and current_combo > 1:
+                # One-time bonus for hitting a new combo tier
+                combo_increase_bonus = 0.1 * current_combo 
+                reward += combo_increase_bonus
+                logger.debug(f"Combo increase bonus: +{combo_increase_bonus:.2f} ({self.last_combo_count} -> {current_combo})")
+            
+            self.last_combo_count = current_combo if combo_status['combo_active'] else 0
 
-            if combo_status['combo_active'] and combo_status['combo_count'] > 1:
-                # Award increasing bonus for maintaining combo chains
-                combo_reward = 0.02 * combo_status['combo_count']  # Scaled down 100x
-                reward += combo_reward
-                logger.debug(f"Combo reward bonus: +{combo_reward:.2f} for {combo_status['combo_count']}x combo")
+            # Extra reward for multiplier INCREASE
+            if multiplier > self.last_multiplier:
+                multiplier_increase_bonus = (multiplier - self.last_multiplier) * 0.5
+                reward += multiplier_increase_bonus
+                logger.debug(f"Multiplier increase bonus: +{multiplier_increase_bonus:.2f} ({self.last_multiplier:.1f}x -> {multiplier:.1f}x)")
+            
+            self.last_multiplier = multiplier
 
-            # Extra reward for high multipliers (incentivize combo gameplay)
-            if multiplier > 1.0:
-                multiplier_bonus = (multiplier - 1.0) * 0.005 # Scaled down 100x
-                reward += multiplier_bonus
-                logger.debug(f"Multiplier bonus: +{multiplier_bonus:.2f} for {multiplier:.1f}x multiplier")
+        # Flipper Penalty (Discourage spamming)
+        # 0: No-op, 1: Left, 2: Right, 3: Both
+        if action in [constants.ACTION_FLIP_LEFT, constants.ACTION_FLIP_RIGHT, constants.ACTION_FLIP_BOTH]:
+             reward -= 0.01
+             # logger.debug("Penalty: Flipper Usage (-0.01)")
 
         # Event-based Reward (Explicit feedback for hitting targets)
         events = []
@@ -151,11 +170,11 @@ class PinballEnv(gym.Env):
             if event['type'] == 'collision':
                 # Base rewards for hitting features (independent of score/combo)
                 if 'bumper' in event['label']:
-                    reward += 0.02 # Stronger immediate feedback (was 2.0)
-                    logger.debug("Reward: Bumper Hit (+0.02)")
+                    reward += 0.01 # Reduced from 0.02
+                    logger.debug("Reward: Bumper Hit (+0.01)")
                 elif 'drop_target' in event['label']:
-                    reward += 0.15 # Very strong reward for targets (was 15.0)
-                    logger.debug("Reward: Drop Target Hit (+0.15)")
+                    reward += 0.05 # Reduced from 0.15
+                    logger.debug("Reward: Drop Target Hit (+0.05)")
                 elif 'rail' in event['label']:
                     reward += 0.01 # Encouragement for loop shots (was 1.0)
                     logger.debug("Reward: Rail Hit (+0.01)")
@@ -170,13 +189,13 @@ class PinballEnv(gym.Env):
              # Reward is higher when y is smaller (top of screen)
              # DRASTICALLY REDUCED: Was 0.2 per step. Now effectively 0 to remove noise.
              # We want users to HIT TARGETS, not just float.
-             reward += (1.0 - (ball_pos[1] / height)) * 0.01
+             reward += (1.0 - (ball_pos[1] / height)) * 0.005 # Further reduced from 0.01
              
              # Flipper Hit Reward: Detect if we imparted upward velocity
              # If we are in lower area (y > 0.8) and have strong upward velocity (vy < -50)
              if ball_pos[1] / height > 0.8 and vy < -100: # Moving UP fast
-                 reward += 0.02 # Strong feedback for successful shot (was 2.0)
-                 logger.debug("Reward: Strong Upward Shot (+0.02)")
+                 reward += 0.01 # Reduced from 0.02
+                 logger.debug("Reward: Strong Upward Shot (+0.01)")
              
              # Holding Penalty (scaled by difficulty)
              # Calculate velocity magnitude
@@ -245,6 +264,8 @@ class PinballEnv(gym.Env):
         self.steps_without_ball = 0
         self.holding_steps = 0
         self.last_time = time.time()
+        self.last_combo_count = 0
+        self.last_multiplier = 1.0
 
         # Call reset_game on vision system to reset physics engine
         if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'reset_game_state'):

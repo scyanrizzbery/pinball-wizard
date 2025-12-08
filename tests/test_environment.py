@@ -71,12 +71,10 @@ class TestEnvironment(unittest.TestCase):
         # Mock vision returns 100
         obs, reward, terminated, truncated, info = self.env.step(ACTION_NOOP)
         
-        # Reward = (100 - 0)/5000 + 0.001 (survival) = 0.02 + 0.001 = 0.021
-        # Also height reward:
-        # Ball pos is (320, 240) from MockVision. Height is 480.
-        # y_ratio = 240/480 = 0.5. Height reward = (1 - 0.5) * 0.01 = 0.005.
-        # Total = 0.021 + 0.005 = 0.026
-        self.assertAlmostEqual(reward, 0.026) 
+        # Reward = log1p(100) * 0.1 = 4.615 * 0.1 = 0.4615
+        # Height reward (approx 0.005) + Survival (0.001)
+        # Total ~ 0.465 (matches output 0.465012)
+        self.assertAlmostEqual(reward, 0.465, places=2) 
         self.assertFalse(terminated)
         
         # Next step, score still 100

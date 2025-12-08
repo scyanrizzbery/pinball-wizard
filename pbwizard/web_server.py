@@ -68,6 +68,7 @@ def stream_frames():
                             'games_played': game_state.get('games_played', 0),
                             'game_history': game_state.get('game_history', []),
                             'is_tilted': game_state.get('is_tilted', False),
+                            'tilt_value': game_state.get('tilt_value', 0.0),
                             'nudge': game_state.get('nudge', None),
                             'combo_count': 0,
                             'score_multiplier': 1.0,
@@ -120,7 +121,7 @@ def stream_frames():
 
                     frame_count += 1
                     if frame_count % 100 == 0:
-                        logger.info(f"Emitted {frame_count} video frames. Size: {len(frame_bytes)}")
+                        logger.debug(f"Emitted {frame_count} video frames. Size: {len(frame_bytes)}")
                 else:
                      frame_count += 1
                      if frame_count % 100 == 0:
@@ -232,6 +233,17 @@ def handle_input(data):
     elif key == 'ShiftRight' and event_type == 'down':
         if hasattr(capture, 'nudge_right'):
             capture.nudge_right()
+
+
+@socketio.on('alien_nudge', namespace='/control')
+def handle_alien_nudge():
+    """Trigger a free nudge for the alien effect."""
+    if not vision_system: return
+    capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
+    
+    if hasattr(capture, 'alien_nudge'):
+        capture.alien_nudge()
+        logger.info("👽 Alien Nudge Triggered!")
 
 
 @socketio.on('relaunch_ball', namespace='/game')
@@ -418,6 +430,9 @@ def handle_update_bumpers(bumpers_data):
             vision_system.capture.update_bumpers(bumpers_data)
 
         socketio.emit('status', {'msg': 'Bumpers updated and saved'}, namespace='/config')
+        # Emit updated config
+        if hasattr(vision_system, 'capture'):
+            socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
 
 
 @socketio.on('create_bumper', namespace='/config')
@@ -430,6 +445,9 @@ def handle_create_bumper(bumper_data):
             vision_system.capture.create_bumper(bumper_data)
 
         socketio.emit('status', {'msg': 'Bumper created'}, namespace='/config')
+        # Emit updated config
+        if hasattr(vision_system, 'capture'):
+            socketio.emit('physics_config_loaded', vision_system.capture.get_config(), namespace='/config')
 
 
 @socketio.on('delete_bumper', namespace='/config')

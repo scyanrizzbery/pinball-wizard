@@ -127,13 +127,6 @@ const gradientStyle = computed(() => {
   transition: transform 0.3s ease, top 0.3s ease, right 0.3s ease;
 }
 
-@media (min-width: 1920px) {
-  .combo-toast {
-    transform: scale(1.3);
-    transform-origin: top right;
-  }
-}
-
 :global(:fullscreen) .combo-toast {
   transform: scale(1.5);
   transform-origin: top right;

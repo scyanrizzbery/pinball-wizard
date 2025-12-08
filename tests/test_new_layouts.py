@@ -27,7 +27,7 @@ class TestNewLayouts(unittest.TestCase):
                 self.assertGreater(len(sim.layout.rails), 10)
             elif filename == 'pachinko_style.json':
                 # Pachinko should have many bumpers (pins)
-                self.assertGreater(len(sim.bumpers), 10)
+                self.assertGreater(len(sim.layout.bumpers), 10)
                 # And minimal/no rails
                 self.assertLess(len(sim.layout.rails), 5)
 

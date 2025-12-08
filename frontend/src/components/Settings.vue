@@ -1,5 +1,5 @@
 <template>
-  <div id="physics-controls">
+  <div id="physics-controls" data-cy="settings-panel">
     <!-- Top Controls (Model, Layout, View) -->
     <div class="top-controls">
       <div class="control-group">
@@ -84,7 +84,7 @@
             <span>Table Tilt</span>
             <span>{{ formatNumber(physics.table_tilt, 1) }}°</span>
           </div>
-          <input type="range" min="-180.0" max="180.0" step="5" :value="physics.table_tilt"
+          <input type="range" min="0" max="20" step="0.1" :value="physics.table_tilt"
             @input="updatePhysics('table_tilt', parseFloat($event.target.value))">
         </div>
         <div class="slider-container">
@@ -276,136 +276,7 @@
       
 
 
-      <!-- Rail Group -->
-      <div class="group-header" @click="toggleGroup('rails')">
-        <span>Rail Settings</span>
-        <span class="arrow" :class="{ rotated: groupsExpanded.rails }">▼</span>
-      </div>
-      <div v-if="groupsExpanded.rails" class="group-content">
-        <div class="slider-container" style="justify-content: space-between; align-items: center;">
-          <div class="slider-label">
-            <span>Show Rail Debug (Yellow Lines)</span>
-          </div>
-          <input type="checkbox" :checked="physics.show_rail_debug" 
-            @change="updatePhysics('show_rail_debug', $event.target.checked)">
-        </div>
 
-          <div style="margin-bottom: 5px; margin-top: 15px; color: #999; font-size: 0.85em; border-top: 1px dashed #333; padding-top: 10px;">Rail Translation</div>
-          <div class="slider-container">
-              <div class="slider-label">
-                  <span>X Offset (Left/Right)</span>
-                  <span>{{ formatNumber(physics.rail_x_offset, 2) }}</span>
-              </div>
-              <input type="range" min="-1.0" max="1.0" step="0.01" :value="physics.rail_x_offset"
-                @input="updatePhysics('rail_x_offset', parseFloat($event.target.value))"
-                     :disabled="stats.is_training">
-          </div>
-          <div class="slider-container">
-              <div class="slider-label">
-                  <span>Y Offset (Up/Down)</span>
-                  <span>{{ formatNumber(physics.rail_y_offset, 2) }}</span>
-              </div>
-              <input type="range" min="-1.0" max="1.0" step="0.01" :value="physics.rail_y_offset"
-                @input="updatePhysics('rail_y_offset', parseFloat($event.target.value))"
-                     :disabled="stats.is_training">
-          </div>
-
-
-          <div style="margin-bottom: 5px; color: #999; font-size: 0.85em;">Left Rail Position</div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>Start X</span>
-            <span>{{ formatNumber(physics.rail_left_p1_x, 2) }}</span>
-          </div>
-          <input type="range" min="0.0" max="0.5" step="0.01" v-model.number="physics.rail_left_p1_x"
-            :disabled="stats.is_training">
-        </div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>Start Y</span>
-            <span>{{ formatNumber(physics.rail_left_p1_y, 2) }}</span>
-          </div>
-          <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_left_p1_y"
-            :disabled="stats.is_training">
-        </div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>End X</span>
-            <span>{{ formatNumber(physics.rail_left_p2_x, 2) }}</span>
-          </div>
-          <input type="range" min="0.0" max="0.5" step="0.01" v-model.number="physics.rail_left_p2_x"
-            :disabled="stats.is_training">
-        </div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>End Y</span>
-            <span>{{ formatNumber(physics.rail_left_p2_y, 2) }}</span>
-          </div>
-          <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_left_p2_y"
-            :disabled="stats.is_training">
-        </div>
-        
-        <div style="margin-bottom: 5px; margin-top: 10px; color: #999; font-size: 0.85em;">Right Rail Position</div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>Start X</span>
-            <span>{{ formatNumber(physics.rail_right_p1_x, 2) }}</span>
-          </div>
-          <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.rail_right_p1_x"
-            :disabled="stats.is_training">
-        </div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>Start Y</span>
-            <span>{{ formatNumber(physics.rail_right_p1_y, 2) }}</span>
-          </div>
-          <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_right_p1_y"
-            :disabled="stats.is_training">
-        </div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>End X</span>
-            <span>{{ formatNumber(physics.rail_right_p2_x, 2) }}</span>
-          </div>
-          <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.rail_right_p2_x"
-            :disabled="stats.is_training">
-        </div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>End Y</span>
-            <span>{{ formatNumber(physics.rail_right_p2_y, 2) }}</span>
-          </div>
-          <input type="range" min="0.0" max="1.0" step="0.01" v-model.number="physics.rail_right_p2_y"
-            :disabled="stats.is_training">
-        </div>
-        
-        <div style="margin-bottom: 5px; margin-top: 15px; color: #999; font-size: 0.85em; border-top: 1px dashed #333; padding-top: 10px;">Rail Transformations</div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>Thickness</span>
-            <span>{{ formatNumber(physics.guide_thickness, 1) }}</span>
-          </div>
-          <input type="range" min="5.0" max="50.0" step="1.0" v-model.number="physics.guide_thickness"
-            :disabled="stats.is_training">
-        </div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>Length Scale</span>
-            <span>{{ formatNumber(physics.guide_length_scale, 2) }}</span>
-          </div>
-          <input type="range" min="0.5" max="1.5" step="0.05" v-model.number="physics.guide_length_scale"
-            :disabled="stats.is_training">
-        </div>
-        <div class="slider-container">
-          <div class="slider-label">
-            <span>Angle Offset</span>
-            <span>{{ formatNumber(physics.guide_angle_offset, 1) }}°</span>
-          </div>
-          <input type="range" min="-45.0" max="45.0" step="1.0" :value="physics.guide_angle_offset"
-            @input="updatePhysics('guide_angle_offset', parseFloat($event.target.value))"
-            :disabled="stats.is_training">
-        </div>
-      </div>
 
       <!-- Combo Group -->
       <div class="group-header" @click="toggleGroup('combo')">
@@ -564,22 +435,23 @@
 
     <!-- Training Tab -->
     <div v-show="activeTab === 'training'" class="tab-content">
-      <div class="setting-group">
-        <label>Model Name</label>
-        <input type="text" v-model="trainingConfig.modelName" :disabled="stats.is_training"
-          style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
-      </div>
-      <div class="setting-group">
-        <label>Timesteps</label>
-        <input type="number" v-model="trainingConfig.timesteps" :disabled="stats.is_training"
-          style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
-      </div>
-      <div class="setting-group">
-        <label>Learning Rate</label>
-        <input type="number" v-model="trainingConfig.learningRate" step="0.0001" :disabled="stats.is_training"
-          style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
-      </div>
-
+        <div v-if="!stats.is_training">
+            <div class="setting-group">
+                <label>Model Name</label>
+                <input type="text" v-model="trainingConfig.modelName"
+                       style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
+            </div>
+            <div class="setting-group">
+                <label>Timesteps</label>
+                <input type="number" v-model="trainingConfig.timesteps"
+                       style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
+            </div>
+            <div class="setting-group">
+                <label>Learning Rate</label>
+                <input type="number" v-model="trainingConfig.learningRate" step="0.0001"
+                       style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
+            </div>
+        </div>
       <div v-if="stats.is_training" style="margin-top: 15px;">
         <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9em; color: #ccc;">
           <span>Progress <span v-if="stats.model_name" style="color: #4caf50;">({{ stats.model_name }})</span></span>
@@ -633,8 +505,11 @@
       </div>
 
       <div v-if="stats.is_training" style="margin-top: 20px; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
-        <h4 style="margin: 0 0 10px 0; color: #ccc; font-size: 0.9em;">Training Metrics</h4>
-        <highcharts :options="trainingChartOptions" ref="trainingChart" style="width:100%; height:250px;"></highcharts>
+        <h4 style="margin: 0 0 10px 0; color: #4caf50; font-size: 0.9em;">Performance</h4>
+        <highcharts :options="performanceChartOptions" style="width:100%; height:200px;"></highcharts>
+
+        <h4 style="margin: 15px 0 10px 0; color: #f44336; font-size: 0.9em;">Loss Functions</h4>
+        <highcharts :options="lossChartOptions" style="width:100%; height:200px;"></highcharts>
       </div>
 
       <div style="margin-top: auto; padding-top: 20px; display: flex; gap: 10px;">
@@ -712,9 +587,9 @@ const savePresetAs = () => {
 }
 
 const groupsExpanded = reactive({
-  ball: false,
+  ball: true,
   flipper: false,
-  rails: false,
+
   zones: false,
   combo: false,
   tilt: false,
@@ -773,15 +648,18 @@ const trainingChartData = reactive({
   loss: [],
   entropy_loss: [],
   value_loss: [],
+  policy_loss: [],
   explained_variance: [],
   updateCount: 0 // Track updates for sampling
 })
 
-const trainingChartOptions = computed(() => ({
+// 1. Performance Chart (Reward / Explained Variance)
+const performanceChartOptions = computed(() => ({
   chart: {
     type: 'line',
     backgroundColor: 'transparent',
-    animation: false
+    animation: false,
+    height: 200
   },
   title: { text: null },
   credits: { enabled: false },
@@ -797,42 +675,17 @@ const trainingChartOptions = computed(() => ({
       labels: { style: { color: '#4caf50' } },
       gridLineColor: '#333'
     },
-    { // Secondary Y-axis (Loss)
-      title: { text: 'Loss', style: { color: '#f44336' } },
-      labels: { style: { color: '#f44336' } },
+    { // Secondary Y-axis (Expl Var)
+      title: { text: 'Expl. Var', style: { color: '#9c27b0' } },
+      labels: { style: { color: '#9c27b0' } },
       opposite: true,
-      gridLineColor: '#333'
+      gridLineColor: '#333',
+      max: 1.0,
+      min: 0.0
     }
   ],
-  legend: {
-    itemStyle: { color: '#ccc' },
-    itemHoverStyle: { color: '#fff' }
-  },
-  tooltip: {
-    shared: true,
-    backgroundColor: '#1a1a1a',
-    borderColor: '#444',
-    style: { color: '#ccc' }
-  },
-  plotOptions: {
-    line: {
-      marker: { 
-        enabled: false,
-        states: {
-          hover: {
-            enabled: true,
-            radius: 4
-          }
-        }
-      },
-      lineWidth: 2,
-      states: {
-        hover: {
-          lineWidthPlus: 1
-        }
-      }
-    }
-  },
+  legend: { itemStyle: { color: '#ccc' } },
+  tooltip: { shared: true, backgroundColor: '#1a1a1a', style: { color: '#ccc' } },
   series: [
     {
       name: 'Mean Reward',
@@ -841,35 +694,74 @@ const trainingChartOptions = computed(() => ({
       yAxis: 0
     },
     {
-      name: 'Loss',
+      name: 'Explained Variance',
+      data: trainingChartData.explained_variance,
+      color: '#9c27b0',
+      yAxis: 1
+    }
+  ]
+}))
+
+// 2. Loss Chart (Value / Policy / Entropy / Total)
+const lossChartOptions = computed(() => ({
+  chart: {
+    type: 'line',
+    backgroundColor: 'transparent',
+    animation: false,
+    height: 200
+  },
+  title: { text: null },
+  credits: { enabled: false },
+  time: { useUTC: false },
+  xAxis: {
+    type: 'datetime',
+    gridLineColor: '#333',
+    labels: { style: { color: '#999' } }
+  },
+  yAxis: { 
+      title: { text: 'Loss', style: { color: '#f44336' } },
+      labels: { style: { color: '#f44336' } },
+      gridLineColor: '#333'
+  },
+  legend: { itemStyle: { color: '#ccc' } },
+  tooltip: { shared: true, backgroundColor: '#1a1a1a', style: { color: '#ccc' } },
+  series: [
+    {
+      name: 'Loss (Total)',
       data: trainingChartData.loss,
       color: '#f44336',
-      yAxis: 1
-    },
-    {
-      name: 'Entropy Loss',
-      data: trainingChartData.entropy_loss,
-      color: '#ff9800',
-      yAxis: 1
     },
     {
       name: 'Value Loss',
       data: trainingChartData.value_loss,
       color: '#2196f3',
-      yAxis: 1
     },
     {
-      name: 'Explained Variance',
-      data: trainingChartData.explained_variance,
-      color: '#9c27b0',
-      yAxis: 0
+      name: 'Policy Loss',
+      data: trainingChartData.policy_loss,
+      color: '#ff9800',
+    },
+    {
+      name: 'Entropy',
+      data: trainingChartData.entropy_loss,
+      color: '#ffeb3b',
     }
   ]
 }))
 
 // Watch for stats updates and add to chart
 watch(() => props.stats, (newStats) => {
-  if (newStats.is_training && newStats.current_step) {
+    // Clear chart data when training stops
+  if (!newStats.is_training && trainingChartData.mean_reward.length > 0) {
+    trainingChartData.timestamps = []
+    trainingChartData.mean_reward = []
+    trainingChartData.loss = []
+    trainingChartData.entropy_loss = []
+    trainingChartData.value_loss = []
+    trainingChartData.policy_loss = []
+    trainingChartData.explained_variance = []
+    trainingChartData.updateCount = 0
+  } else if (newStats.is_training && newStats.current_step) {
     trainingChartData.updateCount++
     
     // Sample every 5th update to keep chart lightweight
@@ -880,32 +772,25 @@ watch(() => props.stats, (newStats) => {
     const timestamp = Date.now()
     
     // Add sampled data points
-    if (newStats.ep_rew_mean !== undefined) {
-      trainingChartData.mean_reward.push([timestamp, newStats.ep_rew_mean || 0])
+    // Use || 0 to prevent NaN/undefined from breaking charts
+    trainingChartData.mean_reward.push([timestamp, newStats.ep_rew_mean || 0])
+    trainingChartData.explained_variance.push([timestamp, newStats.explained_variance || 0])
+    
+    trainingChartData.loss.push([timestamp, newStats.loss || 0])
+    trainingChartData.value_loss.push([timestamp, newStats.value_loss || 0])
+    trainingChartData.policy_loss.push([timestamp, newStats.policy_gradient_loss || 0])
+    trainingChartData.entropy_loss.push([timestamp, newStats.entropy_loss || 0])
+    
+    // Limit data points
+    const maxDataPoints = 100
+    if (trainingChartData.mean_reward.length > maxDataPoints) {
+        trainingChartData.mean_reward.shift()
+        trainingChartData.explained_variance.shift()
+        trainingChartData.loss.shift()
+        trainingChartData.value_loss.shift()
+        trainingChartData.policy_loss.shift()
+        trainingChartData.entropy_loss.shift()
     }
-    if (newStats.loss !== undefined) {
-      trainingChartData.loss.push([timestamp, newStats.loss || 0])
-    }
-    if (newStats.entropy_loss !== undefined) {
-      trainingChartData.entropy_loss.push([timestamp, newStats.entropy_loss || 0])
-    }
-    if (newStats.value_loss !== undefined) {
-      trainingChartData.value_loss.push([timestamp, newStats.value_loss || 0])
-    }
-    if (newStats.explained_variance !== undefined) {
-      trainingChartData.explained_variance.push([timestamp, newStats.explained_variance || 0])
-    }
-  }
-  
-  // Clear chart data when training stops
-  if (!newStats.is_training && trainingChartData.mean_reward.length > 0) {
-    trainingChartData.timestamps = []
-    trainingChartData.mean_reward = []
-    trainingChartData.loss = []
-    trainingChartData.entropy_loss = []
-    trainingChartData.value_loss = []
-    trainingChartData.explained_variance = []
-    trainingChartData.updateCount = 0
   }
 }, { deep: true })
 

@@ -115,7 +115,6 @@ const highScoreReels = computed(() => getReelItems(props.highScore, 7))
   flex-direction: row; /* Horizontal layout */
   justify-content: center;
   align-items: flex-start; /* Align top */
-  gap: 20px;
   width: auto;
   pointer-events: none;
   background: rgba(0, 0, 0, 0.5); /* Semi-transparent background for legibility */
@@ -144,6 +143,7 @@ const highScoreReels = computed(() => getReelItems(props.highScore, 7))
   flex-direction: column;
   align-items: center;
   position: relative;
+  transform: scale(.9);
 }
 
 .main-score {

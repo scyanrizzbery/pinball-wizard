@@ -64,8 +64,9 @@ class TestRewardShaping(unittest.TestCase):
         # Step
         _, reward, _, _, _ = self.env.step(0)
         
-        # Expect (500/5000) + 0.001 = 0.101
-        self.assertAlmostEqual(reward, 0.101)
+        # Expect log1p(500) * 0.1 = 6.216 * 0.1 = 0.622
+        # Plus base survival (~0.001) -> ~0.623
+        self.assertAlmostEqual(reward, 0.623, places=2)
 
     def test_loss_penalty(self):
         # Mock ball lost (y > height * 0.98)
@@ -127,12 +128,12 @@ class TestRewardShaping(unittest.TestCase):
         _, reward, _, _, _ = self.env.step(0)
         
         # Expected rewards:
-        # - Score: 400 / 5000 = 0.08
-        # - Survival: 0.001
-        # - Combo: 0.02 * 4 = 0.08
-        # - Multiplier bonus: (4.0 - 1.0) * 0.005 = 0.015
-        # Total: 0.08 + 0.001 + 0.08 + 0.015 = 0.176
-        self.assertAlmostEqual(reward, 0.176, places=3)
+        # - Score: log1p(400) * 0.1 = 5.99 * 0.1 ≈ 0.599
+        # - Survival: 0.001 (approx)
+        # - Combo: 0.1 * 4 = 0.4
+        # - Multiplier bonus: (4.0 - 1.0) * 0.5 = 1.5
+        # Total: 0.599 + 0.001 + 0.4 + 1.5 ≈ 2.500
+        self.assertAlmostEqual(reward, 2.500, places=2)
 
 if __name__ == '__main__':
     unittest.main()

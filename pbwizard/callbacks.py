@@ -58,24 +58,31 @@ class WebStatsCallback(BaseCallback):
         # A more robust way for immediate feedback might be to track it ourselves 
         # or rely on what SB3 exposes.
         
-        # Let's check if we can get the last episode reward from the monitor wrapper if present
-        # Or just use the safe_mean from the logger if available
-        
-        # For now, let's just send the timesteps. 
-        # To get ep_rew_mean, we usually need to wait for the end of an episode or log interval.
-        
-        # However, we can check self.locals['infos'] for 'episode' key which Monitor wrapper adds
+        if hasattr(self.logger, 'name_to_value'):
+            # Extract training metrics from SB3 logger
+            stats['explained_variance'] = self.logger.name_to_value.get('train/explained_variance', 0.0)
+            stats['loss'] = self.logger.name_to_value.get('train/loss', 0.0)
+            stats['value_loss'] = self.logger.name_to_value.get('train/value_loss', 0.0)
+            stats['policy_gradient_loss'] = self.logger.name_to_value.get('train/policy_gradient_loss', 0.0)
+            stats['entropy_loss'] = self.logger.name_to_value.get('train/entropy_loss', 0.0)
+            
+            # Prefer smoothed mean reward if available
+            if 'rollout/ep_rew_mean' in self.logger.name_to_value:
+                stats['ep_rew_mean'] = self.logger.name_to_value['rollout/ep_rew_mean']
+
+        # Check for episode completion to update game count
         for info in self.locals.get('infos', []):
             if 'episode' in info:
                 self.games_played += 1
-                stats['mean_reward'] = info['episode']['r'] # Last episode reward
+                # We can still send the raw last episode reward if needed, but the logger mean is better for charts
+                # stats['last_reward'] = info['episode']['r'] 
                 stats['length'] = info['episode']['l']
                 stats['games_played'] = self.games_played
                 
-                # Update wrapper
+                # Update wrapper (intermediate update for responsiveness)
                 self.vision_wrapper.update_training_stats(stats)
                 
         # Also update timesteps every step
-        self.vision_wrapper.update_training_stats({'timesteps': self.num_timesteps})
+        self.vision_wrapper.update_training_stats(stats)
         
         return True

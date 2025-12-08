@@ -19,15 +19,16 @@ class TestRailBaking(unittest.TestCase):
         
         layout = PinballLayout(config=config)
         
-        # Check if offsets are baked
-        self.assertAlmostEqual(layout.rails[0]['p1']['x'], 0.6)
-        self.assertAlmostEqual(layout.rails[0]['p1']['y'], 0.6)
-        self.assertAlmostEqual(layout.rails[0]['p2']['x'], 0.7)
-        self.assertAlmostEqual(layout.rails[0]['p2']['y'], 0.7)
+        # Check if offsets are PERSISTED (not baked)
+        # Rails should remain as defined
+        self.assertAlmostEqual(layout.rails[0]['p1']['x'], 0.1)
+        self.assertAlmostEqual(layout.rails[0]['p1']['y'], 0.1)
+        self.assertAlmostEqual(layout.rails[0]['p2']['x'], 0.2)
+        self.assertAlmostEqual(layout.rails[0]['p2']['y'], 0.2)
         
-        # Check if offsets are reset
-        self.assertEqual(layout.rail_x_offset, 0.0)
-        self.assertEqual(layout.rail_y_offset, 0.0)
+        # Offsets should be stored
+        self.assertEqual(layout.rail_x_offset, 0.5)
+        self.assertEqual(layout.rail_y_offset, 0.5)
 
 if __name__ == "__main__":
     unittest.main()

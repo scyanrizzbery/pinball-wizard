@@ -365,6 +365,14 @@ class PinballLayout:
             if 'rail_y_offset' in self.physics_params:
                 self.rail_y_offset = self.physics_params['rail_y_offset']
 
+        # Also load offsets from root config if present (overrides physics if both exist? or fallback?)
+        # Let's check root if not in physics, or overwrite. 
+        # Persistence saves to root.
+        if 'rail_x_offset' in config:
+            self.rail_x_offset = config['rail_x_offset']
+        if 'rail_y_offset' in config:
+            self.rail_y_offset = config['rail_y_offset']
+
         if 'captures' in config:
             self.captures = config['captures']
             
@@ -625,6 +633,69 @@ class SimulatedFrameCapture(FrameCapture):
         # Load available layouts from disk
         self._load_available_layouts()
 
+    def update_rails(self, rails_data):
+        """Update rails from frontend editor."""
+        self.layout.rails = rails_data
+        if self.physics_engine:
+            self.physics_engine.layout.rails = rails_data
+            self.physics_engine._rebuild_rails()
+            logger.info(f"Updated rails: {len(rails_data)} rails")
+
+    def update_zones(self, zones_data):
+        """Update zones from frontend editor."""
+        self.layout.zones = zones_data
+        # Zones are mostly logical/visual, but used for Agent input.
+        # Physics engine doesn't track zones directly (yet), main loop does.
+        # But if we persist them to layout, they are safe.
+        logger.info(f"Updated zones: {len(zones_data)} zones")
+
+    def update_bumpers(self, bumpers_data):
+        """Update bumpers from frontend editor."""
+        self.layout.bumpers = bumpers_data
+        if self.physics_engine and hasattr(self.physics_engine, 'update_bumpers'):
+            self.physics_engine.update_bumpers(bumpers_data)
+            logger.info(f"Updated physics bumpers: {len(bumpers_data)} bumpers")
+        else:
+            logger.warning("Physics engine update_bumpers not available")
+
+    def create_rail(self, rail_data):
+        """Create a new rail."""
+        if not hasattr(self.layout, 'rails') or self.layout.rails is None:
+            self.layout.rails = []
+        
+        self.layout.rails.append(rail_data)
+        self.update_rails(self.layout.rails)
+        logger.info("Created new rail")
+
+    def delete_rail(self, index):
+        """Delete a rail by index."""
+        if hasattr(self.layout, 'rails') and self.layout.rails:
+            if 0 <= index < len(self.layout.rails):
+                self.layout.rails.pop(index)
+                self.update_rails(self.layout.rails)
+                logger.info(f"Deleted rail {index}")
+            else:
+                logger.error(f"Invalid rail index {index}")
+
+    def create_bumper(self, bumper_data):
+        """Create a new bumper."""
+        if not hasattr(self.layout, 'bumpers') or self.layout.bumpers is None:
+            self.layout.bumpers = []
+            
+        self.layout.bumpers.append(bumper_data)
+        self.update_bumpers(self.layout.bumpers)
+        logger.info("Created new bumper")
+
+    def delete_bumper(self, index):
+        """Delete a bumper by index."""
+        if hasattr(self.layout, 'bumpers') and self.layout.bumpers:
+            if 0 <= index < len(self.layout.bumpers):
+                self.layout.bumpers.pop(index)
+                self.update_bumpers(self.layout.bumpers)
+                logger.info(f"Deleted bumper {index}")
+            else:
+                logger.error(f"Invalid bumper index {index}")
+
     @property
     def available_layouts(self):
         """Return dictionary of available layouts for the frontend."""
@@ -844,7 +915,19 @@ class SimulatedFrameCapture(FrameCapture):
              self.tilt_threshold = float(params['tilt_threshold'])
 
     def load_layout(self, layout_name):
-        """Load a layout by name from the layouts directory."""
+        """Load a layout by name (str) OR dictionary config."""
+        if isinstance(layout_name, dict):
+            try:
+                self.layout = PinballLayout(config=layout_name)
+                self.current_layout_id = layout_name.get('name', 'custom')
+                self._init_physics()
+                # self._load_available_layouts() # Not needed for custom dict
+                logger.info(f"Successfully loaded custom layout from dict")
+                return True
+            except Exception as e:
+                 logger.error(f"Failed to load custom layout: {e}")
+                 return False
+
         layouts_dir = 'layouts'
         filename = f"{layout_name}.json"
         filepath = os.path.join(layouts_dir, filename)
@@ -1139,6 +1222,31 @@ class SimulatedFrameCapture(FrameCapture):
             
         self._init_physics()
 
+    def nudge_left(self):
+        """Apply nudge force to the left (pushes table left, ball moves right)."""
+        if self.physics_engine:
+            # Table moves Left -> Ball moves Right (+X)
+            # We also typically nudge "forward" (Up table, -Y)
+            self.physics_engine.nudge(1.0, -0.5)
+
+    def nudge_right(self):
+        """Apply nudge force to the right (pushes table right, ball moves left)."""
+        if self.physics_engine:
+            self.physics_engine.nudge(-1.0, -0.5)
+
+    def nudge_up(self):
+        """Apply forward nudge."""
+        if self.physics_engine:
+            self.physics_engine.nudge(0.0, 1.0)
+
+    def alien_nudge(self):
+        """Apply a random 'alien' nudge that doesn't count towards tilt."""
+        if self.physics_engine:
+             # Random shake
+             dx = random.choice([-1.0, 1.0])
+             dy = random.choice([-0.5, 0.5, 1.0])
+             self.physics_engine.nudge(dx, dy, check_tilt=False)
+
     def start(self):
         self.running = True
         self.thread = threading.Thread(target=self._capture_loop)
@@ -1209,6 +1317,10 @@ class SimulatedFrameCapture(FrameCapture):
             
             # Sync Drop Targets
             self.drop_target_states = self.physics_engine.drop_target_states
+            
+            # Sync Tilt State
+            self.is_tilted = self.physics_engine.is_tilted
+            self.tilt_value = getattr(self.physics_engine, 'tilt_value', 0.0)
             
             # Sync Flipper Angles from physics engine
             if hasattr(self.physics_engine, 'flippers') and self.physics_engine.flippers:
@@ -1369,6 +1481,7 @@ class SimulatedFrameCapture(FrameCapture):
             },
             'drop_targets': self.drop_target_states,
             'is_tilted': self.is_tilted,
+            'tilt_value': self.tilt_value,
             'nudge': {'x': self.nudge_x, 'y': self.nudge_y},
             'bumper_states': getattr(self.physics_engine, 'bumper_states', []) if self.physics_engine else [],
             'plunger': {

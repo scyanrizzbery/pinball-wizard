@@ -7,6 +7,8 @@ A reinforcement learning agent for playing pinball.
 - **Zone Visualization**: Visual feedback of the AI's flipper activation zones.
 - **Manual Play Mode**: Test the physics and controls yourself via the web interface.
 - **Dynamic Physics Config**: Adjust gravity, friction, ball mass, and flipper mechanics on the fly.
+- **Rail Editor**: Built-in 3D editor to add/move rails and bumpers directly in the browser.
+- **High Score System**: Track your best games with visual celebrations and fireworks.
 - **Layout Persistence**: Physics settings are automatically saved and loaded for each specific table layout.
 - **Fullscreen Mode**: Playfield-only fullscreen mode for an immersive experience.
 
@@ -56,6 +58,8 @@ docker compose run --rm -p 5000:5000 pinball-bot python main.py
     - `z`: Left Flipper
     - `/`: Right Flipper
     - `Space`: Launch Ball
+    - `Left Shift`: Nudge Left
+    - `Right Shift`: Nudge Right
 
 ### 3. Real Hardware Mode
 To run on a Raspberry Pi connected to a pinball machine:

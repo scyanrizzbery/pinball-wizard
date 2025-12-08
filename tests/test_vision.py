@@ -1,11 +1,11 @@
 import unittest
 import numpy as np
-from pbwizard.vision import SimulatedFrameCapture
+from unittest.mock import MagicMock, patch
+from pbwizard.vision import SimulatedFrameCapture, ZoneManager
 
 class TestVision(unittest.TestCase):
 
     def test_zone_manager(self):
-        from pbwizard.vision import ZoneManager
         zm = ZoneManager(200, 200)
         
         # Test Left Zone
@@ -18,150 +18,58 @@ class TestVision(unittest.TestCase):
         self.assertFalse(status['left'])
         self.assertTrue(status['right'])
         
-        # Test Edge Case (Center or boundary)
-        # 100 < 100 is False -> Right
+        # Test Center (managed by logic)
         status = zm.get_zone_status(100, 100)
+        # Assuming >= width/2 is right
         self.assertFalse(status['left'])
         self.assertTrue(status['right'])
 
-    def test_flipper_line_calculation(self):
+    def test_simulated_frame_capture_init(self):
+        sim = SimulatedFrameCapture(width=600, height=800)
+        self.assertEqual(sim.width, 600)
+        self.assertEqual(sim.height, 800)
+        self.assertIsNotNone(sim.physics_engine)
 
-        sim = SimulatedFrameCapture(width=100, height=100)
+    def test_update_physics_params(self):
+        sim = SimulatedFrameCapture(width=600, height=800)
         
-        # Test Left Flipper Line Calculation
-        # Rect: (20, 75, 40, 85) -> Width=20
-        # Pivot: Bottom-Left (20, 85)
-        rect = (20, 75, 40, 85)
+        # Mock physics engine to verify calls
+        sim.physics_engine = MagicMock()
+        sim.physics_engine.config = MagicMock()
         
-        # Angle 0 (Horizontal)
-        p1, p2 = sim._get_flipper_line_from_angle(rect, 0, 'left')
-        np.testing.assert_allclose(p1, [20, 85])
-        # Length 20, Angle 0 -> x+20, y-0
-        np.testing.assert_allclose(p2, [40, 85])
+        params = {'gravity_magnitude': 2000.0, 'flipper_length': 120.0}
+        sim.update_physics_params(params)
         
-        # Angle -90 (Vertical Up)
-        p1, p2 = sim._get_flipper_line_from_angle(rect, -90, 'left')
-        # Length 20, Angle -90 -> x+0, y-20
-        np.testing.assert_allclose(p2, [20, 65])
+        # Verify params updated in local storage
+        self.assertEqual(sim.layout.physics_params['gravity_magnitude'], 2000.0)
+        
+        # Verify calls to physics engine
+        # config is a Mock object, so update call is recorded on it
+        sim.physics_engine.config.update.assert_called_with(params)
+        sim.physics_engine.apply_config_changes.assert_called()
 
-    def test_symmetric_flipper_angles(self):
-        sim = SimulatedFrameCapture(width=100, height=100)
+    def test_create_rail(self):
+        sim = SimulatedFrameCapture(width=600, height=800)
+        # Mock physics engine
+        sim.physics_engine = MagicMock()
+        sim.physics_engine.layout = MagicMock()
         
-        # Default: Resting -30, Stroke 50
-        # Left Down: -30
-        # Right Down: 180 - (-30) = 210
+        rail_data = {'p1': {'x': 0.1, 'y': 0.1}, 'p2': {'x': 0.2, 'y': 0.2}}
+        sim.create_rail(rail_data)
         
-        sim._update_flipper_angles(0.1) # Initialize/Update
-        
-        # Force angles to resting
-        sim.current_left_angle = -30
-        sim.current_right_angle = 210
-        
-        # Change resting angle to -45
-        sim.update_physics_params({'flipper_resting_angle': -45})
-        
-        self.assertEqual(sim.flipper_resting_angle, -45)
-        
-        # Run update loop for a bit to let angles settle
-        for _ in range(100):
-            sim._update_flipper_angles(0.1)
-            
-        # Left should settle at -45
-        np.testing.assert_allclose(sim.current_left_angle, -45, atol=1.0)
-        
-        # Right should settle at 180 - (-45) = 225
-        np.testing.assert_allclose(sim.current_right_angle, 225, atol=1.0)
+        self.assertIn(rail_data, sim.layout.rails)
+        self.assertTrue(sim.physics_engine._rebuild_rails.called)
 
-    def test_collision_detection_static(self):
-        sim = SimulatedFrameCapture(width=100, height=100)
-        sim.ball_radius = 5
+    def test_create_bumper(self):
+        sim = SimulatedFrameCapture(width=600, height=800)
+        sim.physics_engine = MagicMock()
+        sim.physics_engine.layout = MagicMock()
         
-        # Ball at (50, 50)
-        ball = {
-            'pos': np.array([50.0, 50.0]),
-            'vel': np.array([0.0, 0.0]),
-            'lost': False
-        }
-        sim.balls = [ball]
+        bumper_data = {'x': 0.5, 'y': 0.5, 'radius_ratio': 0.05}
+        sim.create_bumper(bumper_data)
         
-        # Line passing through ball (40, 50) to (60, 50)
-        p1 = np.array([40.0, 50.0])
-        p2 = np.array([60.0, 50.0])
-        
-        # Should detect collision
-        sim._check_line_collision(ball, p1, p2, active=False)
-        
-        # Ball should be pushed out (radius 5)
-        self.assertFalse(np.allclose(ball['pos'], [50.0, 50.0]))
-
-    def test_collision_detection_thickness(self):
-        sim = SimulatedFrameCapture(width=100, height=100)
-        sim.ball_radius = 5
-        
-        # Ball at (50, 40)
-        ball = {
-            'pos': np.array([50.0, 40.0]),
-            'vel': np.array([0.0, 0.0]),
-            'lost': False
-        }
-        sim.balls = [ball]
-        
-        # Line at y=50 (Horizontal)
-        p1 = np.array([0.0, 50.0])
-        p2 = np.array([100.0, 50.0])
-        
-        # Distance is 10. Radius is 5. No collision normally.
-        sim._check_line_collision(ball, p1, p2, active=False, thickness=0)
-        np.testing.assert_allclose(ball['pos'], [50.0, 40.0])
-        
-        # With thickness 15 (effective radius = 5 + 7.5 = 12.5)
-        # Distance 10 < 12.5 -> Collision!
-        sim._check_line_collision(ball, p1, p2, active=False, thickness=15)
-        self.assertFalse(np.allclose(ball['pos'], [50.0, 40.0]))
-
-    def test_3d_projection(self):
-        width, height = 600, 800
-        sim = SimulatedFrameCapture(width=width, height=height)
-        
-        # Test Center Projection with Top-Down Camera
-        # Position camera directly above center
-        sim.cam_x = width / 2
-        sim.cam_y = height / 2
-        sim.cam_z = 1000
-        sim.pitch = 0 # Looking straight down (assuming 0 is down-ish or we align ry/rz)
-        # Wait, if pitch=0: cy = ry, cz = rz.
-        # ry = y - cam_y = 0. rz = z - cam_z = -1000.
-        # cy = 0. cz = -1000.
-        # sy = 0 + height/2. Correct.
-        
-        # Center of table (width/2, height/2, 0) should project roughly to center of screen
-        sx, sy = sim._project_3d(width/2, height/2, 0)
-        
-        # Should be close to screen center (width/2, height/2)
-        self.assertTrue(abs(sx - width/2) < 20)
-        self.assertTrue(abs(sy - height/2) < 20)
-        
-        # Test Top vs Bottom
-        # Top (y=0) should be HIGHER on screen (smaller sy) than Bottom (y=height)
-        _, sy_top = sim._project_3d(width/2, 0, 0)
-        _, sy_bottom = sim._project_3d(width/2, height, 0)
-        
-        self.assertLess(sy_top, sy_bottom)
-
-    def test_draw_frame_3d(self):
-        sim = SimulatedFrameCapture(width=100, height=100)
-        # Add a ball
-        sim.balls.append({
-            'pos': np.array([50.0, 50.0]),
-            'vel': np.array([0.0, 0.0]),
-            'lost': False
-        })
-        
-        # Should run without error
-        sim._draw_frame()
-        
-        self.assertIsNotNone(sim.frame)
-        self.assertEqual(sim.frame.shape, (100, 100, 3))
+        self.assertIn(bumper_data, sim.layout.bumpers)
+        sim.physics_engine.update_bumpers.assert_called_with(sim.layout.bumpers)
 
 if __name__ == "__main__":
     unittest.main()

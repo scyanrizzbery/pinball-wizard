@@ -46,19 +46,19 @@ const fillPercentage = computed(() => {
 <style scoped>
 .highscore-bar-container {
   position: absolute;
-  right: 10px;
-  top: 10%;
-  bottom: 15%;
-  width: 12px;
+  right: -30px;
+  top: 5%;
+  bottom: 5%;
+  width: 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
   z-index: 10;
-  pointer-events: none;
+  pointer-events: auto; /* Allow tooltips if we add them */
 }
 
 .highscore-bar-container.fullscreen {
-  right: 40px; /* More padding in fullscreen */
+  right: 10px; /* Inside in fullscreen? Or still outside? Keep inside for fullscreen usually */
   width: 20px;
 }
 

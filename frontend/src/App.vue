@@ -33,6 +33,7 @@
           :cameraMode="viewMode === '3d' ? 'perspective' : 'top-down'"
           :autoStartEnabled="toggles.autoStart"
           :showFlipperZones="showFlipperZones"
+          :connectionError="connectionError"
           @toggle-view="toggleViewMode"
           @toggle-fullscreen="toggleFullscreen"
         />
@@ -129,6 +130,7 @@ const sockets = {
 }
 provide('sockets', sockets)
 const connected = ref(false)
+const connectionError = ref(false)
 const videoSrc = ref('')
 const logs = ref([])
 const activeKeys = reactive(new Set())
@@ -183,7 +185,9 @@ const stats = reactive({
   score_multiplier: 1.0,
   combo_active: true,
   hash: null,
-  seed: null
+  seed: null,
+  last_score: 0, // Track last game score
+  game_over: false 
 })
 
 const isSimulation = computed(() => stats.is_simulation || false)
@@ -278,15 +282,27 @@ const updateDifficulty = (difficulty) => {
 }
 
 const handleInput = (key, type) => {
-  if (stats.is_training) return // Block input during training
-
   // Update button state immediately for visual feedback
   if (type === 'down') {
     if (key === 'KeyZ') buttonStates.left = true
     if (key === 'Slash') buttonStates.right = true
-    if (key === 'Space') buttonStates.launch = true
-    if (key === 'ShiftLeft') buttonStates.nudgeLeft = true
-    if (key === 'ShiftRight') buttonStates.nudgeRight = true
+    if (key === 'Space') {
+      buttonStates.launch = true
+      // Manual Start: If game is over or not started (0 balls), start new game
+      if (stats.game_over || (stats.balls === 0 && stats.ball_count === 0)) {
+        console.log('[Manual Start] Space pressed, starting new game...')
+        startNewGame()
+        return // Don't send input event for start
+      }
+    }
+    if (key === 'ShiftLeft') {
+      buttonStates.nudgeLeft = true
+      nudgeEvent.value = { direction: 'left', time: Date.now() }
+    }
+    if (key === 'ShiftRight') {
+      buttonStates.nudgeRight = true
+      nudgeEvent.value = { direction: 'right', time: Date.now() }
+    }
   } else {
     if (key === 'KeyZ') buttonStates.left = false
     if (key === 'Slash') buttonStates.right = false
@@ -322,13 +338,19 @@ const startNewGame = () => {
   addLog('Starting new game...')
 
   // Play Close Encounters motif if we just had a good game (score > 5000)
+  // Play Close Encounters motif if we just had a good game (score > 5000)
   if (stats.score > 5000) {
     console.log('🛸 Playing Close Encounters welcome for new game!')
     setTimeout(() => {
+      // Use global callback (automatically handled by SoundManager)
       SoundManager.playCloseEncounters()
     }, 500) // Slight delay for dramatic effect
   }
 
+
+  
+  stats.game_over = false // Reset game over flag
+  stats.score = 0 // Reset score visually immediately
   sockets.control.emit('start_game')
 }
 
@@ -352,6 +374,7 @@ const handleSaveLayout = () => {
 }
 
 const startTraining = (config) => {
+
   try {
     addLog(`Starting training: ${config.modelName}`)
     if (!sockets.training.connected) {
@@ -363,8 +386,11 @@ const startTraining = (config) => {
       total_timesteps: config.timesteps,
       learning_rate: config.learningRate,
       layout: config.layout,
-      physics: config.physics
+      physics: config.physics,
     })
+
+    addLog('Auto-start Disabled (Training Started)')
+
   } catch (e) {
     addLog(`Error starting training: ${e.message}`)
   }
@@ -431,32 +457,46 @@ const savePreset = (name, config) => {
 }
 
 const handleZoneUpdate = (newZones) => {
-  console.log("Zone update:", newZones)
+  // console.log("Zone update:", newZones)
   physics.zones = newZones
   if (layoutConfig.value) layoutConfig.value.zones = newZones
   hasUnsavedChanges.value = true
+  
+  if (debounceTimers.zones) clearTimeout(debounceTimers.zones)
+  debounceTimers.zones = setTimeout(() => {
+    sockets.config.emit('update_zones', physics.zones)
+  }, 300)
 }
 
 const handleRailUpdate = (newRails) => {
-  console.log("Rail update:", newRails)
+  // console.log("Rail update:", newRails)
   physics.rails = newRails
   if (layoutConfig.value) layoutConfig.value.rails = newRails
   hasUnsavedChanges.value = true
-  sockets.config.emit('update_rails', physics.rails)
+  
+  if (debounceTimers.rails) clearTimeout(debounceTimers.rails)
+  debounceTimers.rails = setTimeout(() => {
+      sockets.config.emit('update_rails', physics.rails)
+  }, 300)
 }
 
 const handleBumperUpdate = (newBumpers) => {
-  console.log("Bumper update:", newBumpers)
+  // console.log("Bumper update:", newBumpers)
   physics.bumpers = newBumpers
   if (layoutConfig.value) layoutConfig.value.bumpers = newBumpers
   hasUnsavedChanges.value = true
+  
+  if (debounceTimers.bumpers) clearTimeout(debounceTimers.bumpers)
+  debounceTimers.bumpers = setTimeout(() => {
+    sockets.config.emit('update_bumpers', physics.bumpers)
+  }, 300)
 }
 
 const handleResetZones = () => {
   console.log("Reset zones")
   physics.zones = []
   hasUnsavedChanges.value = true
-  sockets.config.emit('update_bumpers', physics.bumpers)
+  sockets.config.emit('update_zones', [])
 }
 
 const saveChanges = () => {
@@ -523,7 +563,18 @@ watch(() => stats.ball_count, (newCount, oldCount) => {
       // console.log('[Ball Count Watch] GAME OVER! Starting new game in 3 seconds...')
       if (stats.score > 0) {
         addLog(`Game Over! Final Score: ${stats.score}`)
+        stats.last_score = stats.score // Save last score
+        
+        // Check for High Score
+        if (stats.score > stats.high_score) {
+            stats.high_score = stats.score
+            stats.is_high_score = true
+            addLog(`NEW HIGH SCORE: ${stats.score}!`)
+        } else {
+            stats.is_high_score = false
+        }
       }
+      stats.game_over = true // Set game over flag
 
       // Auto-start new game after game over
       setTimeout(() => {
@@ -531,7 +582,7 @@ watch(() => stats.ball_count, (newCount, oldCount) => {
           // console.log('[Ball Count Watch] Starting new game after game over...')
           startNewGame()
         }
-      }, 3000)
+      }, 5000) // Increased delay to allow for celebration
     }
   }
 })
@@ -570,6 +621,14 @@ onMounted(() => {
         Object.keys(config).forEach(key => {
           physics[key] = config[key]
         })
+    // Register global callback for Alien Shake effect
+    SoundManager.setAlienResponseCallback(() => {
+        console.log('👽 GLOBAL ALIEN RESPONSE TRIGGERED!')
+        // 1. Trigger Visual Shake
+        nudgeEvent.value = { direction: (Math.random() > 0.5 ? 'left' : 'right'), time: Date.now() }
+        // 2. Trigger Physics Nudge (Free)
+        sockets.control.emit('alien_nudge')
+    })
         if (config.camera_presets) {
           cameraPresets.value = config.camera_presets
           if (!selectedPreset.value && 'Default' in config.camera_presets) {
@@ -643,6 +702,16 @@ onMounted(() => {
     addLog('Disconnected from server')
   })
 
+  sockets.game.on('connect_error', (err) => {
+    console.error('Connection Error:', err)
+    connectionError.value = true
+    addLog(`Connection Error: ${err.message}`)
+  })
+
+  sockets.game.on('connect', () => {
+    connectionError.value = false
+  })
+
   sockets.game.on('video_frame', (data) => {
     videoSrc.value = 'data:image/jpeg;base64,' + data.image
   })
@@ -714,6 +783,13 @@ onMounted(() => {
     selectedModel.value = data.model
     // Refresh models to ensure lists are in sync
     sockets.training.emit('get_models')
+    
+    // Re-enable Auto-Start and launch a game
+    toggles.autoStart = true
+    addLog('Auto-start Re-enabled. Starting game...')
+    setTimeout(() => {
+        startNewGame()
+    }, 2000)
   })
 
   sockets.config.on('layouts_list', (data) => {
@@ -977,9 +1053,6 @@ body {
 }
 
 .switch-view-btn {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   border: 1px solid #555;
@@ -1066,9 +1139,13 @@ body {
   transform: translateX(-50%);
   z-index: 50;
   width: 100%;
+  max-width: 100%; /* Ensure it doesn't exceed container */
+  box-sizing: border-box; /* Include padding in width */
   pointer-events: none;
   display: flex;
   justify-content: center;
+  /* overflow: hidden; REMOVED to allow combo badge to show */
+  padding: 0 10px; /* Add some safety padding */
 }
 
 @media (max-width: 600px) {

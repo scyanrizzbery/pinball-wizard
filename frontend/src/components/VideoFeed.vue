@@ -1,5 +1,5 @@
 <template>
-  <div id="video-container">
+  <div id="video-container" :class="{ shake: isShaking }">
     <!-- Tilted Overlay -->
     <div id="tilted-overlay" v-if="isTilted">TILTED!</div>
 
@@ -14,10 +14,28 @@
         </div>
       </div>
     </div>
+
+    <div v-if="stats.game_over" class="game-over-overlay">
+      <div class="game-over-text">GAME OVER</div>
+      <div class="final-score">SCORE: {{ formatNumber(stats.last_score) }}</div>
+    </div>
     
     <!-- DEBUG OVERLAY -->
     <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: lime; padding: 5px; z-index: 9999; font-family: monospace; font-size: 12px; pointer-events: none; display: none">
       Offsets: X={{ physics.rail_x_offset }} Y={{ physics.rail_y_offset }}
+    </div>
+
+    <!-- MULTIBALL INDICATOR (2D MODE) -->
+    <div v-if="ballCount > 1" class="multiball-indicator-2d">
+      🎱 MULTIBALL: {{ ballCount }} balls
+    </div>
+
+    <!-- PERMANENT DEBUG PANEL (2D MODE) -->
+    <div class="permanent-debug-panel-2d">
+      <div>2D MODE</div>
+      <div>Balls: {{ ballCount }}</div>
+      <div v-if="physics">Rails: {{ physics.rails?.length || 0 }}</div>
+      <div v-if="containerElement">Container: {{ containerSize }}</div>
     </div>
     <div id="video-wrapper" ref="containerElement" :style="zoomStyle">
       <div v-if="!videoSrc" class="loading-placeholder">
@@ -117,11 +135,14 @@
           <button @click="addZone('left')">+ Left Zone</button>
           <button @click="addZone('right')">+ Right Zone</button>
           <button @click="addRail">+ Rail</button>
+           <button @click="addBumper">+ Bumper</button>
           <button @click="resetZones" class="reset-btn">Reset Zones</button>
         </div>
       </div>
-      
-      <div class="video-controls">
+    </div>
+    
+    <div class="video-controls">
+      <div class="controls-row">
         <button @click="$emit('toggle-fullscreen')" class="fullscreen-btn" title="Playfield Full">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
@@ -130,12 +151,13 @@
         <button class="edit-btn" @click="showZones = !showZones" :class="{ active: showZones }">
           {{ showZones ? 'Hide editor' : 'Edit' }}
         </button>
-        <button v-if="hasUnsavedChanges" @click="$emit('save-layout')" class="control-btn save-btn">
-          Save Layout
-        </button>
-
         <button @click="$emit('toggle-view')" class="switch-view-btn">
           Switch to 3D
+        </button>
+      </div>
+      <div class="controls-group-right">
+        <button v-if="hasUnsavedChanges" @click="$emit('save-layout')" class="control-btn save-btn">
+          Save Layout
         </button>
       </div>
     </div>
@@ -179,7 +201,32 @@ const videoElement = ref(null)
 const containerElement = ref(null)
 const lastNudgeTime = ref(props.nudgeEvent?.time || 0)
 const showZones = ref(false)
-const dragging = ref(null) // { type: 'zone'|'rail', index: int, handle: index|'p1'|'p2'|'body', startPos: {x,y} }
+const isShaking = ref(false)
+const dragging = ref(null) // Drag functionality removed per user request
+
+// Computed properties for debug display
+const ballCount = computed(() => {
+  // Count balls from stats or physics
+  if (props.stats?.balls) return props.stats.balls
+  if (props.stats?.ball_count) return props.stats.ball_count
+  return 0
+})
+
+const containerSize = computed(() => {
+  if (!containerElement.value) return 'N/A'
+  const rect = containerElement.value.getBoundingClientRect()
+  return `${Math.round(rect.width)}x${Math.round(rect.height)}`
+})
+
+// Watch for ball count changes and log them
+const lastBallCount = ref(0)
+watch(ballCount, (newCount, oldCount) => {
+  if (newCount !== oldCount && oldCount > 0) {
+    console.error(`🎱 [2D MODE] BALL COUNT CHANGED: ${oldCount} → ${newCount}`)
+    console.trace('2D Mode ball count change')
+  }
+  lastBallCount.value = newCount
+})
 
 const formatNumber = (num) => {
   if (num === undefined || num === null) return '0'
@@ -241,17 +288,6 @@ const rails = computed(() => {
     const p2y = rail.p2.y + normOffsetY
     
     // Calculate Length Scaling (P1 relative to P2)
-    // Vector pointing from P2 to P1
-    const dx = p1x - p2x
-    const dy = p1y - p2y
-    // In normalized coords, distance acts differently if aspect ratio is not 1.0?
-    // Actually physics engine converts to Pixels/World FIRST, then does distance.
-    // Here we are in Normalized coords.
-    // If Table Ratio is 0.6 / 1.2 (~0.5 aspect?).
-    // Distance in normalized space is squashed.
-    // To match Physics Engine (World Space) logic:
-    // We must de-normalize, scale, then re-normalize.
-    
     const wx1 = p1x * TABLE_WIDTH
     const wy1 = p1y * TABLE_HEIGHT
     const wx2 = p2x * TABLE_WIDTH
@@ -288,7 +324,7 @@ const rails = computed(() => {
 
 const bumpers = computed(() => {
   if (!props.physics || !props.physics.bumpers) return []
-  console.log('VideoFeed: Computing bumpers', props.physics.bumpers.length)
+  // console.log('VideoFeed: Computing bumpers', props.physics.bumpers.length)
   return props.physics.bumpers.map(b => {
     const pos = project3D(b.x, b.y)
     return {
@@ -353,20 +389,12 @@ const TABLE_HEIGHT = 800
 const ASPECT = TABLE_WIDTH / TABLE_HEIGHT
 
 const project3D = (tx, ty) => {
-  // tx, ty are normalized table coords (0-1)
-  // Simulation video feed uses direct 2D mapping.
-  // We bypass perspective projection to align overlay with the flat video feed.
-  // This prevents scrambling when 3D camera settings (zoom/pitch) are changed.
+  // Video Feed matches the 2D Physics Table Logic directly.
   return { x: tx, y: ty }
 }
 
 const unproject2D = (sx, sy) => {
-  // sx, sy are normalized screen coords (0-1)
-  // Inverse of project3D (Identity for simulation)
-  return {
-    x: sx,
-    y: sy
-  }
+  return { x: sx, y: sy }
 }
 
 const getPolygonPoints = (points) => {
@@ -384,98 +412,10 @@ const getMousePos = (e) => {
   }
 }
 
-const startDrag = (type, index, handle, e) => {
-  if (e.cancelable) e.preventDefault()
-  // Store start pos in Screen Coords
-  dragging.value = { type, index, handle, startPos: getMousePos(e) }
-  window.addEventListener('mousemove', onDrag)
-  window.addEventListener('mouseup', stopDrag)
-  window.addEventListener('touchmove', onDrag, { passive: false })
-  window.addEventListener('touchend', stopDrag)
-}
-
-const stopDrag = () => {
-  dragging.value = null
-  window.removeEventListener('mousemove', onDrag)
-  window.removeEventListener('mouseup', stopDrag)
-  window.removeEventListener('touchmove', onDrag)
-  window.removeEventListener('touchend', stopDrag)
-}
-
-const onDrag = (e) => {
-  if (!dragging.value) return
-  if (e.cancelable) e.preventDefault()
-  
-  const pos = getMousePos(e) // Screen Coords
-  const { type, index, handle, startPos } = dragging.value
-  
-  if (type === 'zone') {
-    // Clone the entire zones array because we need to emit the full list
-    const newZones = JSON.parse(JSON.stringify(props.physics.zones))
-    const targetZone = newZones[index]
-    
-    if (handle === 'body') {
-      // Move entire polygon
-      const tStart = unproject2D(startPos.x, startPos.y)
-      const tCurr = unproject2D(pos.x, pos.y)
-      
-      const dx = tCurr.x - tStart.x
-      const dy = tCurr.y - tStart.y
-      
-      for (let p of targetZone.points) {
-        p.x += dx
-        p.y += dy
-      }
-      dragging.value.startPos = pos // Update start pos
-    } else {
-      // Move specific point
-      const tPos = unproject2D(pos.x, pos.y)
-      targetZone.points[handle].x = tPos.x
-      targetZone.points[handle].y = tPos.y
-    }
-    emit('update-zone', newZones)
-  } else if (type === 'rail') {
-    const newRails = JSON.parse(JSON.stringify(props.physics.rails))
-    const targetRail = newRails[index]
-    const normOffsetX = parseFloat(props.physics.rail_x_offset || 0)
-    const normOffsetY = parseFloat(props.physics.rail_y_offset || 0)
-    
-    console.log(`Drag Rail: handle=${handle}, startPos=${JSON.stringify(startPos)}, pos=${JSON.stringify(pos)}, offset=${normOffsetX}`)
-    
-    if (handle === 'body') {
-      const tStart = unproject2D(startPos.x, startPos.y)
-      const tCurr = unproject2D(pos.x, pos.y)
-      const dx = tCurr.x - tStart.x
-      const dy = tCurr.y - tStart.y
-      
-      targetRail.p1.x += dx
-      targetRail.p1.y += dy
-      targetRail.p2.x += dx
-      targetRail.p2.y += dy
-      
-      dragging.value.startPos = pos
-    } else if (handle === 'p1') {
-      const tPos = unproject2D(pos.x, pos.y)
-      targetRail.p1.x = tPos.x - normOffsetX
-      targetRail.p1.y = tPos.y - normOffsetY
-    } else if (handle === 'p2') {
-      const tPos = unproject2D(pos.x, pos.y)
-      targetRail.p2.x = tPos.x - normOffsetX
-      targetRail.p2.y = tPos.y - normOffsetY
-    }
-
-    emit('update-rail', newRails)
-  } else if (type === 'bumper') {
-    const newBumpers = JSON.parse(JSON.stringify(props.physics.bumpers))
-    const targetBumper = newBumpers[index]
-    
-    const tPos = unproject2D(pos.x, pos.y)
-    targetBumper.x = tPos.x
-    targetBumper.y = tPos.y
-    
-    emit('update-bumper', newBumpers)
-  }
-}
+// Drag functionality removed per user request
+const startDrag = () => {}
+const stopDrag = () => {}
+const onDrag = () => {}
 
 const addZone = (type) => {
   const newZones = JSON.parse(JSON.stringify(props.physics.zones || []))
@@ -501,6 +441,16 @@ const addRail = () => {
   })
   emit('update-rail', newRails)
 }
+
+const addBumper = () => {
+    const newBumpers = JSON.parse(JSON.stringify(props.physics.bumpers || []))
+    newBumpers.push({
+        x: 0.5,
+        y: 0.5
+    })
+    emit('update-bumper', newBumpers)
+}
+
 
 const removeZone = (index) => {
   const newZones = JSON.parse(JSON.stringify(props.physics.zones))
@@ -624,7 +574,7 @@ img {
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 20;
+  z-index: 60;
 }
 
 .zone-poly {
@@ -632,7 +582,7 @@ img {
   stroke: #4caf50;
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
-  pointer-events: all;
+  pointer-events: visiblePainted;
   cursor: move;
   transition: fill 0.2s;
 }
@@ -645,7 +595,7 @@ img {
   stroke: #2196F3;
   stroke-width: 4;
   vector-effect: non-scaling-stroke;
-  pointer-events: all;
+  pointer-events: visibleStroke;
   cursor: move;
 }
 
@@ -658,7 +608,7 @@ img {
   stroke: #ffaa00;
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
-  pointer-events: all;
+  pointer-events: visiblePainted;
   cursor: move;
 }
 
@@ -672,7 +622,7 @@ img {
   stroke: #00ffff;
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
-  pointer-events: all;
+  pointer-events: visiblePainted;
   cursor: move;
 }
 
@@ -726,7 +676,7 @@ img {
   background: #fff;
   border: 1px solid #4caf50;
   border-radius: 50%;
-  pointer-events: all;
+  pointer-events: auto;
   z-index: 2;
   cursor: pointer;
   transform: translate(-50%, -50%); /* Center on point */
@@ -798,9 +748,21 @@ img {
   right: 20px;
   display: flex;
   gap: 10px;
-  z-index: 30;
+  z-index: 2001;
   width: 90%;
-  justify-content: space-between; /* Space between fullscreen (left) and other buttons (right) */
+  justify-content: space-between; /* Space between fullscreen (left) and group (right) */
+  align-items: center;
+}
+
+.controls-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.controls-group-right {
+  display: flex;
+  gap: 10px;
   align-items: center;
 }
 
@@ -889,5 +851,118 @@ img {
 @keyframes pulse-text {
   from { opacity: 0.6; }
   to { opacity: 1; }
+}
+
+#tilted-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-15deg);
+  font-size: 80px;
+  font-weight: bold;
+  color: #ff3333;
+  border: 8px solid #ff3333;
+  padding: 20px 40px;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 2000;
+  pointer-events: none;
+  text-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+  box-shadow: 0 0 30px rgba(255, 0, 0, 0.5);
+}
+
+/* Debug indicators for 2D mode */
+.multiball-indicator-2d {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 0, 0, 0.9);
+  color: white;
+  padding: 20px 40px;
+  border-radius: 10px;
+  font-family: monospace;
+  font-size: 24px;
+  font-weight: bold;
+  pointer-events: none;
+  z-index: 1999;
+  box-shadow: 0 0 30px rgba(255, 0, 0, 0.8);
+}
+
+.permanent-debug-panel-2d {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #0ff;
+  padding: 8px 12px;
+  border-radius: 5px;
+  font-family: monospace;
+  font-size: 11px;
+  pointer-events: none;
+  z-index: 1998;
+  line-height: 1.4;
+  border: 1px solid #0ff;
+}
+
+.permanent-debug-panel-2d div {
+  margin: 2px 0;
+}
+
+@keyframes tilt-pulse {
+  from { transform: translate(-50%, -50%) rotate(-15deg) scale(1); }
+  to { transform: translate(-50%, -50%) rotate(-15deg) scale(1.1); }
+}
+
+.shake, .shake-left, .shake-right {
+  animation: shake 0.2s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translate3d(-2px, 0, 0); }
+  20%, 80% { transform: translate3d(4px, 0, 0); }
+  30%, 50%, 70% { transform: translate3d(-8px, 0, 0); }
+  40%, 60% { transform: translate3d(8px, 0, 0); }
+}
+
+.game-over-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  animation: fadeIn 0.5s ease-out;
+}
+
+.game-over-text {
+  font-size: 4rem;
+  font-weight: 900;
+  color: #ff3333;
+  text-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+  margin-bottom: 20px;
+  animation: pulse 2s infinite;
+}
+
+.final-score {
+  font-size: 2.5rem;
+  color: #ffffff;
+  font-family: 'Courier New', monospace;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
 }
 </style>

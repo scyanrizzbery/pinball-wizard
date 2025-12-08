@@ -119,6 +119,7 @@ class PymunkEngine(Physics):
         self.score = 0  # Track score in physics engine
         
         self.is_tilted = False # Track tilt state
+        self.tilt_value = 0.0 # Analog tilt value (accumulates with nudges)
         self.drop_target_shapes = [] # Track drop target shapes for removal
         
         # Combo System (State) - Config is in self.config
@@ -993,7 +994,7 @@ class PymunkEngine(Physics):
         self.balls.append(body)
         return body
 
-    def nudge(self, dx, dy):
+    def nudge(self, dx, dy, check_tilt=True):
         """Apply an impulse to all balls to simulate a table nudge."""
         # Nudging the table moves the table under the ball.
         # Relative to the table, the ball moves in the opposite direction of the nudge?
@@ -1001,8 +1002,22 @@ class PymunkEngine(Physics):
         # But usually "Nudge Left" means "I want the ball to go Left".
         # So let's just apply impulse in the direction of dx, dy.
         # Scale up for physics engine (vision used small pixels)
-        scale = 50.0 
+        scale = 400.0  # Increased from 50.0 to 400.0 for effectiveness
         impulse = (dx * scale, dy * scale)
+        
+        # Accumulate Tilt
+        if check_tilt and hasattr(self.config, 'nudge_cost'):
+            self.tilt_value += self.config.nudge_cost
+            
+        # Check Threshold
+        threshold = getattr(self.config, 'tilt_threshold', 10.0)
+        if self.tilt_value > threshold:
+             if not self.is_tilted:
+                 logger.warning(f"TILT! Value {self.tilt_value:.1f} > {threshold}")
+                 self.set_tilt(True)
+        else:
+             # Just a warning?
+             pass
         
         for b in self.balls:
             b.activate()
@@ -1138,6 +1153,17 @@ class PymunkEngine(Physics):
                 self.bumper_states[i] -= dt * 5.0 # Decay speed
                 if self.bumper_states[i] < 0:
                     self.bumper_states[i] = 0.0
+                    
+        # Tilt Decay
+        if self.tilt_value > 0:
+            decay_rate = getattr(self.config, 'tilt_decay', 0.1) * 60.0 # Config usually small per frame?
+            # Or if config is per second, we multiply by dt?
+            # Existing comments said tilt_decay=0.03.
+            # If 0.03 per frame?
+            decay = decay_rate * dt
+            self.tilt_value -= max(0.01, decay) # Ensure some decay
+            if self.tilt_value < 0:
+                self.tilt_value = 0.0
         
         # Handle drop target removal
         for i, is_up in enumerate(self.drop_target_states):
@@ -1436,41 +1462,55 @@ class PymunkEngine(Physics):
         self._rebuild_rails()
 
     def _rebuild_rails(self):
-        self._clear_rail_shapes()
-        # Ensure static body is at origin to prevent double offsets
-        self.space.static_body.position = (0, 0)
-        
-        # Use config values
-        thickness = self.config.guide_thickness
-        length_scale = self.config.guide_length_scale
-        angle_offset = self.config.guide_angle_offset
-        x_offset = self.config.rail_x_offset
-        y_offset = self.config.rail_y_offset
-        
-        logger.info(f"Rebuilding rails with: thickness={thickness}, length_scale={length_scale}, angle_offset={angle_offset}, offsets=({x_offset}, {y_offset})")
-        if hasattr(self.layout, 'rails'):
-            for i, rail in enumerate(self.layout.rails):
-                # Apply offsets (normalized coordinates)
-                p1_x = rail['p1']['x'] + x_offset
-                p1_y = rail['p1']['y'] + y_offset
-                p2_x = rail['p2']['x'] + x_offset
-                p2_y = rail['p2']['y'] + y_offset
-                
-                p1 = self._layout_to_world(p1_x, p1_y)
-                p2 = self._layout_to_world(p2_x, p2_y)
-                dx, dy = p1[0] - p2[0], p1[1] - p2[1]
-                length = np.hypot(dx, dy)
-                if length > 0:
-                    ux, uy = dx / length, dy / length
-                    scaled_length = length * length_scale
-                    p1_final = (p2[0] + ux * scaled_length, p2[1] + uy * scaled_length)
-                else:
-                    p1_final = p1
-                vertices = self._create_thick_line_poly(p1_final, p2, thickness=thickness)
-                if vertices:
-                    shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.8, collision_type=8)
-                    self.rail_shapes.append(shape)
-        logger.info(f"Rails rebuilt: {len(self.rail_shapes)} rails created")
+        try:
+            self._clear_rail_shapes()
+            # Ensure static body is at origin to prevent double offsets
+            self.space.static_body.position = (0, 0)
+            
+            # Use config values, but force defaults for offsets to prevent misalignment
+            # since UI controls were removed.
+            thickness = self.config.guide_thickness
+            length_scale = 1.0 
+            angle_offset = 0.0 
+            x_offset = 0.0 
+            y_offset = 0.0 
+            
+            logger.info(f"Rebuilding rails with: thickness={thickness}, length_scale={length_scale}, angle_offset={angle_offset}, offsets=({x_offset}, {y_offset})")
+            
+            if hasattr(self.layout, 'rails') and self.layout.rails:
+                for i, rail in enumerate(self.layout.rails):
+                    try:
+                        # Handle both dictionary and object access if needed
+                        p1 = rail.get('p1', {})
+                        p2 = rail.get('p2', {})
+                        
+                        # Apply offsets (normalized coordinates)
+                        p1_x = p1.get('x', 0) + x_offset
+                        p1_y = p1.get('y', 0) + y_offset
+                        p2_x = p2.get('x', 0) + x_offset
+                        p2_y = p2.get('y', 0) + y_offset
+                        
+                        w_p1 = self._layout_to_world(p1_x, p1_y)
+                        w_p2 = self._layout_to_world(p2_x, p2_y)
+                        
+                        dx, dy = w_p1[0] - w_p2[0], w_p1[1] - w_p2[1]
+                        length = np.hypot(dx, dy)
+                        if length > 0:
+                            ux, uy = dx / length, dy / length
+                            scaled_length = length * length_scale
+                            p1_final = (w_p2[0] + ux * scaled_length, w_p2[1] + uy * scaled_length)
+                        else:
+                            p1_final = w_p1
+                            
+                        vertices = self._create_thick_line_poly(p1_final, w_p2, thickness=thickness)
+                        if vertices:
+                            shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.8, collision_type=8)
+                            self.rail_shapes.append(shape)
+                    except Exception as e:
+                         logger.error(f"Error rebuilding rail {i}: {e}")
+            logger.info(f"Rails rebuilt: {len(self.rail_shapes)} rails created")
+        except Exception as e:
+            logger.error(f"Error in _rebuild_rails: {e}")
 
     def check_stuck_ball(self, dt):
         """Check if any ball is stuck (low velocity for extended time)."""

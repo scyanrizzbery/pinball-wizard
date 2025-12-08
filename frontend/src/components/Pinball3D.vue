@@ -31,15 +31,18 @@
     </div>
 
     <!-- Game Over Overlay -->
-    <div v-if="showGameOver && !stats.is_training" class="overlay-screen game-over-overlay">
-        <h1>GAME OVER</h1>
-        <p v-if="!autoStartEnabled">Press Launch to Restart</p>
-        <p v-else>Please wait...</p>
+    <div v-if="stats && stats.game_over" class="overlay-screen game-over-overlay">
+        <div class="game-over-text">GAME OVER</div>
+        <div v-if="stats.is_high_score" class="high-score-text">NEW HIGH SCORE!</div>
+        <div class="final-score">SCORE: {{ formatNumber(stats.last_score) }}</div>
     </div>
 
-    <div v-if="!config || !config.rails" class="loading-placeholder">
+    <div v-if="!config || !config.rails || connectionError" class="loading-placeholder">
       <div class="spinner"></div>
-      <div class="loading-text">CONNECTING...</div>
+      <div class="loading-text">{{ connectionError ? 'CONNECTION ERROR' : 'INITIALIZING SYSTEM' }}</div>
+      <div style="margin-top: 10px; font-size: 0.8em; color: #666;">
+        {{ connectionError ? 'RETRYING LINK...' : 'ESTABLISHING LINK...' }}
+      </div>
     </div>
 
     <div v-if="cameraMode === 'perspective' && showDebug" class="debug-overlay">
@@ -48,6 +51,19 @@
       <div>Camera Z: {{ cameraDebug.z.toFixed(2) }}</div>
     </div>
     
+    <!-- MULTIBALL DEBUG INDICATOR -->
+    <div v-if="activeBallCount > 1" class="multiball-indicator">
+      🎱 MULTIBALL: {{ activeBallCount }} balls
+    </div>
+
+    <!-- PERMANENT DEBUG PANEL (bottom-right) -->
+    <div class="permanent-debug-panel">
+      <div>Balls: {{ activeBallCount }}</div>
+      <div v-if="camera">Aspect: {{ camera.aspect?.toFixed(3) }}</div>
+      <div v-if="renderer">Canvas: {{ rendererSize }}</div>
+      <div v-if="container">Container: {{ containerSize }}</div>
+    </div>
+
     <!-- Rail Editor Controls -->
     <div class="editor-controls" v-if="cameraMode === 'perspective'">
         <div class="controls-row">
@@ -59,27 +75,20 @@
             <button @click="toggleEditMode" :class="{ active: isEditMode }">
                 {{ isEditMode ? 'Done Editing' : 'Edit' }}
             </button>
-            <button @click="$emit('toggle-view')">
+            <button @click="$emit('toggle-view')" class="switch-view-btn">
                 {{ cameraMode === 'perspective' ? 'Switch to 2D' : 'Switch to 3D' }}
             </button>
         </div>
 
         <div v-if="isEditMode" class="edit-actions">
             <button @click="deleteSelectedObject" :disabled="selectedRailIndex === -1 && selectedBumperIndex === -1">Delete Selected</button>
-            <div v-if="selectedRailIndex !== -1" class="selected-info">
+            <div class="selected-info" v-if="selectedRailIndex !== -1">
                 Selected: {{ selectedRailIndex }}
             </div>
             
-            <div class="object-drawer">
-                <div class="drawer-title">Drag to Add:</div>
-                <div class="drawer-item" draggable="true" @dragstart="onDragStart($event, 'rail')">
-                    <div class="icon rail-icon"></div>
-                    <span>Rail</span>
-                </div>
-                <div class="drawer-item" draggable="true" @dragstart="onDragStart($event, 'bumper')">
-                    <div class="icon bumper-icon"></div>
-                    <span>Bumper</span>
-                </div>
+            <div class="edit-buttons">
+                <button @click="addRail">+ Rail</button>
+                <button @click="addBumper">+ Bumper</button>
             </div>
         </div>
     </div>
@@ -113,7 +122,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import SoundManager from '../utils/SoundManager'
@@ -128,6 +137,7 @@ const props = defineProps({
     cameraMode: { type: String, default: 'perspective' },
     autoStartEnabled: { type: Boolean, default: false },
     showFlipperZones: { type: Boolean, default: false },
+    connectionError: { type: Boolean, default: false },
 })
 
 const container = ref(null)
@@ -156,8 +166,26 @@ let lastFlipperValues = {
 const cameraDebug = ref({ x: 0, y: 0, z: 0 })
 const showDebug = ref(false)
 const showSettings = ref(false)
-const smokeIntensity = ref(1.0)
+const smokeIntensity = ref(0.5)
 let debugTimeout = null
+
+// Computed properties for permanent debug panel
+const rendererSize = computed(() => {
+  if (!renderer) return 'N/A'
+  try {
+    const size = renderer.getSize(new THREE.Vector2())
+    return `${Math.round(size.x)}x${Math.round(size.y)}`
+  } catch (e) {
+    return 'Error'
+  }
+})
+
+const containerSize = computed(() => {
+  if (!container.value) return 'N/A'
+  return `${container.value.clientWidth}x${container.value.clientHeight}`
+})
+
+const activeBallCount = ref(0)
 
 // Mobile Controls State
 const controlsActive = ref(false)
@@ -186,7 +214,7 @@ const mouse = new THREE.Vector2()
 const railHandles = [] // Array of mesh handles
 const railMeshes = [] // Array of rail body meshes
 const bumperMeshes = [] // Array of bumper meshes
-let dragPlane = null // Plane for raycasting during drag
+let dragPlane = new THREE.Plane() // Plane for raycasting during drag
 
 // Camera Pan State
 const isPanning = ref(false)
@@ -210,6 +238,16 @@ const addRail = () => {
         p2: { x: 0.6, y: 0.6 }
     }
     props.configSocket.emit('create_rail', newRail)
+}
+
+const addBumper = () => {
+    const newBumper = {
+        x: 0.5,
+        y: 0.5,
+        radius_ratio: 0.04,
+        value: 100
+    }
+    props.configSocket.emit('create_bumper', newBumper)
 }
 
 const deleteSelectedObject = () => {
@@ -271,49 +309,20 @@ const mapFromWorld = (wx, wy) => {
     }
 }
 
-const onDragStart = (event, type) => {
-    event.dataTransfer.setData('type', type)
-}
-
-const onDrop = (event) => {
-    const type = event.dataTransfer.getData('type')
-    if (!type) return
-    
-    updateMouse(event)
-    raycaster.setFromCamera(mouse, camera)
-    
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
-    const target = new THREE.Vector3()
-    raycaster.ray.intersectPlane(plane, target)
-    
-    if (target) {
-        const normPos = mapFromWorld(target.x, target.y)
-        
-        if (type === 'rail') {
-            const newRail = {
-                p1: { x: normPos.x - 0.1, y: normPos.y - 0.1 },
-                p2: { x: normPos.x + 0.1, y: normPos.y + 0.1 }
-            }
-            props.configSocket.emit('create_rail', newRail)
-        } else if (type === 'bumper') {
-            const newBumper = {
-                x: normPos.x,
-                y: normPos.y,
-                radius_ratio: 0.04,
-                value: 100
-            }
-            props.configSocket.emit('create_bumper', newBumper)
-        }
-    }
-}
+// Drag & Drop logic removed (replaced by buttons)
+const onDragStart = () => {}
+const onDrop = () => {}
 
 const onMouseDown = (event) => {
-    console.log("Container MouseDown", event.button)
+    // console.log("Container MouseDown", event.button)
     // Resume Audio Context on first interaction
     SoundManager.resume()
 
     // Middle mouse button for camera panning
     if (event.button === 1) {
+        // Only allow if controls are active
+        if (!controlsActive.value) return
+        
         event.preventDefault()
         isPanning.value = true
         panStart.set(event.clientX, event.clientY)
@@ -333,16 +342,25 @@ const onMouseDown = (event) => {
         selectedRailIndex.value = hit.userData.railIndex
         selectedType.value = 'rail'
         selectedBumperIndex.value = -1
+        
+        // Enable drag
         dragPoint.value = hit.userData.point
         isDragging.value = true
         
-        // Create drag plane at hit height
-        if (!dragPlane) {
-            dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -hit.position.z)
-        }
+        // Setup drag plane
+        dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), intersects[0].point)
+        const target = new THREE.Vector3()
+        raycaster.ray.intersectPlane(dragPlane, target)
         
-        // Disable orbit controls if we had them (we don't seem to use OrbitControls explicitly here?)
-        // If we did, we'd need to disable them.
+        if (target) {
+            const norm = mapFromWorld(target.x, target.y)
+            dragStartPos.x = norm.x
+            dragStartPos.y = norm.y
+            
+            const rail = props.config.rails[selectedRailIndex.value]
+            dragState.initialP1 = { ...rail.p1 }
+            dragState.initialP2 = { ...rail.p2 }
+        }
         
         updateRailHandles() // To update selection color
         return
@@ -355,61 +373,69 @@ const onMouseDown = (event) => {
         selectedRailIndex.value = hit.userData.railIndex
         selectedType.value = 'rail'
         selectedBumperIndex.value = -1
+        
+        // Enable drag
         dragPoint.value = 'body'
         isDragging.value = true
         
-        // Create drag plane
-        if (!dragPlane) {
-            dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -hit.position.z)
-        }
-        
-        // Store start position
+        // Setup drag plane
+        // Setup drag plane
+        dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), bodyIntersects[0].point)
         const target = new THREE.Vector3()
         raycaster.ray.intersectPlane(dragPlane, target)
+        
         if (target) {
-            const normPos = mapFromWorld(target.x, target.y)
-            dragStartPos.set(normPos.x, normPos.y)
+            const norm = mapFromWorld(target.x, target.y)
+            dragStartPos.x = norm.x
+            dragStartPos.y = norm.y
             
-            // Store initial rail positions to avoid drift accumulation
             const rail = props.config.rails[selectedRailIndex.value]
-            if (rail) {
-                // Store as userData on the rail object temporarily? Or separate ref?
-                // Let's use a separate object for drag state
-                dragState.initialP1 = { ...rail.p1 }
-                dragState.initialP2 = { ...rail.p2 }
-            }
+            dragState.initialP1 = { ...rail.p1 }
+            dragState.initialP2 = { ...rail.p2 }
         }
         
         updateRailHandles()
         return
     }
     
-    // Check bumpers
-    const bumperIntersects = raycaster.intersectObjects(bumperMeshes)
+    // Check bumpers (Group with children)
+    const bumperIntersects = raycaster.intersectObjects(bumperMeshes, true)
     if (bumperIntersects.length > 0) {
         const hit = bumperIntersects[0].object
-        selectedBumperIndex.value = hit.userData.bumperIndex
-        selectedType.value = 'bumper'
-        selectedRailIndex.value = -1
-        isDragging.value = true
-        
-        if (!dragPlane) {
-            dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -hit.position.z)
+        // Hit object might be a child (dome/ring), check parent group for index
+        let bIndex = hit.userData.bumperIndex
+        if (bIndex === undefined && hit.parent && hit.parent.userData) {
+            bIndex = hit.parent.userData.bumperIndex
         }
         
-        const target = new THREE.Vector3()
-        raycaster.ray.intersectPlane(dragPlane, target)
-        if (target) {
-            const normPos = mapFromWorld(target.x, target.y)
-            dragStartPos.set(normPos.x, normPos.y)
+        if (bIndex !== undefined) {
+            selectedBumperIndex.value = bIndex
+            selectedType.value = 'bumper'
+            selectedRailIndex.value = -1
             
-            const bumper = props.config.bumpers[selectedBumperIndex.value]
-            if (bumper) {
-                dragState.initialPos = { x: bumper.x, y: bumper.y }
+            // Enable drag
+            isDragging.value = true
+            
+            // Setup drag plane
+            dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), bumperIntersects[0].point)
+            const target = new THREE.Vector3()
+            raycaster.ray.intersectPlane(dragPlane, target)
+            
+            if (target) {
+                const norm = mapFromWorld(target.x, target.y)
+                dragStartPos.x = norm.x
+                dragStartPos.y = norm.y
+                
+                const bumper = props.config.bumpers[selectedBumperIndex.value]
+                if (bumper) {
+                    dragState.initialPos = { x: bumper.x, y: bumper.y }
+                } else {
+                    return // Abort if bumper data not found
+                }
             }
+            
+            updateRailHandles() // Clear rail handles
         }
-        
-        updateRailHandles() // Clear rail handles
         return
     }
 }
@@ -428,6 +454,30 @@ const onMouseMove = (event) => {
         return
     }
     
+    // Hover detection for OrbitControls locking
+    if (isEditMode.value && !isDragging.value && !isPanning.value) {
+        updateMouse(event)
+        raycaster.setFromCamera(mouse, camera)
+        
+        const hitHandles = raycaster.intersectObjects(railHandles).length > 0
+        const hitRails = raycaster.intersectObjects(railMeshes).length > 0
+        const hitBumpers = raycaster.intersectObjects(bumperMeshes, true).length > 0
+        
+        const isHovering = hitHandles || hitRails || hitBumpers
+        
+        if (controls) {
+            // Disable controls if hovering over an interactive object, otherwise follow activation state
+            controls.enabled = !isHovering && controlsActive.value
+        }
+        
+        // Optional: Change cursor
+        document.body.style.cursor = isHovering ? 'pointer' : 'default'
+    } else if (controls && controlsActive.value && !isDragging.value && !isPanning.value) {
+         // Restore if we moved off object (implicit in above, but good for safety)
+         controls.enabled = true
+         document.body.style.cursor = 'default'
+    }
+
     if (!isDragging.value) return
     
     updateMouse(event)
@@ -507,8 +557,13 @@ const onMouseUp = () => {
 // Zoom functionality
 let zoomDebounceTimer = null
 const onWheel = (event) => {
+    // If controls are NOT active, ignore wheel (require click to activate)
+    if (!controlsActive.value) return
+
     // If controls are active (unlocked), let OrbitControls handle the zoom
-    if (controlsActive.value || (controls && controls.enabled)) return
+    // Note: OrbitControls handles wheel automatically if enabled.
+    // The previous manual logic was for when controls were locked or providing custom zoom.
+    if (controls && controls.enabled) return
     if (!props.config || !camera) return
 
     // Calculate sensitivity based on current zoom or fixed
@@ -537,7 +592,7 @@ const onWheel = (event) => {
     // Debounce network update
     if (zoomDebounceTimer) clearTimeout(zoomDebounceTimer)
     zoomDebounceTimer = setTimeout(() => {
-        console.log('Emitting zoom update:', newZoom)
+        // console.log('Emitting zoom update:', newZoom)
         props.configSocket.emit('update_physics_v2', { camera_zoom: newZoom })
     }, 300)
 }
@@ -564,14 +619,14 @@ const onStuckBall = (data) => {
 }
 
 const confirmRelaunch = () => {
-    console.log("Relaunch confirmed")
+    // console.log("Relaunch confirmed")
     props.socket.emit('relaunch_ball')
     clearInterval(stuckBallInterval)
     stuckBallDialog.value = false
 }
 
 const cancelRelaunch = () => {
-    console.log("Relaunch cancelled")
+    // console.log("Relaunch cancelled")
     clearInterval(stuckBallInterval)
     stuckBallDialog.value = false
 }
@@ -580,11 +635,15 @@ const cancelRelaunch = () => {
 // Watch moved to after createTable definition
 
 
+
 const mapX = (x) => (x - 0.5) * 0.6
 const mapY = (y) => (0.5 - y) * 1.2
 
 const createTable = (config = null) => {
-  console.log('Creating Table with config:', config)
+  console.log('[createTable] Called with config:', config ? 'present' : 'null')
+  console.log('[createTable] Current ball count:', balls.length)
+
+  // console.log('Creating Table with config:', config)
   if (tableGroup) scene.remove(tableGroup)
   // Remove old table if it exists
   if (tableGroup) {
@@ -840,6 +899,7 @@ const createTable = (config = null) => {
     if (config.rails) {
       const railRadius = 0.008 // Thickness of rail tube
       const railHeight = 0.04 // Height above playfield
+      const rail2DWidth = 0.016 // Width for 2D representation (2x radius for visibility)
 
       // Rail material - chrome finish
       const railMat = new THREE.MeshStandardMaterial({
@@ -848,6 +908,12 @@ const createTable = (config = null) => {
         metalness: 0.9,
         emissive: 0x444444,
         emissiveIntensity: 0.2
+      })
+
+      // 2D rail material for top-down view
+      const rail2DMat = new THREE.MeshBasicMaterial({
+        color: 0xcccccc,
+        side: THREE.DoubleSide
       })
 
       config.rails.forEach((rail, index) => {
@@ -878,18 +944,6 @@ const createTable = (config = null) => {
              const ux = dx / length
              const uy = dy / length
              
-             // P1 is the point that moves (start point)
-             // But wait, x2, y2 is P2.
-             // Vector dx, dy is P1->P2? No. x2-x1. So P1 to P2.
-             // We want P1 to move closer to P2.
-             // New P1 = P2 - (Normalized P1->P2) * scaledLen.
-             // ux, uy is normalized P1->P2.
-             // So P2 - (ux, uy) * scaledLen.
-             
-             // Let's verify:
-             // Original P1 = P2 - (ux, uy) * length.
-             // New P1 = P2 - (ux, uy) * scaledLen.
-             
              x1 = x2 - ux * scaledLen
              y1 = y2 - uy * scaledLen
              
@@ -898,7 +952,7 @@ const createTable = (config = null) => {
              dy = y2 - y1
         }
 
-        // Create cylinder geometry for the rail
+        // Create 3D cylinder geometry for the rail
         const railGeo = new THREE.CylinderGeometry(railRadius, railRadius, length, 16)
 
         // Rotate cylinder to be horizontal (cylinders default to vertical along Y-axis)
@@ -920,15 +974,42 @@ const createTable = (config = null) => {
         railMesh.castShadow = true
         railMesh.receiveShadow = true
 
+        // Create 2D representation for top-down view (flat rectangle on floor)
+        const rail2DGeo = new THREE.PlaneGeometry(length, rail2DWidth)
+        const rail2D = new THREE.Mesh(rail2DGeo, rail2DMat)
+
+        // Position at same location as 3D rail but on the floor
+        rail2D.position.set(
+          (x1 + x2) / 2,
+          (y1 + y2) / 2,
+          0.001 // Just above floor to prevent z-fighting
+        )
+
+        // Rotate to align with rail direction
+        rail2D.rotation.z = angle
+
+        // Initially hidden (will be shown in 2D mode)
+        rail2D.visible = false
+
         // Store rail metadata for editing
         railMesh.userData = {
           railIndex: index,
           type: 'rail',
           p1: rail.p1,
-          p2: rail.p2
+          p2: rail.p2,
+          rail2D: rail2D  // Store reference to 2D representation
+        }
+
+        rail2D.userData = {
+          railIndex: index,
+          type: 'rail',
+          p1: rail.p1,
+          p2: rail.p2,
+          rail3D: railMesh  // Store reference to 3D representation
         }
 
         tableGroup.add(railMesh)
+        tableGroup.add(rail2D)
         railMeshes.push(railMesh)
       })
     }
@@ -1126,6 +1207,11 @@ const updateBalls = (ballData) => {
   // Get current combo for visual effects
   const combo = props.stats?.combo_count || 0
 
+  // Track if ball count changed (multiball activation/deactivation)
+  const previousBallCount = balls.length
+  const newBallCount = ballData.length
+  const ballCountChanged = previousBallCount !== newBallCount
+
   // Create new balls if needed
   while (balls.length < ballData.length) {
     const ball = new THREE.Mesh(ballGeo, ballMat.clone()) 
@@ -1159,6 +1245,48 @@ const updateBalls = (ballData) => {
     tableGroup.remove(ball)
   }
   
+  // Fix for multiball alignment issue: When ball count changes, force renderer update
+  // This prevents rails from going out of alignment during multiball
+  if (ballCountChanged && renderer && camera && container.value) {
+    console.log(`[Multiball] Ball count changed: ${previousBallCount} → ${newBallCount}`)
+
+    // Use clientWidth/clientHeight for consistency with initThree
+    const width = container.value.clientWidth
+    const height = container.value.clientHeight
+
+    console.log(`[Multiball] Container size: ${width}x${height}`)
+    console.log(`[Multiball] Current camera aspect: ${camera.aspect}`)
+    console.log(`[Multiball] Current renderer size:`, renderer.getSize(new THREE.Vector2()))
+
+    if (width > 0 && height > 0) {
+      const newAspect = width / height
+      camera.aspect = newAspect
+      camera.updateProjectionMatrix()
+      renderer.setSize(width, height, false) // false = don't update style
+
+      console.log(`[Multiball] Updated camera aspect to: ${newAspect}`)
+      console.log(`[Multiball] Updated renderer size to: ${width}x${height}`)
+    }
+
+    // Also do a delayed update to catch any async layout changes
+    setTimeout(() => {
+      if (renderer && camera && container.value) {
+        const width2 = container.value.clientWidth
+        const height2 = container.value.clientHeight
+
+        if (width2 > 0 && height2 > 0 && (width2 !== width || height2 !== height)) {
+          const newAspect2 = width2 / height2
+          camera.aspect = newAspect2
+          camera.updateProjectionMatrix()
+          renderer.setSize(width2, height2, false)
+          console.log(`[Multiball] Delayed update: size changed to ${width2}x${height2}, aspect: ${newAspect2}`)
+        } else {
+          console.log(`[Multiball] Delayed update: no size change needed`)
+        }
+      }
+    }, 100) // Increased to 100ms for more reliable async catch
+  }
+
   // Update ball positions and stats
   ballData.forEach((data, i) => {
     const tx = (data.x - 0.5) * 0.6
@@ -1181,6 +1309,9 @@ const updateBalls = (ballData) => {
     // Apply combo-based visual effects
     updateBallAppearance(balls[i], ballGlows[i], ballParticles[i], combo, currentPos, prevPos)
   })
+
+  // Update tracked ball count for config watcher
+  lastActiveBallCount.value = balls.length
 }
 
 // Update ball appearance and emit particles
@@ -1188,6 +1319,11 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
   if (!ball || !ball.material) return
 
   const material = ball.material
+
+  // Get current score for scaling effects
+  const score = props.stats?.score || 0
+  // Calculate score-based multiplier: ranges from 0 at score 0 to 1 at score 100,000+
+  const scoreMultiplier = Math.min(1.0, score / 100000)
 
   // Visual settings based on combo
   let emitRate = 0 // Particles per frame
@@ -1206,7 +1342,7 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
       glow.intensity = 0
       emitRate = 0
   } else {
-      // Dynamic settings - TUNED FOR SUBTLETY & VOLUME
+      // Dynamic settings - SUBTLE SMOKE THAT GROWS WITH SCORE
       if (combo < 20) {
           // Grey Smoke - Ball Gold/Orange
           material.color.setHex(0xffaa00) // Gold
@@ -1214,13 +1350,13 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
           material.emissiveIntensity = 0.5 
           glow.intensity = 0.5
           
-          emitRate = 1 // 1 per frame
+          emitRate = 0.3 // Very subtle emission
           pColor = 0xaaaaaa
-          pSize = 0.015
+          pSize = 0.012
           pType = 'smoke'
-          pOpacity = 0.05 // Very transparent (was 0.15+)
-          pLifeDecay = 0.005 // Lingers for ~200 frames (3s)
-          pGrowth = 1.02 // Steady growth
+          pOpacity = 0.08 * (0.2 + scoreMultiplier * 0.8) // Starts at 0.016, grows to 0.08
+          pLifeDecay = 0.008 // Fades faster for subtlety
+          pGrowth = 1.015 // Slower growth
       } else if (combo < 30) {
           // Blue/Cyan Smoke
           material.color.setHex(0xccffff) 
@@ -1229,12 +1365,12 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
           glow.color.setHex(0x00ffff)
           glow.intensity = 0.6
           
-          emitRate = 2
+          emitRate = 0.5
           pColor = 0x0088ff
-          pOpacity = 0.08 // Very transparent
-          pSize = 0.02
-          pLifeDecay = 0.008 
-          pGrowth = 1.03
+          pOpacity = 0.12 * (0.2 + scoreMultiplier * 0.8) // Starts at 0.024, grows to 0.12
+          pSize = 0.015
+          pLifeDecay = 0.01
+          pGrowth = 1.02
       } else if (combo < 40) {
            // Purple Magic
            material.color.setHex(0xffccff)
@@ -1243,12 +1379,12 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
            glow.color.setHex(0xff00ff)
            glow.intensity = 0.7
            
-           emitRate = 3
+           emitRate = 0.8
            pColor = 0xff00ff
-           pOpacity = 0.10
-           pSize = 0.022
-           pLifeDecay = 0.01 
-           pGrowth = 1.04
+           pOpacity = 0.15 * (0.2 + scoreMultiplier * 0.8) // Starts at 0.03, grows to 0.15
+           pSize = 0.018
+           pLifeDecay = 0.012
+           pGrowth = 1.025
       } else if (combo < 50) {
            // Green Toxic
            material.color.setHex(0xbbddbb)
@@ -1257,12 +1393,12 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
            glow.color.setHex(0x00ff00)
            glow.intensity = 0.6
            
-           emitRate = 4
+           emitRate = 1.2
            pColor = 0x00ff00
-           pOpacity = 0.12
-           pSize = 0.025
-           pGrowth = 1.05
-           pLifeDecay = 0.012
+           pOpacity = 0.18 * (0.2 + scoreMultiplier * 0.8) // Starts at 0.036, grows to 0.18
+           pSize = 0.02
+           pGrowth = 1.03
+           pLifeDecay = 0.014
       } else {
            // FIRE!!!
            const firePhase = (Date.now() % 500) / 500
@@ -1274,12 +1410,12 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
            glow.color.setHex(fireColor)
            glow.intensity = 1.0
 
-           emitRate = 5
+           emitRate = 1.5
            pColor = fireColor
-           pOpacity = 0.15 // Still transparent even for fire
-           pSize = 0.03
-           pGrowth = 1.06 
-           pLifeDecay = 0.015 
+           pOpacity = 0.22 * (0.3 + scoreMultiplier * 0.7) // Starts at 0.066, grows to 0.22
+           pSize = 0.022
+           pGrowth = 1.04
+           pLifeDecay = 0.016
       }
   }
 
@@ -1288,7 +1424,7 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
       if (smokeIntensity.value <= 0) {
           emitRate = 0
       } else {
-          emitRate = Math.round(emitRate * smokeIntensity.value)
+          emitRate = Math.round(emitRate * smokeIntensity.value * 10) / 10 // Preserve decimals
           pOpacity = Math.min(1.0, pOpacity * Math.sqrt(smokeIntensity.value))
       }
   }
@@ -1370,25 +1506,49 @@ const resetParticle = (p, pos, color, opacity, size, growth, decay) => {
     }
 }
 
+// Main animation loop for particles
 const animateParticleSystem = (pGroup) => {
     const pool = pGroup.userData.pool
+    
     pool.forEach(p => {
         if (!p.visible) return
         
-        const data = p.userData
+        // Update physics
+        if (p.userData.velocity) {
+             p.position.add(p.userData.velocity)
+        }
         
-        // Move
-        p.position.add(data.velocity)
+        // Update rotation (for confetti)
+        if (p.userData.rotationSpeed) {
+            p.rotation.x += p.userData.rotationSpeed.x
+            p.rotation.y += p.userData.rotationSpeed.y
+            p.rotation.z += p.userData.rotationSpeed.z
+        }
         
-        // Grow
-        p.scale.multiplyScalar(data.growth)
+        // Grow (Legacy support for ball hits)
+        if (p.userData.growth) {
+             p.scale.multiplyScalar(p.userData.growth)
+        }
         
-        // Fade
-        data.life -= data.decay
-        if (data.life <= 0) {
+        // Apply Drag/Gravity changes if needed
+        // For confetti, we might want "flutter" which is complex, 
+        // but basic rotation + slow gravity is usually enough.
+        
+        // Decay/Life
+        if (p.userData.life !== undefined) {
+            p.userData.life -= p.userData.decay || 0.01
+            
+            // Fade out
+            if (p.userData.life < 0) {
+                p.visible = false
+            } else if (p.userData.life < 0.2) {
+                p.material.opacity = p.userData.life * 5 // Fade out last 20%
+            }
+        }
+        
+        // Floor collision (simple)
+        if (p.position.y < -0.8) {
             p.visible = false
-        } else {
-            p.material.opacity = data.life * data.baseOpacity
         }
     })
 }
@@ -1396,20 +1556,31 @@ const animateParticleSystem = (pGroup) => {
 const updateFlippers = (state) => {
   if (!state.flippers) return
   const flipperData = state.flippers
+  const is2D = props.cameraMode === 'top-down'
+
   if (flippers.left) {
     // Negate angle because Physics +30 is Down, but Three.js +30 is Up
     flippers.left.rotation.z = THREE.MathUtils.degToRad(-flipperData.left_angle)
   }
   
   if (flippers.right) {
-    // Physics angle is now symmetric (-30 to 30).
-    // Visual mesh extends +X (Right).
-    // We want it to point Left-Down (210 deg) when angle is -30.
-    // 180 - (-30) = 210.
-    // We want Left-Up (150 deg) when angle is 30.
-    // 180 - 30 = 150.
-    // So 180 - angle is correct.
-    flippers.right.rotation.z = THREE.MathUtils.degToRad(180 - flipperData.right_angle)
+    // Physics angle is symmetric (-30 to 30).
+    // In perspective mode: 180 - angle works correctly
+    // In top-down mode: When looking down Z-axis, we need to negate like left flipper
+    // because the Y-axis appears flipped relative to the screen
+    if (is2D) {
+      // Top-down view: Use negated angle like left flipper
+      // But also add 180 to flip the flipper to point left instead of right
+      flippers.right.rotation.z = THREE.MathUtils.degToRad(180 + flipperData.right_angle)
+    } else {
+      // Perspective view: Original formula
+      // Visual mesh extends +X (Right).
+      // We want it to point Left-Down (210 deg) when angle is -30.
+      // 180 - (-30) = 210.
+      // We want Left-Up (150 deg) when angle is 30.
+      // 180 - 30 = 150.
+      flippers.right.rotation.z = THREE.MathUtils.degToRad(180 - flipperData.right_angle)
+    }
   }
   
   if (flippers.plunger && state.plunger) {
@@ -1441,6 +1612,9 @@ const animate = () => {
     
     // Animate UFO bumper lights continuously
     animateUFOLights()
+    
+    // Animate Fireworks
+    if (window.fireworksGroup) animateParticleSystem(window.fireworksGroup)
 
     if (controls) controls.update()
 
@@ -1635,7 +1809,7 @@ const initThree = () => {
 }
 
   // Reactive state for overlay logic
-  const activeBallCount = ref(0)
+  // activeBallCount moved to top with other refs
   const showGameOver = ref(false)
   const lastGamesPlayed = ref(null) // Local track of games played
   const isInitialMount = ref(true) // Track if component just mounted
@@ -1649,16 +1823,37 @@ const initThree = () => {
   resizeObserver = new ResizeObserver(entries => {
     for (let entry of entries) {
       const { width, height } = entry.contentRect
+      console.warn(`📐 RESIZE DETECTED: ${width}x${height}, balls: ${balls.length}`)
       if (camera && renderer) {
+        const oldAspect = camera.aspect
         camera.aspect = width / height
         camera.updateProjectionMatrix()
         renderer.setSize(width, height)
+        if (Math.abs(oldAspect - camera.aspect) > 0.01) {
+          console.error(`⚠️ ASPECT RATIO CHANGED: ${oldAspect.toFixed(3)} → ${camera.aspect.toFixed(3)}`)
+        }
       }
     }
   })
   if (container.value) {
     resizeObserver.observe(container.value)
   }
+
+  // Force initial resize/update after mount to ensure proper alignment
+  // This fixes the issue where rails don't align until layout is changed
+  setTimeout(() => {
+    if (container.value && renderer && camera) {
+      const rect = container.value.getBoundingClientRect()
+      camera.aspect = rect.width / rect.height
+      camera.updateProjectionMatrix()
+      renderer.setSize(rect.width, rect.height)
+
+      // Update visibility for current camera mode
+      updateVisibilityForCameraMode(props.cameraMode)
+
+      console.log('Pinball3D: Initial alignment update completed')
+    }
+  }, 100) // Small delay to ensure DOM is fully rendered
 
   // Use shared socket from props
   const socket = props.socket
@@ -1788,6 +1983,15 @@ const initThree = () => {
 
   const onGameState = (state) => {
     if (!state || !state.balls) return
+
+    // CRITICAL LOGGING: Track ball count changes
+    const prevCount = activeBallCount.value
+    const newCount = state.balls.length
+    if (prevCount !== newCount) {
+      console.error(`🎱 BALL COUNT CHANGED: ${prevCount} → ${newCount}`)
+      console.trace('Ball count change stack trace')
+    }
+
     updateBalls(state.balls)
     activeBallCount.value = state.balls.length // Track active balls
     updateFlippers(state)
@@ -1882,12 +2086,10 @@ const updateCamera = () => {
     // Center of table is (0,0,0)
     camera.position.set(0, 0, 5)
     camera.lookAt(0, 0, 0)
-    camera.rotation.z = Math.PI / 2 // Rotate to match 2D orientation (if needed)
-    // Actually, Three.js Y is Up in 2D?
-    // Table is 0.6 x 1.2.
-    // If we look down Z. X is Right. Y is Up.
-    // This matches standard 2D view.
-    camera.rotation.set(0, 0, 0) // Reset rotation
+    // Note: Don't override rotation after lookAt() - it sets the rotation for us
+    // Looking down the Z-axis from +Z toward origin
+    // mapY inverts physics Y (0=top, 1=bottom) to Three.js Y (+0.6=top, -0.6=bottom)
+    // This creates the correct orientation when viewed from above
   } else {
     // Perspective View (Restore from config or default)
     if (physicsConfig.value && physicsConfig.value.camera_x !== undefined) {
@@ -1927,7 +2129,35 @@ watch(() => props.cameraMode, (newMode) => {
     console.log('Pinball3D: cameraMode changed to', newMode)
     updateCamera()
     updateVisibilityForCameraMode(newMode)
+
+    // Force renderer update to ensure everything is properly aligned
+    if (renderer && camera) {
+        camera.updateProjectionMatrix()
+
+        // Trigger a resize to recalculate dimensions
+        if (container.value) {
+            const rect = container.value.getBoundingClientRect()
+            renderer.setSize(rect.width, rect.height)
+            camera.aspect = rect.width / rect.height
+            camera.updateProjectionMatrix()
+        }
+    }
 })
+
+// Watch for combo/multiplier changes that might cause DOM reflow
+// This fixes the issue where rails misalign when combo toast appears
+watch(() => [props.stats?.combo_count, props.stats?.score_multiplier], () => {
+    // Defer the update to after DOM has updated
+    setTimeout(() => {
+        if (renderer && camera && container.value) {
+            const rect = container.value.getBoundingClientRect()
+            if (rect.width > 0 && rect.height > 0) {
+                camera.aspect = rect.width / rect.height
+                camera.updateProjectionMatrix()
+            }
+        }
+    }, 0)
+}, { deep: true })
 
 // Function to update visibility of 3D vs 2D elements based on camera mode
 const updateVisibilityForCameraMode = (mode) => {
@@ -1949,6 +2179,20 @@ const updateVisibilityForCameraMode = (mode) => {
                 })
             }
             if (bumper2D) bumper2D.visible = is2D
+        })
+    }
+
+    // Update rails: show/hide 3D cylinders vs 2D flat lines
+    if (railMeshes && railMeshes.length > 0) {
+        railMeshes.forEach(railMesh => {
+            // Show 3D cylinder in perspective mode, hide in 2D mode
+            railMesh.visible = !is2D
+
+            // Show 2D flat line in 2D mode, hide in perspective mode
+            const rail2D = railMesh.userData.rail2D
+            if (rail2D) {
+                rail2D.visible = is2D
+            }
         })
     }
 
@@ -2013,77 +2257,66 @@ const activateControls = () => {
     }
 }
 
-// Cache last camera config to detect actual changes
+// Cache last table config string to detect changes
+const lastTableConfigStr = ref("")
 const lastCameraConfig = ref({})
+const lastActiveBallCount = ref(0) // Track ball count to prevent rebuild during multiball
 
 // Watch for config changes from parent (must be after createTable is defined)
-watch(() => props.config, (newConfig, oldConfig) => {
+watch(() => props.config, (newConfig) => {
     if (!newConfig) return
     if (isDragging.value) return
 
-    console.log('[Pinball3D] Config watcher fired')
+    // console.log('[Pinball3D] Config watcher fired')
 
-    // Compare against our stored non-reactive values
-    const flipperLengthChanged = newConfig.flipper_length !== lastFlipperValues.length
-    const flipperWidthChanged = newConfig.flipper_width !== lastFlipperValues.width
-    const flipperTipWidthChanged = newConfig.flipper_tip_width !== lastFlipperValues.tipWidth
-    const flipperChanged = flipperLengthChanged || flipperWidthChanged || flipperTipWidthChanged
-
-    // Update physicsConfig
-    physicsConfig.value = newConfig
+    // 1. Check Table Configuration Logic (Rails, Bumpers, Flippers, etc)
+    // We create a "signature" of the table configuration to detect changes
+    // This is necessary because 'oldConfig' might be the same reference as 'newConfig' for deep watches
     
-    // Always rebuild if no old config (first load)
-    if (lastFlipperValues.length === null) {
-        console.log('[Pinball3D] Initial load, rebuilding table')
-        lastFlipperValues.length = newConfig.flipper_length
-        lastFlipperValues.width = newConfig.flipper_width
-        lastFlipperValues.tipWidth = newConfig.flipper_tip_width
-        createTable(newConfig)
-        updateCamera()
-        return
-    }
-
-    if (flipperChanged) {
-        console.log('[Pinball3D] Flipper properties changed, rebuilding table')
-        if (flipperLengthChanged) console.log(`  flipper_length: ${lastFlipperValues.length} -> ${newConfig.flipper_length}`)
-        if (flipperWidthChanged) console.log(`  flipper_width: ${lastFlipperValues.width} -> ${newConfig.flipper_width}`)
-        if (flipperTipWidthChanged) console.log(`  flipper_tip_width: ${lastFlipperValues.tipWidth} -> ${newConfig.flipper_tip_width}`)
-
-        // Update stored values
-        lastFlipperValues.length = newConfig.flipper_length
-        lastFlipperValues.width = newConfig.flipper_width
-        lastFlipperValues.tipWidth = newConfig.flipper_tip_width
-
-        createTable(newConfig)
-        updateCamera()
-        return
-    }
-
-    // Check if any non-camera property changed
-    const cameraProps = ['camera_x', 'camera_y', 'camera_z', 'camera_pitch', 'camera_zoom']
-    const allKeys = Object.keys(newConfig)
-    const nonCameraChanged = allKeys.some(key => {
-        if (cameraProps.includes(key)) return false
-
-        // Deep equality check for arrays/objects
-        if (Array.isArray(newConfig[key]) && Array.isArray(oldConfig[key])) {
-            return JSON.stringify(newConfig[key]) !== JSON.stringify(oldConfig[key])
+    // Create a copy without camera properties to avoid rebuilding table on camera move
+    const tableConfig = { ...newConfig }
+    delete tableConfig.camera_x
+    delete tableConfig.camera_y
+    delete tableConfig.camera_z
+    delete tableConfig.camera_pitch
+    delete tableConfig.camera_zoom
+    
+    // We also exclude some runtime state if present in config (though usually distinct)
+    
+    const tableConfigStr = JSON.stringify(tableConfig)
+    
+    if (tableConfigStr !== lastTableConfigStr.value) {
+        // SAFETY: Don't rebuild table during multiball transitions
+        // If ball count just changed, defer the table rebuild
+        const currentBallCount = balls.length
+        if (currentBallCount !== lastActiveBallCount.value && currentBallCount > 0) {
+            console.log('[Config Watch] BLOCKED table rebuild during multiball transition')
+            console.log('[Config Watch] Ball count changed from', lastActiveBallCount.value, 'to', currentBallCount)
+            // Update the config string so we don't rebuild next time either
+            lastTableConfigStr.value = tableConfigStr
+            lastActiveBallCount.value = currentBallCount
+            return
         }
-        return newConfig[key] !== oldConfig[key]
-    })
 
-    if (nonCameraChanged) {
-        console.log('[Pinball3D] Non-camera properties changed, rebuilding table')
+        console.log('[Config Watch] Table configuration changed, rebuilding table!')
+        console.log('[Config Watch] Previous config hash:', lastTableConfigStr.value.substring(0, 50))
+        console.log('[Config Watch] New config hash:', tableConfigStr.substring(0, 50))
         createTable(newConfig)
-    } else {
-        console.log('[Pinball3D] Only camera properties changed, skipping table rebuild')
+        lastTableConfigStr.value = tableConfigStr
+        
+        // Also update Last Flipper Values for other logic if used
+        lastFlipperValues.length = newConfig.flipper_length
+        lastFlipperValues.width = newConfig.flipper_width
+        lastFlipperValues.tipWidth = newConfig.flipper_tip_width
+        
+        updateCamera() // Ensure camera is re-applied/clamped if needed
     }
 
+    // 2. Check Camera Configuration Logic
     // Update Camera Position if in perspective mode AND camera params changed
     if (props.cameraMode === 'perspective') {
         let cameraChanged = false
         
-        // Check against cached config
         const currentCam = {
             x: newConfig.camera_x,
             y: newConfig.camera_y,
@@ -2092,6 +2325,7 @@ watch(() => props.config, (newConfig, oldConfig) => {
             zoom: newConfig.camera_zoom
         }
         
+        // Compare against last known applied camera config
         if (
             currentCam.x !== lastCameraConfig.value.x ||
             currentCam.y !== lastCameraConfig.value.y ||
@@ -2137,7 +2371,7 @@ const shakeOffset = { x: 0, y: 0 }
 let shakeFrame = 0
 
 const triggerShake = (direction) => {
-  console.log('Pinball3D: triggerShake called')
+  // console.log('Pinball3D: triggerShake called')
   const intensity = 0.2
   const dir = direction.toLowerCase() === 'left' ? -1 : 1
   
@@ -2161,6 +2395,129 @@ const triggerShake = (direction) => {
   shake()
 }
 
+// Confetti for High Score
+let fireworksInterval = null
+
+const triggerFireworks = () => {
+    if (!props.stats.is_high_score) return
+
+    // Ensure persistent group exists
+    if (!window.fireworksGroup) {
+         const g = new THREE.Group()
+         g.userData = { pool: [], lastPos: new THREE.Vector3(), velocity: new THREE.Vector3() }
+         
+         // Init pool - use flattened planes for confetti look? Or just small spheres for now
+         for(let i=0; i<300; i++) {
+             // Use PlaneGeometry for confetti
+             const geometry = new THREE.PlaneGeometry(0.04, 0.02)
+             const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, transparent: true })
+             const p = new THREE.Mesh(geometry, material)
+             p.visible = false
+             g.add(p)
+             g.userData.pool.push(p)
+         }
+         
+         scene.add(g)
+         window.fireworksGroup = g
+    }
+
+    const launchConfetti = () => {
+        const fGroup = window.fireworksGroup
+        if (!fGroup) return
+
+        // "Broken T-Shirt Cannon" Effect
+        // 1. Spastic count (sometimes 0, sometimes 50)
+        // 2. Clumpy bursts
+        // 3. Poots out with diverse velocity
+        
+        // Randomly skip frames to simulate sputtering
+        if (Math.random() > 0.4) return 
+        
+        // Burst size variability
+        const count = Math.floor(Math.random() * 20) + 5
+        const pool = fGroup.userData.pool
+        
+        // Cannon Source: Moving slightly or fixed?
+        // Let's make it look like it's shooting from the top-center "cannon"
+        // but the cannon itself is shaking (random offset)
+        const cannonBase = new THREE.Vector3(0, 0.6, 0.5) 
+        const cannonJitter = new THREE.Vector3(
+            (Math.random() - 0.5) * 0.1, 
+            0, 
+            (Math.random() - 0.5) * 0.1
+        )
+        const spawnPos = cannonBase.add(cannonJitter)
+
+        for(let i=0; i<count; i++) {
+             const p = pool.find(p => !p.visible)
+             if (!p) break
+             
+             p.visible = true
+             
+             // Position: Clumped at cannon mouth
+             p.position.copy(spawnPos)
+             p.position.x += (Math.random() - 0.5) * 0.05
+             p.position.z += (Math.random() - 0.5) * 0.05
+             
+             // Random Rotation
+             p.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI)
+             
+             // Random Color
+             const colors = [0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF, 0xFFFFFF, 0xFFA500, 0xFF69B4]
+             p.material.color.setHex(colors[Math.floor(Math.random() * colors.length)])
+             p.material.opacity = 1.0
+             
+             // Velocity: "Poot" force
+             // Outward (random spread) + slight Upward + Gravity take over later
+             const force = 0.02 + Math.random() * 0.03
+             const angle = (Math.random() - 0.5) * 2.0 // Spread angle
+             
+             p.userData = {
+                 velocity: new THREE.Vector3(
+                    Math.sin(angle) * force, // Spread X
+                    (Math.random() * 0.02) - 0.01, // Slight Y float/drop
+                    Math.cos(angle) * force + 0.01 // Forward/Back Z? Actually pure random spread in X/Z plane looks better for "falling out"
+                 ),
+                 rotationSpeed: new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.3,
+                    (Math.random() - 0.5) * 0.3,
+                    (Math.random() - 0.5) * 0.3
+                 ),
+                 life: 1.5 + Math.random(),
+                 decay: 0.005 
+             }
+             
+             // Override velocity for "broken cannon" feel:
+             // Sometimes it just falls out (low velocity)
+             if (Math.random() > 0.7) {
+                 p.userData.velocity.set(
+                     (Math.random() - 0.5) * 0.005,
+                     -0.01, // Just drop
+                     (Math.random() - 0.5) * 0.005
+                 )
+             }
+        }
+    }
+
+    launchConfetti()
+    fireworksInterval = setInterval(() => {
+        if (!props.stats.is_high_score || !props.stats.game_over) {
+            clearInterval(fireworksInterval)
+            // Cleanup visible particles?
+            return
+        }
+        launchConfetti()
+    }, 100) // Frequent trickle
+}
+
+watch(() => props.stats.is_high_score, (val) => {
+    if (val) {
+        triggerFireworks()
+    } else {
+        if (fireworksInterval) clearInterval(fireworksInterval)
+    }
+})
+
 onUnmounted(() => {
   if (container.value && container.value._cleanupSocket) {
       container.value._cleanupSocket()
@@ -2171,6 +2528,12 @@ onUnmounted(() => {
   
   window.removeEventListener('keydown', handleKeydown)
   
+  if (fireworksInterval) clearInterval(fireworksInterval)
+  if (window.fireworksGroup && scene) {
+      scene.remove(window.fireworksGroup)
+      window.fireworksGroup = null
+  }
+
   if (tableGroup) {
     // Dispose table resources
     tableGroup.traverse((obj) => {
@@ -2272,10 +2635,6 @@ const handleKeydown = (e) => {
   transition: border-color 0.3s ease;
 }
 
-.pinball-container.controls-active {
-  border-color: #0088ff; /* Blue border to indicate active state */
-}
-
 .debug-overlay {
   position: absolute;
   top: 10px;
@@ -2288,6 +2647,43 @@ const handleKeydown = (e) => {
   font-size: 12px;
   pointer-events: none;
   z-index: 100;
+}
+
+.multiball-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 0, 0, 0.9);
+  color: white;
+  padding: 20px 40px;
+  border-radius: 10px;
+  font-family: monospace;
+  font-size: 24px;
+  font-weight: bold;
+  pointer-events: none;
+  z-index: 999;
+  box-shadow: 0 0 30px rgba(255, 0, 0, 0.8);
+}
+
+.permanent-debug-panel {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #0f0;
+  padding: 8px 12px;
+  border-radius: 5px;
+  font-family: monospace;
+  font-size: 11px;
+  pointer-events: none;
+  z-index: 100;
+  line-height: 1.4;
+  border: 1px solid #0f0;
+}
+
+.permanent-debug-panel div {
+  margin: 2px 0;
 }
 
 .stuck-ball-dialog {
@@ -2351,12 +2747,11 @@ const handleKeydown = (e) => {
 
 .editor-controls {
     position: absolute;
-    bottom: 10px;
-    right: 10px;
-    width: 90%;
+    bottom: 20px;
+    left: 20px;
+    width: 50%;
     z-index: 100;
     display: flex;
-    flex-direction: column-reverse;
     gap: 10px;
     background: rgba(0, 0, 0, 0.7);
     padding: 10px;
@@ -2425,7 +2820,7 @@ const handleKeydown = (e) => {
 
 .sound-toggle-btn {
     position: absolute;
-    top: 10px;
+    top: 100px;
     right: 10px;
     background: rgba(0, 0, 0, 0.6);
     border: none;
@@ -2434,7 +2829,7 @@ const handleKeydown = (e) => {
     height: 40px;
     font-size: 20px;
     cursor: pointer;
-    z-index: 10000;
+    z-index: 2005; /* Above Game Over overlay */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2448,7 +2843,7 @@ const handleKeydown = (e) => {
 
 .sound-settings-overlay {
     position: absolute;
-    top: 60px;
+    top: 150px;
     right: 10px;
     z-index: 200;
 }
@@ -2469,40 +2864,10 @@ const handleKeydown = (e) => {
     text-align: center;
 }
 
-.object-drawer {
-    margin-bottom: 10px;
-    border-bottom: 1px solid #555;
-    padding-bottom: 10px;
-}
-.drawer-title {
-    font-size: 12px;
-    color: #aaa;
-    margin-bottom: 5px;
-}
-.drawer-item {
+.edit-buttons {
     display: flex;
-    align-items: center;
-    gap: 5px;
-    background: #444;
-    padding: 5px;
-    margin-bottom: 5px;
-    border-radius: 3px;
-    cursor: grab;
-}
-.drawer-item:active {
-    cursor: grabbing;
-}
-.icon {
-    width: 16px;
-    height: 16px;
-    background: #666;
-}
-.rail-icon {
-    background: linear-gradient(45deg, transparent 45%, #fff 45%, #fff 55%, transparent 55%);
-}
-.bumper-icon {
-    border-radius: 50%;
-    background: #ffaa00;
+    gap: 8px;
+    margin-top: 5px;
 }
 
 .loading-placeholder {
@@ -2511,7 +2876,7 @@ const handleKeydown = (e) => {
   left: 0;
   width: 100%;
   height: 100%;
-  background: #111;
+  background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2519,22 +2884,36 @@ const handleKeydown = (e) => {
   color: #888;
   font-family: 'Segoe UI', sans-serif;
   z-index: 50;
+  backdrop-filter: blur(10px);
 }
 
 .spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #333;
+  width: 60px;
+  height: 60px;
+  border: 4px solid rgba(255, 255, 255, 0.1);
   border-top: 4px solid #4caf50;
+  border-right: 4px solid #2e7d32;
   border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 15px;
+  animation: spin 1s cubic-bezier(0.68, -0.55, 0.27, 1.55) infinite;
+  margin-bottom: 20px;
+  box-shadow: 0 0 15px rgba(76, 175, 80, 0.5);
 }
 
 .loading-text {
-  font-size: 1.2em;
-  letter-spacing: 1px;
-  animation: pulse-text 1.5s ease-in-out infinite alternate;
+  font-size: 1.5em;
+  font-weight: 800;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #4caf50, #81c784, #4caf50);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2s infinite linear;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
 }
 
 @keyframes spin {
@@ -2608,5 +2987,56 @@ const handleKeydown = (e) => {
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+.game-over-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  animation: fadeIn 0.5s ease-out;
+}
+
+.game-over-text {
+  font-size: 4rem;
+  font-weight: 900;
+  color: #ff3333;
+  text-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+  margin-bottom: 20px;
+  animation: pulse 2s infinite;
+}
+
+.high-score-text {
+  font-size: 3rem;
+  font-weight: 800;
+  color: #FFD700;
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 0 0 40px rgba(255, 100, 0, 0.5);
+  margin-bottom: 20px;
+  animation: pulse 1s infinite alternate;
+}
+
+.final-score {
+  font-size: 2.5rem;
+  color: #ffffff;
+  font-family: 'Courier New', monospace;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
 }
 </style>

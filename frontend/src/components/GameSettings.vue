@@ -1,10 +1,5 @@
 <template>
   <div class="sound-settings">
-    <div class="header">
-      <h3>Game Settings</h3>
-      <button @click="$emit('close')" class="close-btn">×</button>
-    </div>
-    
     <!-- Sound Section -->
     <div class="section">
       <h4 class="section-title">Sound</h4>
@@ -21,19 +16,16 @@
         >
       </div>
 
-      <div class="control-group checkbox-group">
-        <label for="mute-toggle">Mute</label>
-        <input
-          id="mute-toggle"
-          type="checkbox"
-          v-model="muted"
-          @change="updateMute"
-        >
+      <div class="control-group checkbox-group mute-control">
+          <input
+              id="mute-toggle"
+              type="checkbox"
+              v-model="muted"
+              @change="updateMute"
+          >
+          <label for="mute-toggle">Mute</label>
       </div>
 
-      <div class="actions">
-        <button @click="testSound" class="test-btn">Test Sound</button>
-      </div>
     </div>
 
     <!-- Visuals Section -->
@@ -68,7 +60,7 @@ const emit = defineEmits(['close', 'update-smoke-intensity'])
 
 const volume = ref(0.5)
 const muted = ref(false)
-const localSmokeIntensity = ref(1.0)
+const localSmokeIntensity = ref(0.5)
 
 onMounted(() => {
     // Initialize from SoundManager defaults
@@ -106,11 +98,11 @@ const testSound = () => {
   border: 1px solid #555;
   border-radius: 8px;
   padding: 15px;
-  width: 250px;
+  width: 185px;
   color: #eee;
   box-shadow: 0 4px 12px rgba(0,0,0,0.5);
   pointer-events: auto;
-  z-index: 200;
+  z-index: 300;
 }
 
 .header {
@@ -182,6 +174,10 @@ const testSound = () => {
 input[type="range"] {
   width: 100%;
   cursor: pointer;
+}
+
+.mute-control {
+    justify-content: flex-end;
 }
 
 .actions {

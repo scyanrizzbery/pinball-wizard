@@ -143,5 +143,37 @@
         "flipper_tip_width": 0.018,
         "ball_mass": 0.7,
         "flipper_elasticity": 0.5
-    }
+    },
+    "camera_presets": {
+        "Top Down": {
+            "camera_x": 0.5,
+            "camera_y": 0.5,
+            "camera_z": 2.0,
+            "camera_pitch": 0,
+            "camera_zoom": 1.0
+        },
+        "Player View": {
+            "camera_x": 0.5,
+            "camera_y": 0.9,
+            "camera_z": 0.3,
+            "camera_pitch": 60,
+            "camera_zoom": 1.0
+        },
+        "Isometric": {
+            "camera_x": 0.5,
+            "camera_y": 0.6,
+            "camera_z": 1.2,
+            "camera_pitch": 45,
+            "camera_zoom": 1.0
+        },
+        "Side View": {
+            "camera_x": 1.5,
+            "camera_y": 0.5,
+            "camera_z": 0.5,
+            "camera_pitch": 75,
+            "camera_zoom": 1.0
+        },
+        "Bottom View": {}
+    },
+    "last_preset": ""
 }

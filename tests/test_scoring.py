@@ -14,14 +14,15 @@ class TestScoring(unittest.TestCase):
     def setUp(self):
         print("Initializing Simulation...")
         self.sim = SimulatedFrameCapture(width=450, height=800)
-        self.sim.start()
+        # self.sim.start() # Do not start thread to avoid race condition with Pymunk
         # Just add a ball directly
         ball_pos = (200, 400) # center-ish
         if hasattr(self.sim, 'physics_engine') and self.sim.physics_engine:
              self.sim.physics_engine.add_ball(ball_pos)
 
     def tearDown(self):
-        self.sim.stop()
+        # self.sim.stop()
+        pass
 
     def test_scoring_mechanics(self):
         total_score = 0
@@ -48,7 +49,8 @@ class TestScoring(unittest.TestCase):
                 total_score = current_score
                 score_increased = True
                 
-            time.sleep(0.001) # Faster sleep for tests
+            # time.sleep(0.001) # Faster sleep for tests
+            self.sim.physics_engine.update(0.016) # Step logic manually instead of thread
             
             # Respawn if lost
             if not self.sim.balls:
@@ -57,19 +59,19 @@ class TestScoring(unittest.TestCase):
                 
         print(f"Final Score: {total_score}")
         
-        # Assert that we managed to score at least something (it's random but likely)
-        # If this is flaky, we might need a more deterministic test, 
-        # e.g. placing the ball directly on a bumper.
-        
         # Let's force a score to ensure the test is deterministic
         if not score_increased:
             # Manually place ball on a bumper
-            if self.sim.balls:
-                bumper = self.sim.bumpers[0]
-                self.sim.balls[0]['pos'] = bumper['pos'].copy()
+            if self.sim.layout.bumpers and self.sim.physics_engine and self.sim.physics_engine.balls:
+                bumper = self.sim.layout.bumpers[0]
+                # Move PHYSICS BODY
+                body = self.sim.physics_engine.balls[0]
+                body.position = (bumper['x'] * self.sim.width, bumper['y'] * self.sim.height)
+                
                 # Run a few steps to trigger collision
                 for _ in range(10):
-                    time.sleep(0.01)
+                    # time.sleep(0.01)
+                    self.sim.physics_engine.update(0.016)
                     current_score = self.sim.physics_engine.score if hasattr(self.sim, 'physics_engine') else self.sim.score
                     if current_score > total_score:
                         score_increased = True
@@ -81,7 +83,6 @@ class TestScoring(unittest.TestCase):
         """Verify score multiplier increases points awarded."""
         # Reset score
         self.sim.score = 0
-        initial_score = 0
         
         # Force a 3x multiplier
         # Use physics_engine as per recent fixes
@@ -91,48 +92,31 @@ class TestScoring(unittest.TestCase):
             engine = getattr(self.sim, engine_attr)
             
             # Set up a combo that won't be reset by the first hit
-            # We need to set last_hit_time to be recent so the combo is considered active
-            import time
             engine.combo_count = 3
             engine.score_multiplier = 3.0
             engine.last_hit_time = time.time() - 0.1  # Recent hit 0.1s ago (within combo window)
             
-            # Manually trigger a score event (e.g. bumper hit)
-            # We can use the internal method if accessible, or simulate collision
-            # For simplicity, let's use the engine's score adding logic directly if possible
-            # But engine.score is separate from sim.score (sim reads from engine)
-            
-            # Let's simulate a hit by calling the collision handler logic directly?
-            # Or just verify the engine's multiplier logic in isolation (already covered in test_combos)
-            # Let's try to do an integration test:
-            
             # 1. Place ball on bumper
-            if self.sim.balls and self.sim.bumpers:
-                bumper = self.sim.bumpers[0]
+            if self.sim.balls and self.sim.layout.bumpers:
+                bumper = self.sim.layout.bumpers[0]
                 
                 # Move ball to bumper
-                ball_body = engine.balls[0]
-                ball_body.position = tuple(bumper['pos'])
-                
-                # Step physics to trigger collision
-                # We need to ensure the collision handler uses the multiplier
-                for _ in range(5):
-                    engine.space.step(0.016)
+                # balls list might be detached from physics in test env? No, logic uses engine.balls
+                if engine.balls:
+                    ball_body = engine.balls[0]
+                    ball_body.position = tuple(bumper['pos'])
                     
-                # Check if score increased by > 20 (base score with multiplier)
-                # Base bumper score is 10. With 3x combo, it should be:
-                # - First hit at combo=3: extends to combo=4, multiplier=4.0
-                # - Score = 10 * 4.0 = 40
-                # - Combo bonus (combo > 2): base_combo_bonus * (4-1) = 50 * 3 = 150
-                # - Total should be 40 + 150 = 190
-                
-                if engine.score > 0:
-                    print(f"Score with combo: {engine.score}, combo_count: {engine.combo_count}")
-                    # It should be significantly higher than base score
-                    self.assertGreater(engine.score, 30, "Score should reflect multiplier and combo bonus")
+                    # Step physics to trigger collision
+                    # We need to ensure the collision handler uses the multiplier
+                    for _ in range(5):
+                        engine.space.step(0.016)
+                        
+                    if engine.score > 0:
+                        print(f"Score with combo: {engine.score}, combo_count: {engine.combo_count}")
+                        # It should be significantly higher than base score (10)
+                        self.assertGreater(engine.score, 30, "Score should reflect multiplier and combo bonus")
             else:
                 print("Skipping multiplier test - no balls/bumpers")
-
 
 if __name__ == "__main__":
     unittest.main()
