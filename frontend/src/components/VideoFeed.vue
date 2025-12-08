@@ -19,7 +19,7 @@
     <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: lime; padding: 5px; z-index: 9999; font-family: monospace; font-size: 12px; pointer-events: none; display: none">
       Offsets: X={{ physics.rail_x_offset }} Y={{ physics.rail_y_offset }}
     </div>
-    <div id="video-wrapper" ref="containerElement">
+    <div id="video-wrapper" ref="containerElement" :style="zoomStyle">
       <div v-if="!videoSrc" class="loading-placeholder">
         <div class="spinner"></div>
         <div class="loading-text">CONNECTING...</div>
@@ -52,6 +52,14 @@
                   class="bumper-circle"
                   @mousedown="startDrag('bumper', index, 'body', $event)"
                   @touchstart="startDrag('bumper', index, 'body', $event)" />
+
+          <!-- Drop Targets -->
+          <rect v-for="(target, index) in dropTargets" :key="'target-'+index"
+                  :x="target.screenRect.x" :y="target.screenRect.y"
+                  :width="target.screenRect.width" :height="target.screenRect.height"
+                  class="target-rect"
+                  @mousedown="startDrag('target', index, 'body', $event)"
+                  @touchstart="startDrag('target', index, 'body', $event)" />
 
 
         </svg>
@@ -221,6 +229,7 @@ const rails = computed(() => {
   // Offsets are already normalized (relative to width/height)
   const normOffsetX = parseFloat(props.physics.rail_x_offset || 0)
   const normOffsetY = parseFloat(props.physics.rail_y_offset || 0)
+  const lengthScale = parseFloat(props.physics.guide_length_scale || 1.0)
   
   // console.log(`VideoFeed rails computed. Rails: ${props.physics.rails.length}, Offsets: ${normOffsetX}, ${normOffsetY}`)
   
@@ -231,7 +240,43 @@ const rails = computed(() => {
     const p2x = rail.p2.x + normOffsetX
     const p2y = rail.p2.y + normOffsetY
     
-    const p1 = project3D(p1x, p1y)
+    // Calculate Length Scaling (P1 relative to P2)
+    // Vector pointing from P2 to P1
+    const dx = p1x - p2x
+    const dy = p1y - p2y
+    // In normalized coords, distance acts differently if aspect ratio is not 1.0?
+    // Actually physics engine converts to Pixels/World FIRST, then does distance.
+    // Here we are in Normalized coords.
+    // If Table Ratio is 0.6 / 1.2 (~0.5 aspect?).
+    // Distance in normalized space is squashed.
+    // To match Physics Engine (World Space) logic:
+    // We must de-normalize, scale, then re-normalize.
+    
+    const wx1 = p1x * TABLE_WIDTH
+    const wy1 = p1y * TABLE_HEIGHT
+    const wx2 = p2x * TABLE_WIDTH
+    const wy2 = p2y * TABLE_HEIGHT
+    
+    const wdx = wx1 - wx2
+    const wdy = wy1 - wy2
+    const wLen = Math.sqrt(wdx*wdx + wdy*wdy)
+    
+    let final_wx1 = wx1
+    let final_wy1 = wy1
+    
+    if (wLen > 0) {
+        const ux = wdx / wLen
+        const uy = wdy / wLen
+        const scaledLen = wLen * lengthScale
+        final_wx1 = wx2 + ux * scaledLen
+        final_wy1 = wy2 + uy * scaledLen
+    }
+    
+    // Normalize back
+    const final_p1x = final_wx1 / TABLE_WIDTH
+    const final_p1y = final_wy1 / TABLE_HEIGHT
+    
+    const p1 = project3D(final_p1x, final_p1y)
     const p2 = project3D(p2x, p2y)
     return {
       ...rail,
@@ -243,7 +288,7 @@ const rails = computed(() => {
 
 const bumpers = computed(() => {
   if (!props.physics || !props.physics.bumpers) return []
-  // console.log('VideoFeed: Computing bumpers', props.physics.bumpers.length)
+  console.log('VideoFeed: Computing bumpers', props.physics.bumpers.length)
   return props.physics.bumpers.map(b => {
     const pos = project3D(b.x, b.y)
     return {
@@ -253,6 +298,55 @@ const bumpers = computed(() => {
   })
 })
 
+const dropTargets = computed(() => {
+  if (!props.physics || !props.physics.drop_targets) return []
+  return props.physics.drop_targets.map(t => {
+      // Calculate projected corners to get bounding box
+      const p1 = project3D(t.x - t.width/2, t.y - t.height/2)
+      const p2 = project3D(t.x + t.width/2, t.y + t.height/2)
+      
+      return {
+          ...t,
+          screenRect: {
+              x: Math.min(p1.x, p2.x),
+              y: Math.min(p1.y, p2.y),
+              width: Math.abs(p2.x - p1.x),
+              height: Math.abs(p2.y - p1.y)
+          }
+      }
+  })
+})
+
+const zoomStyle = computed(() => {
+    // If we assume simulation video covers 0-1 range.
+    // camera_x = 0-1 (Target X / Origin X)
+    // camera_y = 0-1 (Target Y / Origin Y)
+    // zoom = Scalar
+    
+    // We use default values if props.physics is missing
+    const cx = props.physics?.camera_x ?? 0.5
+    const cy = props.physics?.camera_y ?? 0.5 
+    const zoom = props.physics?.camera_zoom ?? 1.0
+    
+    let originX = cx * 100
+    let originY = cy * 100
+    
+    // Heuristic: If cy is clearly outside table (e.g. 3D camera position > 1.0), 
+    // center vertically for 2D view unless we know better.
+    // Standard table Y is 0 (Top) to 1 (Bottom).
+    if (cy > 1.2 || cy < -0.2) originY = 50
+    
+    // Also clamp origin to keep it sane
+    originX = Math.max(0, Math.min(100, originX))
+    originY = Math.max(0, Math.min(100, originY))
+
+    return {
+        transform: `scale(${zoom})`,
+        transformOrigin: `${originX}% ${originY}%`,
+        transition: 'transform 0.3s ease-out' // Smooth transition for presets
+    }
+})
+
 // Projection Constants (Must match backend)
 const TABLE_WIDTH = 450
 const TABLE_HEIGHT = 800
@@ -260,90 +354,18 @@ const ASPECT = TABLE_WIDTH / TABLE_HEIGHT
 
 const project3D = (tx, ty) => {
   // tx, ty are normalized table coords (0-1)
-  // Convert to World Coords (same as backend logic)
-  const x = tx * TABLE_WIDTH
-  const y = ty * TABLE_HEIGHT
-  const z = 0
-  
-  const camX = (props.physics.camera_x !== undefined ? props.physics.camera_x : 0.5) * TABLE_WIDTH
-  const camY = (props.physics.camera_y !== undefined ? props.physics.camera_y : 1.5) * TABLE_HEIGHT
-  const camZ = (props.physics.camera_z !== undefined ? props.physics.camera_z : 1.5) * TABLE_WIDTH
-  const pitch = (props.physics.camera_pitch !== undefined ? props.physics.camera_pitch : 45) * (Math.PI / 180)
-  const zoom = props.physics.camera_zoom !== undefined ? props.physics.camera_zoom : 1.0
-  
-  // Camera Transform
-  const x_cam = x - camX
-  const y_cam = y - camY
-  const z_cam = z - camZ
-  
-  // Rotation (Pitch)
-  const c = Math.cos(pitch)
-  const s = Math.sin(pitch)
-  
-  const y_rot = y_cam * c - z_cam * s
-  const z_rot = y_cam * s + z_cam * c
-  const x_rot = x_cam
-  
-  // Perspective Projection
-  // Backend uses f = width * 1.2 * zoom
-  // u_screen = (x_rot * f / abs(z_rot)) + center_x
-  // v_screen = (y_rot * f / abs(z_rot)) + center_y
-  
-  if (z_rot === 0) return { x: 0.5, y: 0.5 } // Avoid div by zero
-  
-  const f_norm = 1.2 * zoom // f / width
-  const abs_z = Math.abs(z_rot)
-  
-  const u = (x_rot * f_norm / abs_z) + 0.5
-  const v = (y_rot * f_norm * ASPECT / abs_z) + 0.5
-  
-  return { x: u, y: v }
+  // Simulation video feed uses direct 2D mapping.
+  // We bypass perspective projection to align overlay with the flat video feed.
+  // This prevents scrambling when 3D camera settings (zoom/pitch) are changed.
+  return { x: tx, y: ty }
 }
 
 const unproject2D = (sx, sy) => {
   // sx, sy are normalized screen coords (0-1)
-  
-  const camX = (props.physics.camera_x !== undefined ? props.physics.camera_x : 0.5) * TABLE_WIDTH
-  const camY = (props.physics.camera_y !== undefined ? props.physics.camera_y : 1.5) * TABLE_HEIGHT
-  const camZ = (props.physics.camera_z !== undefined ? props.physics.camera_z : 1.5) * TABLE_WIDTH
-  const pitch = (props.physics.camera_pitch !== undefined ? props.physics.camera_pitch : 45) * (Math.PI / 180)
-  const zoom = props.physics.camera_zoom !== undefined ? props.physics.camera_zoom : 1.0
-  
-  // Normalized coords relative to center
-  const f_norm = 1.2 * zoom
-  const u_norm = (sx - 0.5) / f_norm
-  const v_norm = (sy - 0.5) / (f_norm * ASPECT)
-  
-  // We know z = 0, so z_cam = -camZ
-  const z_cam = -camZ
-  
-  // Solve for y_cam
-  // y_cam = z_cam * (s - v_norm * c) / (c + v_norm * s)
-  const c = Math.cos(pitch)
-  const s = Math.sin(pitch)
-  
-  const denom = c + v_norm * s
-  if (Math.abs(denom) < 0.0001) return { x: 0, y: 0 }
-  
-  const y_cam = z_cam * (s - v_norm * c) / denom
-  
-  // Solve for x_cam
-  const z_rot = y_cam * s + z_cam * c
-  
-  // x_rot = -u_norm * z_rot (since we divided by abs(z_rot) which is -z_rot)
-  // Wait, z_rot is negative. abs(z_rot) = -z_rot.
-  // u_norm = x_rot / -z_rot => x_rot = -u_norm * z_rot
-  const x_rot = -u_norm * z_rot
-  const x_cam = x_rot
-  
-  // World Coords
-  const x = x_cam + camX
-  const y = y_cam + camY
-  
-  // Normalize to Table Coords
+  // Inverse of project3D (Identity for simulation)
   return {
-    x: x / TABLE_WIDTH,
-    y: y / TABLE_HEIGHT
+    x: sx,
+    y: sy
   }
 }
 
@@ -643,6 +665,19 @@ img {
 .bumper-circle:hover {
   fill: rgba(255, 170, 0, 0.6);
   stroke: #ffcc00;
+}
+
+.target-rect {
+  fill: rgba(0, 255, 255, 0.4);
+  stroke: #00ffff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: move;
+}
+
+.target-rect:hover {
+  fill: rgba(0, 255, 255, 0.6);
 }
 
 

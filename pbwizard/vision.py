@@ -1253,6 +1253,56 @@ class SimulatedFrameCapture(FrameCapture):
                     except Exception as e:
                         logger.error(f"Error drawing poly rail: {e}")
 
+        # Draw Bumpers
+        try:
+            if hasattr(self.layout, 'bumpers'):
+                for i, bumper in enumerate(self.layout.bumpers):
+                    pos = (int(bumper['x'] * self.width), int(bumper['y'] * self.height))
+                    state = 0.0
+                    if self.physics_engine and hasattr(self.physics_engine, 'bumper_states') and i < len(self.physics_engine.bumper_states):
+                        state = self.physics_engine.bumper_states[i]
+                    
+                    # Decay state for visual flash
+                    if state > 0:
+                        color = (0, 255, 255) # Yellow/Cyan flash
+                        radius = 20
+                    else:
+                        color = (0, 165, 255) # Orange (BGR)
+                        radius = 18
+                    
+                    cv2.circle(canvas, pos, radius, color, -1)
+                    cv2.circle(canvas, pos, radius, (0, 100, 200), 2) # Outline
+        except Exception as e:
+            logger.error(f"Error drawing bumpers: {e}")
+
+        # Draw Drop Targets
+        try:
+            if hasattr(self.layout, 'drop_targets'):
+                for i, target in enumerate(self.layout.drop_targets):
+                    # Check state
+                    is_up = True
+                    if self.physics_engine and hasattr(self.physics_engine, 'drop_target_states') and i < len(self.physics_engine.drop_target_states):
+                        is_up = self.physics_engine.drop_target_states[i]
+                    
+                    # Convert normalized to pixels
+                    # Width/Height in config might be normalized
+                    cw = int(target['width'] * self.width)
+                    ch = int(target['height'] * self.height) if 'height' in target else 20
+                    cx = int(target['x'] * self.width)
+                    cy = int(target['y'] * self.height)
+                    
+                    top_left = (cx - cw//2, cy - ch//2)
+                    bottom_right = (cx + cw//2, cy + ch//2)
+                    
+                    if is_up:
+                        cv2.rectangle(canvas, top_left, bottom_right, (255, 50, 50), -1) # Blue filled
+                        cv2.rectangle(canvas, top_left, bottom_right, (200, 200, 200), 2) # Border
+                    else:
+                        pass # Invisible if down?
+        except Exception as e:
+            logger.error(f"Error drawing drop targets: {e}")
+
+
         # Draw Flippers (using current angles)
         # Pivot is at (x_min, y_max) for left, (x_max, y_max) for right
         self._draw_flipper(canvas, 'left', self.layout.left_flipper_x_min, self.layout.left_flipper_y_max, 

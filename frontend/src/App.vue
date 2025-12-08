@@ -27,7 +27,7 @@
           v-if="viewMode === '3d'"
           :socket="sockets.game"
           :configSocket="sockets.config"
-          :config="layoutConfig"
+          :config="physics"
           :nudgeEvent="nudgeEvent"
           :stats="stats"
           :cameraMode="viewMode === '3d' ? 'perspective' : 'top-down'"
@@ -567,11 +567,8 @@ onMounted(() => {
       }
       try {
         window.__PHYSICS__ = config // Expose for E2E testing
-        layoutConfig.value = config // Store full config for 3D view
         Object.keys(config).forEach(key => {
-          if (key in physics) {
-            physics[key] = config[key]
-          }
+          physics[key] = config[key]
         })
         if (config.camera_presets) {
           cameraPresets.value = config.camera_presets

@@ -507,22 +507,32 @@ const onMouseUp = () => {
 // Zoom functionality
 let zoomDebounceTimer = null
 const onWheel = (event) => {
-    if (!props.config) return
+    // If controls are active (unlocked), let OrbitControls handle the zoom
+    if (controlsActive.value || (controls && controls.enabled)) return
+    if (!props.config || !camera) return
 
-    // Calculate new zoom
-    // DeltaY is usually +/- 100 per tick.
-    // Zoom range typically 0.5 to 2.0
+    // Calculate sensitivity based on current zoom or fixed
     const sensitivity = 0.001
-    let newZoom = (physicsConfig.value.camera_zoom || 1.0) - (event.deltaY * sensitivity)
+    const delta = event.deltaY * sensitivity
     
-    // Clamp zoom
+    // Move camera along its viewing axis (Dolly)
+    // Positive deltaY (scroll down) = zoom out = move back (+Z locally)
+    camera.translateZ(delta * 5.0) // Scale factor for speed
+    
+    // Update local config zoom value to match roughly (inverse of distance?)
+    // This is tricky because calculateZoom from distance depends on (0,0,0) lookat.
+    // If we want to keep the UI slider somewhat useful, we can update it merely as a scalar.
+    let currentZoom = physicsConfig.value.camera_zoom || 1.0
+    let newZoom = currentZoom - delta
     newZoom = Math.max(0.2, Math.min(3.0, newZoom))
     
-    // Update local config immediately for responsiveness
     physicsConfig.value.camera_zoom = newZoom
     
-    // Force camera update locally
-    updateCamera()
+    // CRITICAL: Update lastCameraConfig to allow watcher to skip updateCamera()
+    // This prevents the camera from snapping back to the calculated position
+    if (lastCameraConfig.value) {
+        lastCameraConfig.value.zoom = newZoom
+    }
     
     // Debounce network update
     if (zoomDebounceTimer) clearTimeout(zoomDebounceTimer)
@@ -841,16 +851,52 @@ const createTable = (config = null) => {
       })
 
       config.rails.forEach((rail, index) => {
+        const normOffsetX = parseFloat(config.rail_x_offset || 0)
+        const normOffsetY = parseFloat(config.rail_y_offset || 0)
+        const lengthScale = parseFloat(config.guide_length_scale || 1.0)
+        
+        // Apply global offsets to raw coordinates
+        const r1x = rail.p1.x + normOffsetX
+        const r1y = rail.p1.y + normOffsetY
+        const r2x = rail.p2.x + normOffsetX
+        const r2y = rail.p2.y + normOffsetY
+        
         // Calculate start and end positions in 3D space
-        const x1 = mapX(rail.p1.x)
-        const y1 = mapY(rail.p1.y)
-        const x2 = mapX(rail.p2.x)
-        const y2 = mapY(rail.p2.y)
+        let x1 = mapX(r1x)
+        let y1 = mapY(r1y)
+        const x2 = mapX(r2x)
+        const y2 = mapY(r2y)
 
         // Calculate distance between points
-        const dx = x2 - x1
-        const dy = y2 - y1
+        let dx = x2 - x1
+        let dy = y2 - y1
         const length = Math.sqrt(dx * dx + dy * dy)
+        
+        // Apply Length Scale (P1 moves towards P2)
+        if (length > 0 && Math.abs(lengthScale - 1.0) > 0.001) {
+             const scaledLen = length * lengthScale
+             const ux = dx / length
+             const uy = dy / length
+             
+             // P1 is the point that moves (start point)
+             // But wait, x2, y2 is P2.
+             // Vector dx, dy is P1->P2? No. x2-x1. So P1 to P2.
+             // We want P1 to move closer to P2.
+             // New P1 = P2 - (Normalized P1->P2) * scaledLen.
+             // ux, uy is normalized P1->P2.
+             // So P2 - (ux, uy) * scaledLen.
+             
+             // Let's verify:
+             // Original P1 = P2 - (ux, uy) * length.
+             // New P1 = P2 - (ux, uy) * scaledLen.
+             
+             x1 = x2 - ux * scaledLen
+             y1 = y2 - uy * scaledLen
+             
+             // Recalc dx, dy
+             dx = x2 - x1
+             dy = y2 - y1
+        }
 
         // Create cylinder geometry for the rail
         const railGeo = new THREE.CylinderGeometry(railRadius, railRadius, length, 16)
@@ -2173,6 +2219,9 @@ const handleKeydown = (e) => {
   // Prevent default scrolling for camera keys
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown'].includes(e.code)) {
     e.preventDefault()
+    
+    // Switch to manual mode so zoom doesn't reset position
+    activateControls()
 
     switch(e.code) {
       case 'ArrowUp':

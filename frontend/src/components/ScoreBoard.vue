@@ -26,6 +26,18 @@
         </div>
       </div>
     </div>
+
+    <!-- Ball Count -->
+    <div class="stat-box ball-count-box">
+      <span class="label">BALLS</span>
+      <div class="score-board" style="padding: 4px 12px;">
+        <div class="score-reel">
+          <div class="score-strip" :style="{ transform: `translateY(-${balls * 22}px)` }">
+             <div class="reel-number" v-for="n in 10" :key="n">{{ n - 1 }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
     
     <!-- High Score -->
     <div class="stat-box high-score-box">
@@ -50,6 +62,7 @@ import { computed } from 'vue'
 const props = defineProps({
   score: { type: Number, default: 0 },
   highScore: { type: Number, default: 0 },
+  balls: { type: Number, default: 3 },
   comboCount: { type: Number, default: 0 },
   scoreMultiplier: { type: Number, default: 1.0 },
   comboActive: { type: Boolean, default: false },
@@ -114,7 +127,7 @@ const highScoreReels = computed(() => getReelItems(props.highScore, 7))
 
 @media (min-width: 1920px) {
   .scoreboard-container {
-    transform: scale(1.3);
+    transform: scale(1);
     transform-origin: top center;
   }
 }

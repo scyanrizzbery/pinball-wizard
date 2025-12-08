@@ -16,6 +16,8 @@ describe('Pinball Wizard - Smoke Test', () => {
     })
 
     it('should load the video feed', () => {
+        // Switch to 2D view if in 3D mode
+        cy.contains('button', 'Switch to 2D').click()
         cy.waitForVideo()
     })
 

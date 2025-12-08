@@ -84,21 +84,24 @@
             <span>Table Tilt</span>
             <span>{{ formatNumber(physics.table_tilt, 1) }}°</span>
           </div>
-          <input type="range" min="-180.0" max="180.0" step="5" v-model.number="physics.table_tilt">
+          <input type="range" min="-180.0" max="180.0" step="5" :value="physics.table_tilt"
+            @input="updatePhysics('table_tilt', parseFloat($event.target.value))">
         </div>
         <div class="slider-container">
           <div class="slider-label">
             <span>Friction</span>
             <span>{{ formatNumber(physics.friction, 3) }}</span>
           </div>
-          <input type="range" min="0.01" max="2.000" step="0.01" v-model.number="physics.friction">
+          <input type="range" min="0.01" max="2.000" step="0.01" :value="physics.friction"
+            @input="updatePhysics('friction', parseFloat($event.target.value))">
         </div>
         <div class="slider-container">
           <div class="slider-label">
             <span>Restitution (Bounce)</span>
             <span>{{ formatNumber(physics.restitution, 2) }}</span>
           </div>
-          <input type="range" min="0.1" max="2.0" step="0.01" v-model.number="physics.restitution"
+          <input type="range" min="0.1" max="2.0" step="0.01" :value="physics.restitution"
+            @input="updatePhysics('restitution', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -106,7 +109,8 @@
             <span>Plunger Force</span>
             <span>{{ formatNumber(physics.plunger_release_speed, 0) }}</span>
           </div>
-          <input type="range" min="0" max="4000" step="100" v-model.number="physics.plunger_release_speed"
+          <input type="range" min="0" max="4000" step="100" :value="physics.plunger_release_speed"
+            @input="updatePhysics('plunger_release_speed', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -114,7 +118,8 @@
             <span>Launch Angle</span>
             <span>{{ formatNumber(physics.launch_angle, 1) }}°</span>
           </div>
-          <input type="range" min="-90" max="90" step="1" v-model.number="physics.launch_angle"
+          <input type="range" min="-90" max="90" step="1" :value="physics.launch_angle"
+            @input="updatePhysics('launch_angle', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -122,7 +127,8 @@
             <span>Ball Weight</span>
             <span>{{ formatNumber(physics.ball_mass, 2) }}</span>
           </div>
-          <input type="range" min="0.1" max="5.0" step="0.1" v-model.number="physics.ball_mass"
+          <input type="range" min="0.1" max="5.0" step="0.1" :value="physics.ball_mass"
+            @input="updatePhysics('ball_mass', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
       </div>
@@ -138,7 +144,8 @@
                     <span>Speed</span>
                     <span>{{ formatNumber(physics.flipper_speed, 1) }}</span>
                 </div>
-                <input type="range" min="0" max="60" step="0.1" v-model.number="physics.flipper_speed"
+                <input type="range" min="0" max="60" step="0.1" :value="physics.flipper_speed"
+                       @input="updatePhysics('flipper_speed', parseFloat($event.target.value))"
                        :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -146,7 +153,7 @@
             <span>Resting Angle</span>
             <span>{{ physics.flipper_resting_angle }}</span>
           </div>
-          <input type="range" v-model.number="physics.flipper_resting_angle" min="-60" max="0" step="1"
+          <input type="range" :value="physics.flipper_resting_angle" @input="updatePhysics('flipper_resting_angle', parseFloat($event.target.value))" min="-60" max="0" step="1"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -154,7 +161,7 @@
             <span>Stroke Angle</span>
             <span>{{ physics.flipper_stroke_angle }}</span>
           </div>
-          <input type="range" v-model.number="physics.flipper_stroke_angle" min="10" max="90" step="1"
+          <input type="range" :value="physics.flipper_stroke_angle" @input="updatePhysics('flipper_stroke_angle', parseFloat($event.target.value))" min="10" max="90" step="1"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -162,7 +169,8 @@
             <span>Length</span>
             <span>{{ formatNumber(physics.flipper_length, 2) }}</span>
           </div>
-          <input type="range" min="0.1" max="0.3" step="0.01" v-model.number="physics.flipper_length"
+          <input type="range" min="0.1" max="0.3" step="0.01" :value="physics.flipper_length"
+            @input="updatePhysics('flipper_length', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -170,7 +178,8 @@
             <span>Head Width</span>
             <span>{{ formatNumber(physics.flipper_width, 3) }}</span>
           </div>
-          <input type="range" min="0.01" max="0.05" step="0.001" v-model.number="physics.flipper_width"
+          <input type="range" min="0.01" max="0.05" step="0.001" :value="physics.flipper_width"
+            @input="updatePhysics('flipper_width', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -178,7 +187,8 @@
             <span>Tip Width</span>
             <span>{{ formatNumber(physics.flipper_tip_width, 3) }}</span>
           </div>
-          <input type="range" min="0.001" max="0.05" step="0.001" v-model.number="physics.flipper_tip_width"
+          <input type="range" min="0.001" max="0.05" step="0.001" :value="physics.flipper_tip_width"
+            @input="updatePhysics('flipper_tip_width', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -186,7 +196,8 @@
             <span>Rubber Bounce</span>
             <span>{{ formatNumber(physics.flipper_elasticity, 2) }}</span>
           </div>
-          <input type="range" min="0.0" max="1.5" step="0.05" v-model.number="physics.flipper_elasticity"
+          <input type="range" min="0.0" max="1.5" step="0.05" :value="physics.flipper_elasticity"
+            @input="updatePhysics('flipper_elasticity', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         
@@ -196,7 +207,8 @@
             <span>Pos X</span>
             <span>{{ formatNumber(physics.left_flipper_pos_x, 2) }}</span>
           </div>
-          <input type="range" min="0.0" max="0.5" step="0.01" v-model.number="physics.left_flipper_pos_x"
+          <input type="range" min="0.0" max="0.5" step="0.01" :value="physics.left_flipper_pos_x"
+            @input="updatePhysics('left_flipper_pos_x', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -204,7 +216,8 @@
             <span>Pos Y</span>
             <span>{{ formatNumber(physics.left_flipper_pos_y, 2) }}</span>
           </div>
-          <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.left_flipper_pos_y"
+          <input type="range" min="0.5" max="1.0" step="0.01" :value="physics.left_flipper_pos_y"
+            @input="updatePhysics('left_flipper_pos_y', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
 
@@ -214,7 +227,8 @@
             <span>Pos X</span>
             <span>{{ formatNumber(physics.right_flipper_pos_x, 2) }}</span>
           </div>
-          <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.right_flipper_pos_x"
+          <input type="range" min="0.5" max="1.0" step="0.01" :value="physics.right_flipper_pos_x"
+            @input="updatePhysics('right_flipper_pos_x', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -222,7 +236,8 @@
             <span>Pos Y</span>
             <span>{{ formatNumber(physics.right_flipper_pos_y, 2) }}</span>
           </div>
-          <input type="range" min="0.5" max="1.0" step="0.01" v-model.number="physics.right_flipper_pos_y"
+          <input type="range" min="0.5" max="1.0" step="0.01" :value="physics.right_flipper_pos_y"
+            @input="updatePhysics('right_flipper_pos_y', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
 
@@ -232,7 +247,8 @@
             <span>Launch Angle</span>
             <span>{{ physics.launch_angle }}°</span>
           </div>
-          <input type="range" min="-45" max="45" step="1" v-model.number="physics.launch_angle"
+          <input type="range" min="-45" max="45" step="1" :value="physics.launch_angle"
+            @input="updatePhysics('launch_angle', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -240,7 +256,8 @@
             <span>Release Speed</span>
             <span>{{ physics.plunger_release_speed }}</span>
           </div>
-          <input type="range" min="500" max="3000" step="100" v-model.number="physics.plunger_release_speed"
+          <input type="range" min="500" max="3000" step="100" :value="physics.plunger_release_speed"
+            @input="updatePhysics('plunger_release_speed', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         
@@ -279,7 +296,8 @@
                   <span>X Offset (Left/Right)</span>
                   <span>{{ formatNumber(physics.rail_x_offset, 2) }}</span>
               </div>
-              <input type="range" min="-1.0" max="1.0" step="0.01" v-model.number="physics.rail_x_offset"
+              <input type="range" min="-1.0" max="1.0" step="0.01" :value="physics.rail_x_offset"
+                @input="updatePhysics('rail_x_offset', parseFloat($event.target.value))"
                      :disabled="stats.is_training">
           </div>
           <div class="slider-container">
@@ -287,7 +305,8 @@
                   <span>Y Offset (Up/Down)</span>
                   <span>{{ formatNumber(physics.rail_y_offset, 2) }}</span>
               </div>
-              <input type="range" min="-1.0" max="1.0" step="0.01" v-model.number="physics.rail_y_offset"
+              <input type="range" min="-1.0" max="1.0" step="0.01" :value="physics.rail_y_offset"
+                @input="updatePhysics('rail_y_offset', parseFloat($event.target.value))"
                      :disabled="stats.is_training">
           </div>
 
@@ -382,7 +401,8 @@
             <span>Angle Offset</span>
             <span>{{ formatNumber(physics.guide_angle_offset, 1) }}°</span>
           </div>
-          <input type="range" min="-45.0" max="45.0" step="1.0" v-model.number="physics.guide_angle_offset"
+          <input type="range" min="-45.0" max="45.0" step="1.0" :value="physics.guide_angle_offset"
+            @input="updatePhysics('guide_angle_offset', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
       </div>
@@ -405,7 +425,8 @@
             <span>Combo Window</span>
             <span>{{ formatNumber(physics.combo_window, 1) }}s</span>
           </div>
-          <input type="range" min="0.5" max="10.0" step="0.1" v-model.number="physics.combo_window"
+          <input type="range" min="0.5" max="10.0" step="0.1" :value="physics.combo_window"
+            @input="updatePhysics('combo_window', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -413,7 +434,8 @@
             <span>Max Multiplier</span>
             <span>{{ formatNumber(physics.multiplier_max, 1) }}x</span>
           </div>
-          <input type="range" min="1.0" max="20.0" step="0.5" v-model.number="physics.multiplier_max"
+          <input type="range" min="1.0" max="20.0" step="0.5" :value="physics.multiplier_max"
+            @input="updatePhysics('multiplier_max', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -421,7 +443,8 @@
             <span>Base Bonus</span>
             <span>{{ formatNumber(physics.base_combo_bonus, 0) }}</span>
           </div>
-          <input type="range" min="0" max="1000" step="10" v-model.number="physics.base_combo_bonus"
+          <input type="range" min="0" max="1000" step="10" :value="physics.base_combo_bonus"
+            @input="updatePhysics('base_combo_bonus', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
       </div>
@@ -438,7 +461,8 @@
             <span>Camera Pitch</span>
             <span>{{ formatNumber(physics.camera_pitch, 1) }}°</span>
           </div>
-          <input type="range" min="0" max="90" step="1" v-model.number="physics.camera_pitch"
+          <input type="range" min="0" max="90" step="1" :value="physics.camera_pitch"
+            @input="updatePhysics('camera_pitch', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -446,7 +470,8 @@
             <span>Camera X</span>
             <span>{{ formatNumber(physics.camera_x, 2) }}x</span>
           </div>
-          <input type="range" min="0.0" max="1.0" step="0.05" v-model.number="physics.camera_x"
+          <input type="range" min="0.0" max="1.0" step="0.05" :value="physics.camera_x"
+            @input="updatePhysics('camera_x', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -454,7 +479,8 @@
             <span>Camera Y</span>
             <span>{{ formatNumber(physics.camera_y, 2) }}x</span>
           </div>
-          <input type="range" min="0.5" max="3.0" step="0.1" v-model.number="physics.camera_y"
+          <input type="range" min="0.5" max="3.0" step="0.1" :value="physics.camera_y"
+            @input="updatePhysics('camera_y', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -462,7 +488,8 @@
             <span>Camera Z</span>
             <span>{{ formatNumber(physics.camera_z, 2) }}x</span>
           </div>
-          <input type="range" min="0.5" max="3.0" step="0.1" v-model.number="physics.camera_z"
+          <input type="range" min="0.5" max="3.0" step="0.1" :value="physics.camera_z"
+            @input="updatePhysics('camera_z', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
         <div class="slider-container">
@@ -470,7 +497,8 @@
             <span>Camera Zoom</span>
             <span>{{ formatNumber(physics.camera_zoom, 2) }}x</span>
           </div>
-          <input type="range" min="0.5" max="4.0" step="0.1" v-model.number="physics.camera_zoom"
+          <input type="range" min="0.5" max="4.0" step="0.1" :value="physics.camera_zoom"
+            @input="updatePhysics('camera_zoom', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
 
@@ -502,7 +530,8 @@
             <span>Threshold (Lower=Easier)</span>
             <span>{{ formatNumber(physics.tilt_threshold, 1) }}</span>
           </div>
-          <input type="range" min="1" max="20" step="0.5" v-model.number="physics.tilt_threshold"
+          <input type="range" min="1" max="20" step="0.5" :value="physics.tilt_threshold"
+            @input="updatePhysics('tilt_threshold', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
 
@@ -511,7 +540,8 @@
             <span>Nudge Cost</span>
             <span>{{ formatNumber(physics.nudge_cost, 1) }}</span>
           </div>
-          <input type="range" min="0.1" max="10" step="0.1" v-model.number="physics.nudge_cost"
+          <input type="range" min="0.1" max="10" step="0.1" :value="physics.nudge_cost"
+            @input="updatePhysics('nudge_cost', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
 
@@ -520,7 +550,8 @@
             <span>Recovery (Decay)</span>
             <span>{{ formatNumber(physics.tilt_decay, 3) }}</span>
           </div>
-          <input type="range" min="0.001" max="0.2" step="0.001" v-model.number="physics.tilt_decay"
+          <input type="range" min="0.001" max="0.2" step="0.001" :value="physics.tilt_decay"
+            @input="updatePhysics('tilt_decay', parseFloat($event.target.value))"
             :disabled="stats.is_training">
         </div>
       </div>

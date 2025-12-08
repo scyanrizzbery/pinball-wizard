@@ -32,17 +32,38 @@
       <div class="recent-list-container">
         <h4>Recent Games</h4>
         <div class="recent-list">
-          <div v-for="(game, index) in recentGamesReversed" :key="index" class="history-item">
-            <div class="history-score">{{ formatScore(game.score) }}</div>
-            <div class="history-meta">
-              <span v-if="game.hash" class="hash-tag" :title="'Seed: ' + game.seed">#{{ game.hash.substring(0,6) }}</span>
-              <span class="time-tag">{{ new Date(game.timestamp * 1000).toLocaleTimeString() }}</span>
-            </div>
-            <div class="history-actions">
-               <button v-if="game.hash" @click="loadReplay(game.hash)" class="replay-btn" title="Watch Replay">
-                 ▶
-               </button>
-            </div>
+          <div v-for="(game, index) in recentGamesReversed" :key="index" class="history-item" :class="{'event-item': game.type === 'event'}">
+            
+            <!-- Game Entry -->
+            <template v-if="game.type === 'game' || !game.type">
+              <div class="history-score">{{ formatScore(game.score) }}</div>
+              <div class="history-meta">
+                <span v-if="game.hash" class="hash-tag" :title="'Seed: ' + game.seed">#{{ game.hash.substring(0,6) }}</span>
+                <span class="time-tag">{{ new Date(game.timestamp * 1000).toLocaleTimeString() }}</span>
+              </div>
+              <div class="history-actions">
+                 <button v-if="game.hash" @click="loadReplay(game.hash)" class="replay-btn" title="Watch Replay">
+                   ▶
+                 </button>
+              </div>
+            </template>
+
+            <!-- Event Entry -->
+            <template v-else-if="game.type === 'event'">
+               <div class="event-icon">
+                 <span v-if="game.event_type === 'layout'">🗺️</span>
+                 <span v-else-if="game.event_type === 'model'">🧠</span>
+                 <span v-else-if="game.event_type === 'physics'">⚛️</span>
+                 <span v-else>ℹ️</span>
+               </div>
+               <div class="event-message">
+                 {{ game.message }}
+               </div>
+               <div class="history-meta">
+                 <span class="time-tag">{{ new Date(game.timestamp * 1000).toLocaleTimeString() }}</span>
+               </div>
+            </template>
+
           </div>
         </div>
       </div>
@@ -64,7 +85,7 @@ const chartRef = ref(null)
 const isVertical = ref(window.innerWidth >= 1200)
 
 const recentGamesReversed = computed(() => {
-  return props.gameHistory.filter(g => g.type === 'game').slice().reverse().slice(0, 10)
+  return props.gameHistory.filter(g => g.type === 'game' || g.type === 'event').slice().reverse().slice(0, 10)
 })
 
 const loadReplay = (hash) => {
@@ -575,6 +596,34 @@ const formatScore = (num) => {
   background: rgba(33, 150, 243, 0.1);
   padding: 0 4px;
   border-radius: 2px;
+}
+
+.event-item {
+  background: #2a2a2a; /* Slightly lighter bg for events */
+  font-size: 0.8em;
+  padding: 4px 8px;
+  grid-template-columns: 20px 1fr auto; /* Icon Message Time */
+}
+
+.event-icon {
+  font-size: 1.1em;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.event-message {
+  color: #aaa;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 5px;
+}
+
+.time-tag {
+  color: #444;
+  font-size: 0.85em;
 }
 
 .replay-btn {

@@ -20,6 +20,8 @@ describe('Pinball Wizard - UI Elements', () => {
 
     describe('Game Display', () => {
         it('should display video feed', () => {
+            // Switch to 2D view if in 3D mode
+            cy.contains('button', 'Switch to 2D').click()
             cy.get('#video-stream').should('be.visible')
         })
 
@@ -93,6 +95,10 @@ describe('Pinball Wizard - UI Elements', () => {
     })
 
     describe('Settings Panel', () => {
+        beforeEach(() => {
+            cy.get('.sound-toggle-btn').click()
+        })
+
         it('should have tabs', () => {
             cy.get('.tabs .tab').should('have.length.greaterThan', 0)
         })

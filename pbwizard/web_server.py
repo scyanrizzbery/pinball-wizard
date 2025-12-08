@@ -23,6 +23,20 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Global reference to the vision system (set by main.py)
 vision_system = None
+import time
+
+def log_history_event(event_type, message):
+    """Log a non-game event to history."""
+    if vision_system and hasattr(vision_system, 'game_history'):
+        vision_system.game_history.append({
+            'type': 'event',
+            'event_type': event_type,
+            'message': message,
+            'timestamp': time.time()
+        })
+        # Keep history size manageable
+        if len(vision_system.game_history) > 50:
+            vision_system.game_history.pop(0)
 
 
 @app.route('/')
@@ -101,13 +115,16 @@ def stream_frames():
                     _, buffer = cv2.imencode('.jpg', frame)
                     frame_bytes = base64.b64encode(buffer).decode('utf-8')
                     # logger.debug("Emitting frame...")
+                    # Emit 'video_frame' to match App.vue
                     socketio.emit('video_frame', {'image': frame_bytes}, namespace='/game')
 
                     frame_count += 1
                     if frame_count % 100 == 0:
-                        logger.debug(f"Emitted {frame_count} frames")
+                        logger.info(f"Emitted {frame_count} video frames. Size: {len(frame_bytes)}")
                 else:
-                    logger.warning("Vision system returned None frame")
+                     frame_count += 1
+                     if frame_count % 100 == 0:
+                         logger.warning("Vision system returned None frame")
             else:
                 logger.warning("Vision system not initialized in stream_frames")
         except Exception as e:
@@ -300,6 +317,9 @@ def handle_physics_update(data):
         
         # Don't save layout/config if only camera parameters changed
         capture.update_physics_params(data, save=not only_camera)
+        if not only_camera:
+             log_history_event('physics', "Updated physics settings")  # Log event
+        
         # Emit updated config to sync clients (e.g. Pinball3D view)
         # if hasattr(capture, 'get_config'):
         #     config = capture.get_config()
@@ -318,6 +338,7 @@ def handle_save_new_layout(data):
         if hasattr(capture, 'save_new_layout'):
             success = capture.save_new_layout(name)
             if success:
+                log_history_event('layout', f"Created new layout: {name}")  # Log event
                 socketio.emit('status', {'msg': f"Layout '{name}' saved"}, namespace='/config')
                 # Emit updated config/layout list might be needed, but client usually refreshes
             else:
@@ -492,6 +513,7 @@ def handle_load_layout(data):
             success = capture.load_layout(data)
             if success:
                 logger.info("Layout loaded successfully")
+                log_history_event('layout', f"Loaded layout: {data}")  # Log event
                 socketio.emit('layout_loaded', {'status': 'success'}, namespace='/config')
 
                 # Emit updated config (including new layout zones/targets) to frontend
@@ -749,6 +771,7 @@ def handle_load_model(data):
             if hasattr(vision_system, 'agent') and hasattr(vision_system.agent, 'load_model'):
                 vision_system.agent.load_model(model_path)
                 logger.info(f"Loaded model: {model_name}")
+                log_history_event('model', f"Loaded model: {model_name}")  # Log event
 
                 # Save as last loaded model
                 if hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'save_config'):

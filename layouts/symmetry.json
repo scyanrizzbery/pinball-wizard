@@ -181,7 +181,7 @@
         "flipper_resting_angle": -36.0,
         "flipper_stroke_angle": 67,
         "flipper_length": 0.21,
-        "plunger_release_speed": 900,
+        "plunger_release_speed": 1100,
         "launch_angle": -2,
         "tilt_threshold": 10.0,
         "nudge_cost": 2.4,
