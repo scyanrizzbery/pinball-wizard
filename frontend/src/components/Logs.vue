@@ -34,10 +34,10 @@ watch(() => props.logs.length, () => {
 .game-log-container {
   flex: 0 0 auto;
   overflow-y: auto;
-  background: #0a0a0a;
-  border: 1px solid #333;
-  border-radius: 4px;
-  padding: 10px;
+  background: #1e1e1e;
+  border: 1px solid #3d3d3d;
+  border-radius: 12px;
+  padding: 15px;
   font-family: 'Courier New', monospace;
   font-size: 0.85em;
   text-align: left;
@@ -45,6 +45,7 @@ watch(() => props.logs.length, () => {
   width: 100%;
   max-height: 15em;
   box-sizing: border-box;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
 .log-entry {

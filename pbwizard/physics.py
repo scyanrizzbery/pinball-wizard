@@ -143,8 +143,27 @@ class PymunkEngine(Physics):
     def apply_config_changes(self):
         """Apply any changes made to the configuration."""
         self._update_gravity()
+        self._update_materials()
         self._rebuild_flippers()
         self._rebuild_rails()
+
+    def _update_materials(self):
+        """Update friction, restitution, and mass for existing shapes/bodies."""
+        # Update generic static walls/shapes if needed? 
+        # Usually walls have their own friction/elasticity, but we can override if using global defaults.
+        # For now, let's assume we want to update everything to match current config globals if reasonable.
+        # Or at least the BALLS.
+        
+        for ball in self.balls:
+            # Update Mass
+            ball.mass = self.config.ball_mass
+            
+            # Update Shapes (Friction/Restitution)
+            for shape in ball.shapes:
+                shape.friction = self.config.friction
+                shape.elasticity = self.config.restitution
+                
+        logger.info(f"Updated materials: friction={self.config.friction}, restitution={self.config.restitution}, ball_mass={self.config.ball_mass}")
 
     def _update_gravity(self):
         """Update the gravity vector based on the table tilt angle (pitch)."""
@@ -296,24 +315,30 @@ class PymunkEngine(Physics):
                             if idx < len(self.drop_target_states) and self.drop_target_states[idx]:
                                 # Mark as hit (down)
                                 self.drop_target_states[idx] = False
-                                logger.debug(f"Drop target {idx} hit! Removing from physics.")
+                                # Remove safely using post-step callback
+                                self.space.add_post_step_callback(self._remove_drop_target_safe, drop_target_shape)
+                                logger.debug(f"Drop target {idx} hit! Scheduled for removal.")
 
                                 # Check if all drop targets are now down
                                 if len(self.drop_target_states) > 0 and all(not state for state in self.drop_target_states):
                                     # All drop targets hit! Trigger MULTIBALL!
                                     logger.info("🎯 All drop targets hit! MULTIBALL ACTIVATED! 🎉")
-                                    self.drop_target_states = [True] * len(self.drop_target_states)
+                                    # Reset targets physically and physically (Defer to post-step to be safe)
+                                    self.space.add_post_step_callback(self._reset_drop_targets_safe, None)
 
                                     # Award bonus score (e.g., 10000 points for multiball activation)
                                     bonus_score = 10000 * self.score_multiplier
                                     self.score += int(bonus_score)
                                     final_score += int(bonus_score)
 
-                                    # Add a new ball to plunger lane (multiball!)
-                                    lane_x = self.width * 0.94
-                                    lane_y = self.height * 0.9
-                                    self.add_ball((lane_x, lane_y))
-                                    logger.info(f"🎱 Multiball: Added ball #{len(self.balls)} to plunger lane")
+                                    # Add a new ball to plunger lane (multiball!), max 5 balls
+                                    if len(self.balls) < 5:
+                                        lane_x = self.width * 0.94
+                                        lane_y = self.height * 0.9
+                                        self.add_ball((lane_x, lane_y))
+                                        logger.info(f"🎱 Multiball: Added ball #{len(self.balls)} to plunger lane")
+                                    else:
+                                        logger.info("🎱 Multiball: Max balls reached, no new ball added.")
 
                                     # Log the multiball event
                                     self.events.append({
@@ -445,6 +470,53 @@ class PymunkEngine(Physics):
 
 
 
+
+    def _reset_drop_targets_safe(self, space, key):
+        """Reset drop targets, suitable for post-step callback."""
+        self.reset_drop_targets()
+        return True
+
+    def reset_drop_targets(self):
+        """Reset all drop targets to the 'up' position."""
+        logger.info("Resetting drop targets...")
+        
+        # 1. Remove any existing shapes to be safe (if not already removed)
+        try:
+            for shape in self.drop_target_shapes:
+                if shape in self.space.shapes:
+                    self.space.remove(shape)
+        except Exception as e:
+            logger.warning(f"Error clearing drop targets: {e}")
+            
+        self.drop_target_shapes = []
+        self.drop_target_shape_map = {}
+        self.drop_target_states = []
+        
+        # 2. Re-create all targets from layout
+        for i, t in enumerate(self.layout.drop_targets):
+            x = t['x'] * self.width
+            y = t['y'] * self.height
+            w = t['width'] * self.width
+            h = t['height'] * self.height
+            cx = x + w/2
+            cy = y + h/2
+            
+            # Create fresh shape/body (using static body)
+            shape = self._add_static_box((cx, cy), (w, h), elasticity=0.5, collision_type=COLLISION_TYPE_DROP_TARGET)
+            
+            self.drop_target_shapes.append(shape)
+            self.drop_target_states.append(True)
+            self.drop_target_shape_map[shape] = i
+            
+        logger.info(f"Reset {len(self.drop_target_shapes)} drop targets.")
+
+    def _remove_drop_target_safe(self, space, shape):
+        """Safely remove a drop target shape (called via post-step callback)."""
+        if shape in space.shapes:
+            space.remove(shape)
+            logger.debug("Drop target shape removed from physics space.")
+            return True
+        return False
 
     def update_bumpers(self, bumpers_data):
         """Update bumper positions dynamically."""
@@ -908,14 +980,14 @@ class PymunkEngine(Physics):
         }
 
     def add_ball(self, pos):
-        mass = 1.0
-        radius = 12.0 # Pixels
+        mass = self.config.ball_mass
+        radius = self.config.ball_radius if hasattr(self.config, 'ball_radius') else 12.0
         moment = pymunk.moment_for_circle(mass, 0, radius)
         body = pymunk.Body(mass, moment)
         body.position = pos
         shape = pymunk.Circle(body, radius)
-        shape.elasticity = 0.7
-        shape.friction = 0.5
+        shape.elasticity = self.config.restitution
+        shape.friction = self.config.friction
         shape.collision_type = COLLISION_TYPE_BALL
         self.space.add(body, shape)
         self.balls.append(body)

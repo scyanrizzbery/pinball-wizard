@@ -503,15 +503,15 @@ watch(() => stats.combo_count, (newCombo, oldCombo) => {
 
 // Watch for ball count changes to detect game over and auto-restart
 watch(() => stats.ball_count, (newCount, oldCount) => {
-  console.log(`[Ball Count Watch] ${oldCount} → ${newCount}, balls remaining: ${stats.balls}`)
+  // console.log(`[Ball Count Watch] ${oldCount} → ${newCount}, balls remaining: ${stats.balls}`)
 
   // If all balls drained (ball_count went to 0) and we have balls remaining
   if (oldCount > 0 && newCount === 0) {
-    console.log('[Ball Count Watch] All balls drained!')
+    // console.log('[Ball Count Watch] All balls drained!')
 
     // If we still have balls remaining, add a new one after a short delay
     if (stats.balls > 0) {
-      console.log(`[Ball Count Watch] ${stats.balls} balls remaining, auto-adding ball in 2 seconds...`)
+      // console.log(`[Ball Count Watch] ${stats.balls} balls remaining, auto-adding ball in 2 seconds...`)
       setTimeout(() => {
         if (toggles.autoStart && stats.ball_count === 0) {
           console.log('[Ball Count Watch] Adding new ball...')
@@ -520,7 +520,7 @@ watch(() => stats.ball_count, (newCount, oldCount) => {
       }, 2000)
     } else {
       // Game over - all balls drained and no balls remaining
-      console.log('[Ball Count Watch] GAME OVER! Starting new game in 3 seconds...')
+      // console.log('[Ball Count Watch] GAME OVER! Starting new game in 3 seconds...')
       if (stats.score > 0) {
         addLog(`Game Over! Final Score: ${stats.score}`)
       }
@@ -528,7 +528,7 @@ watch(() => stats.ball_count, (newCount, oldCount) => {
       // Auto-start new game after game over
       setTimeout(() => {
         if (toggles.autoStart) {
-          console.log('[Ball Count Watch] Starting new game after game over...')
+          // console.log('[Ball Count Watch] Starting new game after game over...')
           startNewGame()
         }
       }, 3000)
@@ -847,6 +847,16 @@ body {
     "logs logs logs";
   gap: 20px;
   margin: 20px 0;
+  /* Base Desktop Layout */
+  display: grid;
+  grid-template-columns: 320px 480px 1fr;
+  grid-template-areas:
+    "history game settings"
+    "logs logs logs";
+  gap: 20px;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
   align-items: start;
 }
 
@@ -856,6 +866,7 @@ body {
   flex-direction: column;
   align-items: center;
   width: 100%;
+  min-width: 0; /* Prevents flex item from overflowing grid track */
 }
 
 .controls-container {
@@ -872,7 +883,7 @@ body {
 .control-group {
   display: flex;
   gap: 10px;
-  margin-bottom: 10px;
+  margin: 10px;
   flex-wrap: wrap;
 }
 
@@ -989,48 +1000,34 @@ body {
 }
 
 /* Responsive Design */
+
+/* Large Tablet / Small Desktop: 2 Columns */
 @media (max-width: 1200px) {
   #main-layout {
-    grid-template-columns: 1fr 350px;
+    grid-template-columns: 1fr 340px;
     grid-template-areas:
       "game settings"
-      "controls settings"
       "history history"
       "logs logs";
+    gap: 15px;
   }
 }
 
-@media (max-width: 900px) {
+/* Mobile / Small Tablet: 1 Column */
+@media (max-width: 800px) {
   #main-layout {
     grid-template-columns: 1fr;
     grid-template-areas:
       "game"
-      "controls"
       "history"
       "settings"
       "logs";
+    gap: 15px;
   }
 
   #input-area {
     display: flex;
   }
-}
-
-@media (min-width: 600px) and (max-width: 900px) {
-  #main-layout {
-    grid-template-columns: 1fr minmax(auto, 400px) 1fr;
-    grid-template-areas:
-      "history game settings"
-      "logs logs logs";
-  }
-  
-  /* Hide controls in this specific layout if desired, or let them flow? 
-     User didn't specify controls, but "Game in middle of History and Settings" implies 3 columns.
-     The "Controls" component is usually part of the grid. 
-     If we don't define "controls" in grid-areas, it might auto-place or disappear if display:none isn't set.
-     However, the Controls component is inside #game-area in the HTML structure!
-     Wait, let's check the HTML structure.
-  */
 }
 
 @media (max-width: 690px) {

@@ -1786,7 +1786,7 @@ const initThree = () => {
 
       state.events.forEach(event => {
         if (event.type === 'collision') {
-          console.log('[Sound Event]', event.label, 'pitch:', pitch.toFixed(2))
+          // console.log('[Sound Event]', event.label, 'pitch:', pitch.toFixed(2))
           if (event.label === 'bumper') {
             SoundManager.playBumper(pitch)
           } else if (event.label === 'rail') {

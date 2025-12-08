@@ -133,15 +133,6 @@
             <span class="arrow" :class="{ rotated: groupsExpanded.flipper }">▼</span>
         </div>
         <div v-if="groupsExpanded.flipper" class="group-content">
-            <div class="control-group checkbox-group">
-                <div class="checkbox-label">Show Flipper Zones</div>
-                <input
-                    id="zones-toggle"
-                    type="checkbox"
-                    v-model="showZones"
-                    @change="updateShowZones"
-                >
-            </div>
             <div class="slider-container">
                 <div class="slider-label">
                     <span>Speed</span>
@@ -647,12 +638,6 @@ const props = defineProps({
 const emit = defineEmits(['update-physics', 'reset-config', 'start-training', 'stop-training', 'apply-preset', 'save-preset', 'delete-preset', 'update:selectedModel', 'update:selectedLayout', 'update:selectedPreset', 'load-model', 'change-layout', 'update-difficulty', 'save-new-layout', 'save-layout', 'update:showFlipperZones'])
 
 const activeTab = ref('settings')
-const showZones = ref(props.showFlipperZones)
-
-// Watch for prop changes and sync local state
-watch(() => props.showFlipperZones, (newValue) => {
-  showZones.value = newValue
-})
 
 // selectedPreset is now a prop
 const trainingConfig = reactive({
@@ -693,10 +678,6 @@ const savePresetAs = () => {
   if (name) {
     emit('save-preset', name)
   }
-}
-
-const updateShowZones = () => {
-    emit('update:showFlipperZones', showZones.value)
 }
 
 const groupsExpanded = reactive({
@@ -906,12 +887,13 @@ const stopTraining = () => {
 #physics-controls {
   grid-area: settings;
   background: #1e1e1e;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid #3d3d3d;
-  max-height: 80vh;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
 }
 
 .tabs {
@@ -984,16 +966,17 @@ const stopTraining = () => {
 }
 
 .group-content {
-  padding-left: 5px;
+  padding: 10px 15px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  margin-bottom: 15px;
 }
 
 label {
-  font-size: 0.9em;
+  font-size: 0.85em;
+  font-weight: 600;
   color: #4caf50;
-  margin: 15px 0 10px 0;
-  padding-bottom: 5px;
-  border-bottom: 1px solid #333;
-  text-transform: uppercase;
+  margin: 10px 0 8px 0;
   letter-spacing: 0.5px;
   display: block;
 }
@@ -1011,34 +994,51 @@ label {
 }
 
 input[type="range"] {
+  -webkit-appearance: none;
   width: 100%;
   height: 6px;
   border-radius: 3px;
-  background: #333;
+  background: linear-gradient(to right, #2c3e50, #333);
   outline: none;
-  -webkit-appearance: none;
-  appearance: none;
+  margin: 10px 0;
 }
 
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #4caf50;
   cursor: pointer;
-  box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2);
+  transition: all 0.2s ease;
+  margin-top: -5px; /* adjust for track height */
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  background: #66bb6a;
+  box-shadow: 0 0 0 5px rgba(76, 175, 80, 0.3);
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 6px;
+    cursor: pointer;
+    background: #333;
+    border-radius: 3px;
 }
 
 input[type="range"]::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #4caf50;
   cursor: pointer;
   border: none;
-  box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2);
+  transition: all 0.2s ease;
 }
 
 .setting-group {
