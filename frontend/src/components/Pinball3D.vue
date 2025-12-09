@@ -93,7 +93,8 @@
         </div>
     </div>
     
-    <!-- Game Settings Overlay -->
+    <!-- Game Settings Overlay with Backdrop -->
+    <div v-if="showSettings" class="settings-backdrop" @click="showSettings = false"></div>
     <div v-if="showSettings" class="sound-settings-overlay">
         <GameSettings 
             :smokeIntensity="smokeIntensity"
@@ -2399,14 +2400,19 @@ const triggerShake = (direction) => {
 let fireworksInterval = null
 
 const triggerFireworks = () => {
-    if (!props.stats.is_high_score) return
+    console.log('🎆 triggerFireworks called')
+    if (!props.stats.is_high_score) {
+        console.log('🎆 Exiting - is_high_score is false')
+        return
+    }
 
     // Ensure persistent group exists
     if (!window.fireworksGroup) {
+        console.log('🎆 Creating fireworks group')
          const g = new THREE.Group()
          g.userData = { pool: [], lastPos: new THREE.Vector3(), velocity: new THREE.Vector3() }
          
-         // Init pool - use flattened planes for confetti look? Or just small spheres for now
+         // Init pool - use flattened planes for confetti look
          for(let i=0; i<300; i++) {
              // Use PlaneGeometry for confetti
              const geometry = new THREE.PlaneGeometry(0.04, 0.02)
@@ -2417,8 +2423,15 @@ const triggerFireworks = () => {
              g.userData.pool.push(p)
          }
          
-         scene.add(g)
+         if (scene) {
+             scene.add(g)
+             console.log('🎆 Fireworks group added to scene')
+         } else {
+             console.error('🎆 ERROR: scene is undefined!')
+         }
          window.fireworksGroup = g
+    } else {
+        console.log('🎆 Fireworks group already exists')
     }
 
     const launchConfetti = () => {
@@ -2499,18 +2512,73 @@ const triggerFireworks = () => {
         }
     }
 
-    launchConfetti()
-    fireworksInterval = setInterval(() => {
-        if (!props.stats.is_high_score || !props.stats.game_over) {
-            clearInterval(fireworksInterval)
-            // Cleanup visible particles?
-            return
+    // Initial "poof" explosion before broken cannon starts sputtering
+    const triggerExplosionPuff = () => {
+        const fGroup = window.fireworksGroup
+        if (!fGroup) return
+        
+        console.log('💥 Explosion puff triggered!')
+        const pool = fGroup.userData.pool
+        const cannonPos = new THREE.Vector3(0, 0.6, 0.5)
+        
+        // Burst 40-60 particles outward in all directions
+        const burstCount = 40 + Math.floor(Math.random() * 20)
+        
+        for (let i = 0; i < burstCount; i++) {
+            const p = pool.find(p => !p.visible)
+            if (!p) break
+            
+            p.visible = true
+            p.position.copy(cannonPos)
+            
+            // Random rotation
+            p.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI)
+            
+            // Smoke/explosion colors (grey, white, orange, yellow)
+            const explosionColors = [0x888888, 0xFFFFFF, 0xFF6600, 0xFFAA00, 0x444444]
+            p.material.color.setHex(explosionColors[Math.floor(Math.random() * explosionColors.length)])
+            p.material.opacity = 1.0
+            
+            // Explosive outward velocity in sphere pattern
+            const theta = Math.random() * Math.PI * 2
+            const phi = Math.random() * Math.PI
+            const force = 0.05 + Math.random() * 0.05
+            
+            p.userData = {
+                velocity: new THREE.Vector3(
+                    Math.sin(phi) * Math.cos(theta) * force,
+                    Math.sin(phi) * Math.sin(theta) * force * 0.5, // Less Y spread
+                    Math.cos(phi) * force
+                ),
+                rotationSpeed: new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.5,
+                    (Math.random() - 0.5) * 0.5,
+                    (Math.random() - 0.5) * 0.5
+                ),
+                life: 0.8 + Math.random() * 0.4, // Short-lived explosion particles
+                decay: 0.02
+            }
         }
+    }
+
+    // Trigger explosion first, then start broken cannon
+    triggerExplosionPuff()
+    
+    // Small delay before broken cannon starts sputtering (post-explosion)
+    setTimeout(() => {
         launchConfetti()
-    }, 100) // Frequent trickle
+        fireworksInterval = setInterval(() => {
+            if (!props.stats.is_high_score || !props.stats.game_over) {
+                clearInterval(fireworksInterval)
+                return
+            }
+            launchConfetti()
+        }, 100)
+    }, 300)
 }
 
 watch(() => props.stats.is_high_score, (val) => {
+    console.log('🎉 is_high_score watcher fired:', val)
     if (val) {
         triggerFireworks()
     } else {
@@ -2650,6 +2718,7 @@ const handleKeydown = (e) => {
 }
 
 .multiball-indicator {
+  display: none;
   position: absolute;
   top: 50%;
   left: 50%;
@@ -2667,6 +2736,7 @@ const handleKeydown = (e) => {
 }
 
 .permanent-debug-panel {
+  display: none;
   position: absolute;
   bottom: 10px;
   right: 10px;
@@ -2749,9 +2819,9 @@ const handleKeydown = (e) => {
     position: absolute;
     bottom: 20px;
     left: 20px;
-    width: 50%;
     z-index: 100;
     display: flex;
+    justify-content: space-between;
     gap: 10px;
     background: rgba(0, 0, 0, 0.7);
     padding: 10px;
@@ -2820,8 +2890,8 @@ const handleKeydown = (e) => {
 
 .sound-toggle-btn {
     position: absolute;
-    top: 100px;
-    right: 10px;
+    top: 1px;
+    right: -9px;
     background: rgba(0, 0, 0, 0.6);
     border: none;
     border-radius: 50%;
@@ -2841,14 +2911,25 @@ const handleKeydown = (e) => {
     background: rgba(0, 0, 0, 0.8);
 }
 
+.settings-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 199;
+    background: transparent;
+}
+
 .sound-settings-overlay {
     position: absolute;
-    top: 150px;
-    right: 10px;
+    top: 40px;
+    right: 5px;
     z-index: 200;
 }
 
 .editor-controls button.active {
+    order: 1;
     background: #4caf50;
     border-color: #4caf50;
 }

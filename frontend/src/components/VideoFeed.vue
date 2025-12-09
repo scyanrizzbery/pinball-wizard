@@ -721,7 +721,7 @@ img {
 
 .add-controls {
   position: absolute;
-  bottom: 60px;
+  bottom: 85px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -744,14 +744,16 @@ img {
 
 .video-controls {
   position: absolute;
-  bottom: 20px;
-  right: 20px;
+  bottom: 0;
+  left: 20px;
   display: flex;
-  gap: 10px;
   z-index: 2001;
-  width: 90%;
   justify-content: space-between; /* Space between fullscreen (left) and group (right) */
   align-items: center;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 10px;
+  border-radius: 5px;
+  pointer-events: auto; /* Ensure clickable */
 }
 
 .controls-row {
@@ -791,14 +793,17 @@ img {
 }
 
 .edit-btn {
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  border: 1px solid #555;
-  padding: 5px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  /* Removed absolute positioning */
+    background: rgba(0, 0, 0, 0.8); /* Darker background */
+    color: white;
+    border: 1px solid #777;
+    padding: 8px 12px; /* Larger hit area */
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 14px; /* Larger text */
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: fit-content;
+    z-index: 1000; /* Ensure on top */
 }
 
 .edit-btn:hover {
@@ -813,6 +818,17 @@ img {
 /* Ensure switch-view-btn inside controls is static */
 .video-controls .switch-view-btn {
   position: static;
+  background: rgba(0, 0, 0, 0.8); /* Darker background */
+  color: white;
+  border: 1px solid #777;
+  padding: 8px 12px; /* Larger hit area */
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px; /* Larger text */
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: fit-content;
+  z-index: 1000; /* Ensure on top */
 }
 
 .loading-placeholder {
@@ -872,6 +888,7 @@ img {
 
 /* Debug indicators for 2D mode */
 .multiball-indicator-2d {
+  display: none;
   position: absolute;
   top: 50%;
   left: 50%;
@@ -889,6 +906,7 @@ img {
 }
 
 .permanent-debug-panel-2d {
+  display: none;
   position: absolute;
   bottom: 10px;
   right: 10px;

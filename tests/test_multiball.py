@@ -42,8 +42,10 @@ class TestMultiball(unittest.TestCase):
         pass
 
     def test_multiball_activation(self):
-        print(f"Initial balls: {len(self.sim.balls)}")
-        self.assertGreaterEqual(len(self.sim.balls), 1)
+        # Check physics engine balls directly (not sim.balls which may not be synced)
+        engine_balls = len(self.sim.physics_engine.balls) if self.sim.physics_engine else 0
+        print(f"Initial balls: {engine_balls}")
+        self.assertGreaterEqual(engine_balls, 1)
         
         # Manually trigger all drop targets
         print("Triggering drop targets...")

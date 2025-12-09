@@ -965,7 +965,7 @@ class SimulatedFrameCapture(FrameCapture):
         
         # Use default plunger position if not specified
         if pos is None:
-            pos = (self.width * 0.94, self.height * 0.9)
+            pos = (self.width * 0.94, self.height * 0.93)  # Near the plunger at 0.95
         
         self.physics_engine.add_ball(pos=pos)
         logger.debug(f"Ball added at position {pos}")
@@ -1286,8 +1286,7 @@ class SimulatedFrameCapture(FrameCapture):
             if not self.headless:
                 sleep_time = max(0, dt - elapsed)
                 time.sleep(sleep_time)
-            else:
-                time.sleep(0.001)
+            # Headless: no sleep - run as fast as possible for training
 
     def _draw_frame(self):
         # Update sync variables

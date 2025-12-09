@@ -366,13 +366,7 @@ class PymunkEngine(Physics):
                     'multiplier': self.score_multiplier
                 })
                 
-                # Add random horizontal deflection to prevent stuck bouncing
-                ball_shape = shapes[0] if type_a == COLLISION_TYPE_BALL else shapes[1]
-                ball_body = ball_shape.body
-                # Add random ±50 px/s horizontal velocity
-                import random
-                random_vx = random.uniform(-50, 50)
-                ball_body.velocity = (ball_body.velocity.x + random_vx, ball_body.velocity.y)
+                # Random deflection removed - was causing "swimming" ball motion
 
                 # Ball touched plunger - no auto-launch, frontend controls this
                 if other == COLLISION_TYPE_PLUNGER and self.plunger_state == 'resting':
@@ -562,7 +556,7 @@ class PymunkEngine(Physics):
         base_h = self.plunger_height
         base_shape = pymunk.Poly.create_box(self.plunger_body, (self.plunger_width, base_h))
         base_shape.elasticity = 0.0
-        base_shape.friction = 0.8
+        base_shape.friction = 0.01
         base_shape.collision_type = COLLISION_TYPE_PLUNGER
         
         # Lips to center the ball
@@ -578,7 +572,7 @@ class PymunkEngine(Physics):
         l_lip_verts = [(ll_x1, ll_y1), (ll_x2, ll_y1), (ll_x2, ll_y2), (ll_x1, ll_y2)]
         l_lip_shape = pymunk.Poly(self.plunger_body, l_lip_verts)
         l_lip_shape.elasticity = 0.0
-        l_lip_shape.friction = 0.1
+        l_lip_shape.friction = 0.01
         l_lip_shape.collision_type = COLLISION_TYPE_PLUNGER
 
         # Right Lip
@@ -590,7 +584,7 @@ class PymunkEngine(Physics):
         r_lip_verts = [(rl_x1, rl_y1), (rl_x2, rl_y1), (rl_x2, rl_y2), (rl_x1, rl_y2)]
         r_lip_shape = pymunk.Poly(self.plunger_body, r_lip_verts)
         r_lip_shape.elasticity = 0.0
-        r_lip_shape.friction = 0.1
+        r_lip_shape.friction = 0.01
         r_lip_shape.collision_type = COLLISION_TYPE_PLUNGER
 
         self.space.add(self.plunger_body, base_shape, l_lip_shape, r_lip_shape)
@@ -617,7 +611,7 @@ class PymunkEngine(Physics):
         # Left Plunger Shape - Divot
         l_base_shape = pymunk.Poly.create_box(self.left_plunger_body, (self.left_plunger_width, self.left_plunger_height))
         l_base_shape.elasticity = 0.1
-        l_base_shape.friction = 0.8
+        l_base_shape.friction = 0.01
         l_base_shape.collision_type = COLLISION_TYPE_LEFT_PLUNGER
         
         # Lips for Left Plunger
@@ -628,7 +622,7 @@ class PymunkEngine(Physics):
         ]
         ll_l_lip_shape = pymunk.Poly(self.left_plunger_body, ll_l_lip_verts)
         ll_l_lip_shape.elasticity = 0.1
-        ll_l_lip_shape.friction = 0.8
+        ll_l_lip_shape.friction = 0.01
         ll_l_lip_shape.collision_type = COLLISION_TYPE_LEFT_PLUNGER
         
         # Right Lip
@@ -637,7 +631,7 @@ class PymunkEngine(Physics):
         ]
         ll_r_lip_shape = pymunk.Poly(self.left_plunger_body, ll_r_lip_verts)
         ll_r_lip_shape.elasticity = 0.1
-        ll_r_lip_shape.friction = 0.8
+        ll_r_lip_shape.friction = 0.01
         ll_r_lip_shape.collision_type = COLLISION_TYPE_LEFT_PLUNGER
         
         self.space.add(self.left_plunger_body, l_base_shape, ll_l_lip_shape, ll_r_lip_shape)
@@ -779,7 +773,7 @@ class PymunkEngine(Physics):
         body = self.space.static_body
         shape = pymunk.Segment(body, p1, p2, thickness)
         shape.elasticity = elasticity
-        shape.friction = 0.5
+        shape.friction = 0.01
         shape.collision_type = collision_type
         self.space.add(shape)
         return shape
@@ -788,7 +782,7 @@ class PymunkEngine(Physics):
         body = self.space.static_body
         shape = pymunk.Circle(body, radius, pos)
         shape.elasticity = elasticity
-        shape.friction = 0.5
+        shape.friction = 0.01
         shape.collision_type = collision_type
         self.space.add(shape)
         return shape
@@ -822,7 +816,7 @@ class PymunkEngine(Physics):
         
         return [c1, c2, c3, c4]
         
-    def _add_static_poly(self, vertices, elasticity=0.5, friction=0.5, collision_type=COLLISION_TYPE_WALL):
+    def _add_static_poly(self, vertices, elasticity=0.5, friction=0.01, collision_type=COLLISION_TYPE_WALL):
         """Add a static polygon to the physics space."""
         shape = pymunk.Poly(self.space.static_body, vertices)
         shape.elasticity = elasticity
@@ -832,16 +826,28 @@ class PymunkEngine(Physics):
         return shape
 
     def _add_static_box(self, pos, size, elasticity=0.5, collision_type=COLLISION_TYPE_DROP_TARGET):
+        """Add a static box shape at a specific position.
+
+        NOTE: Previously this set shape.body.position = pos, which MODIFIED the
+        shared static_body.position and caused all shapes attached to it to shift.
+        Fixed by creating a box with vertices already at the correct position.
+        """
         body = self.space.static_body
-        shape = pymunk.Poly.create_box(body, size)
-        shape.body.position = pos
+        # Create box vertices centered at pos, not at origin
+        w, h = size
+        half_w, half_h = w / 2, h / 2
+        vertices = [
+            (pos[0] - half_w, pos[1] - half_h),
+            (pos[0] + half_w, pos[1] - half_h),
+            (pos[0] + half_w, pos[1] + half_h),
+            (pos[0] - half_w, pos[1] + half_h),
+        ]
+        shape = pymunk.Poly(body, vertices)
         shape.elasticity = elasticity
-        shape.friction = 0.5
+        shape.friction = 0.01
         shape.collision_type = collision_type
         self.space.add(shape)
         return shape
-
-
 
     def _setup_slingshots(self):
         """Create triangular slingshot bumpers above the flippers."""
@@ -1039,7 +1045,7 @@ class PymunkEngine(Physics):
         verts = [p1, p2, p3]
         shape = pymunk.Poly(body, verts)
         shape.elasticity = elasticity
-        shape.friction = 0.5
+        shape.friction = 0.01
         shape.collision_type = collision_type
         self.space.add(shape)
         return shape
@@ -1057,31 +1063,23 @@ class PymunkEngine(Physics):
         launched = False
         for b in self.balls:
             if b.position.x > lane_x and b.position.y > self.height * 0.5:
-                # Apply upward impulse with angle
-                # Use configurable speed (default 1500)
-                base_speed = getattr(self, 'plunger_release_speed', 1500.0)
-                speed = base_speed * b.mass
-                angle_rad = np.radians(self.launch_angle)
+                # Calculate launch velocity based on angle
+                base_speed = self.config.plunger_release_speed
+                angle_rad = np.radians(self.config.launch_angle)
                 
                 # 0 degrees = Straight Up (0, -1)
                 # Positive angle = Right (sin > 0)
                 # Negative angle = Left (sin < 0)
-                impulse_x = speed * np.sin(angle_rad)
-                impulse_y = -speed * np.cos(angle_rad)
+                vel_x = base_speed * np.sin(angle_rad)
+                vel_y = -base_speed * np.cos(angle_rad)
                 
-                impulse = pymunk.Vec2d(impulse_x, impulse_y)
+                # Launch from current position - let ball travel naturally
+                b.activate()
+                b.velocity = (vel_x, vel_y)
                 
-                # We want to apply this impulse in WORLD coordinates.
-                # But we only have apply_impulse_at_local_point (which rotates the input).
-                # So we must pre-rotate by -angle to cancel out the body's rotation.
-                impulse_local = impulse.rotated(-b.angle)
-                
-                b.activate() # Force wake up
-                b.apply_impulse_at_local_point(impulse_local)
                 launched = True
                 self.last_launch_time = current_time
-                logger.info(f"Auto-firing plunger: Ball detected at {b.position}")
-                logger.info(f"Auto-fire plunger launched ball with angle {self.launch_angle}°, speed={base_speed}, impulse={impulse}")
+                logger.info(f"Launch plunger: angle={self.config.launch_angle}°, velocity=({vel_x:.1f}, {vel_y:.1f})")
         
         return launched
 
@@ -1229,20 +1227,21 @@ class PymunkEngine(Physics):
                     if current_time - self.last_auto_plunger_time > 1.0:  # 1 second cooldown
                         logger.info(f"Auto-firing plunger: Ball detected at {ball.position}")
 
-                        # Apply impulse directly to ball with launch angle (same as multiball logic)
-                        # Apply impulse directly to ball with launch angle (same as multiball logic)
+                        # Calculate launch velocity based on angle
                         base_speed = self.config.plunger_release_speed
-                        speed = base_speed * ball.mass
                         angle_rad = np.radians(self.config.launch_angle)
 
-                        impulse_x = speed * np.sin(angle_rad)
-                        impulse_y = -speed * np.cos(angle_rad)
-                        impulse = pymunk.Vec2d(impulse_x, impulse_y)
-                        impulse_local = impulse.rotated(-ball.angle)
+                        # 0 degrees = Straight Up (0, -1)
+                        # Positive angle = Right (sin > 0)  
+                        # Negative angle = Left (sin < 0)
+                        vel_x = base_speed * np.sin(angle_rad)
+                        vel_y = -base_speed * np.cos(angle_rad)
 
+                        # Launch from current position - let ball travel naturally
                         ball.activate()
-                        ball.apply_impulse_at_local_point(impulse_local)
-                        logger.info(f"Auto-fire plunger launched ball with angle {self.config.launch_angle}°, speed={base_speed}, impulse={impulse}")
+                        ball.velocity = (vel_x, vel_y)
+                        
+                        logger.info(f"Auto-fire plunger: angle={self.config.launch_angle}°, velocity=({vel_x:.1f}, {vel_y:.1f})")
 
                         self.last_auto_plunger_time = current_time
 
@@ -1267,20 +1266,26 @@ class PymunkEngine(Physics):
             # Auto-launch any balls waiting in plunger lane during multiball
             # Changed: removed balls_in_play > 0 requirement to prevent all balls getting stuck in lane
             if len(balls_in_plunger) > 0:
-                for b in balls_in_plunger:
-                    # Apply upward impulse (same as manual launch)
-                    base_speed = self.config.plunger_release_speed
-                    speed = base_speed * b.mass
-                    angle_rad = np.radians(self.config.launch_angle)
+                # Check cooldown to prevent continuous impulse application (the "phantom magnet" bug)
+                current_time = time.time()
+                if not hasattr(self, 'last_multiball_launch_time'):
+                    self.last_multiball_launch_time = 0
 
-                    impulse_x = speed * np.sin(angle_rad)
-                    impulse_y = -speed * np.cos(angle_rad)
-                    impulse = pymunk.Vec2d(impulse_x, impulse_y)
-                    impulse_local = impulse.rotated(-b.angle)
+                if current_time - self.last_multiball_launch_time > 1.0:  # 1 second cooldown
+                    for b in balls_in_plunger:
+                        # Calculate launch velocity based on angle
+                        base_speed = self.config.plunger_release_speed
+                        angle_rad = np.radians(self.config.launch_angle)
 
-                    b.activate()
-                    b.apply_impulse_at_local_point(impulse_local)
-                    logger.debug(f"Multiball auto-launch: Ball at {b.position} launched into play")
+                        vel_x = base_speed * np.sin(angle_rad)
+                        vel_y = -base_speed * np.cos(angle_rad)
+
+                        # Launch from current position - let ball travel naturally
+                        b.activate()
+                        b.velocity = (vel_x, vel_y)
+                        logger.debug(f"Multiball auto-launch: velocity=({vel_x:.1f}, {vel_y:.1f})")
+
+                    self.last_multiball_launch_time = current_time
 
         # Left Plunger (Kickback) Auto-Fire Proximity Check
         # Check if any ball is in the left plunger lane and stationary
@@ -1504,7 +1509,7 @@ class PymunkEngine(Physics):
                             
                         vertices = self._create_thick_line_poly(p1_final, w_p2, thickness=thickness)
                         if vertices:
-                            shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.8, collision_type=8)
+                            shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.01, collision_type=8)
                             self.rail_shapes.append(shape)
                     except Exception as e:
                          logger.error(f"Error rebuilding rail {i}: {e}")

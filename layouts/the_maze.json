@@ -246,7 +246,7 @@
     "rail_y_offset": 0.0,
     "physics": {
         "gravity": 2613.211581691337,
-        "friction": 0.5,
+        "friction": 0.01,
         "restitution": 0.7,
         "flipper_speed": 28.9,
         "flipper_resting_angle": -29.0,

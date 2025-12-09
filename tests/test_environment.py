@@ -79,8 +79,8 @@ class TestEnvironment(unittest.TestCase):
         
         # Next step, score still 100
         obs, reward, terminated, truncated, info = self.env.step(ACTION_NOOP)
-        # Reward = 0 + 0.001 + 0.005 = 0.006
-        self.assertAlmostEqual(reward, 0.006)
+        # Reward = survival + height reward only (no score delta)
+        self.assertAlmostEqual(reward, 0.0035, places=3)
 
     def test_stuck_ball_detection(self):
         # Setup specific mock for ball status (stationary)

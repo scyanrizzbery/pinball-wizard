@@ -72,6 +72,14 @@
         @save-new-layout="handleSaveNewLayout" @save-layout="handleSaveLayout" />
 
       <Logs :logs="logs" />
+      
+      <!-- DEBUG: Test button for high score celebration -->
+      <button 
+        @click="testHighScoreCelebration" 
+        style="position: fixed; bottom: 10px; left: 10px; z-index: 1000; padding: 8px 16px; background: #ff6b6b; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;"
+      >
+        🎉 Test Celebration
+      </button>
     </div>
 
     <div id="input-area">
@@ -187,7 +195,8 @@ const stats = reactive({
   hash: null,
   seed: null,
   last_score: 0, // Track last game score
-  game_over: false 
+  game_over: false,
+  is_high_score: false // Frontend-managed high score flag
 })
 
 const isSimulation = computed(() => stats.is_simulation || false)
@@ -209,7 +218,7 @@ const isTilted = computed(() => stats.is_tilted || false)
 
 const physics = reactive({
   gravity: 1200.0,
-  friction: 0.999,
+  friction: 0.01,
   restitution: 0.5,
   flipper_speed: 1500.0,
   flipper_resting_angle: -30,
@@ -331,6 +340,23 @@ const toggleAutoStart = () => {
     autoStartTimeoutId.value = null
     console.log('[Auto-Start Toggle] Cancelled pending timeout')
   }
+}
+
+// DEBUG: Test function to trigger high score celebration
+const testHighScoreCelebration = () => {
+  console.log('🎉 Testing High Score Celebration')
+  
+  // Reset first so the watcher will fire again
+  stats.is_high_score = false
+  
+  // Use nextTick-style delay to ensure Vue detects the change
+  setTimeout(() => {
+    stats.high_score = 99999
+    stats.game_over = true
+    stats.is_high_score = true
+    console.log('After setting - is_high_score:', stats.is_high_score)
+    addLog('DEBUG: Triggered high score celebration test')
+  }, 50)
 }
 
 // Function to start new game
@@ -717,20 +743,12 @@ onMounted(() => {
   })
 
   sockets.game.on('stats_update', (data) => {
-    // Debug: Log all stats updates to diagnose issue
-    // console.log('[Stats Update] Received:', {
-    //   ball_count: data.ball_count,
-    //   balls: data.balls,
-    //   score: data.score,
-    //   games_played: data.games_played
-    // })
-
-    // Debug: Log ball_count changes specifically
-    // if (data.ball_count !== undefined && data.ball_count !== stats.ball_count) {
-    //   console.log(`[Stats Update] ball_count: ${stats.ball_count} → ${data.ball_count}`)
-    // }
-
-    Object.assign(stats, data)
+    // Protect frontend-only properties from being overwritten by backend
+    const frontendOnlyProps = ['is_high_score', 'last_score', 'game_over']
+    const filteredData = { ...data }
+    frontendOnlyProps.forEach(prop => delete filteredData[prop])
+    
+    Object.assign(stats, filteredData)
     if (data.nudge) {
       nudgeEvent.value = data.nudge
     }

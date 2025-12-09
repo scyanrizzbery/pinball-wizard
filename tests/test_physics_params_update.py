@@ -12,20 +12,20 @@ class TestPhysicsParamsUpdate(unittest.TestCase):
         ball = sim.physics_engine.balls[0]
         ball_shape = list(ball.shapes)[0]
         
-        # Initial defaults
-        self.assertAlmostEqual(ball_shape.friction, 0.5)
+        # Initial defaults (elasticity uses restitution default of 0.5)
+        self.assertAlmostEqual(ball_shape.friction, 0.01)
         self.assertAlmostEqual(ball_shape.elasticity, 0.5)
         
         # Update params
         new_params = {
-            'friction': 0.1,
+            'friction': 0.01,
             'restitution': 0.9,
             'ball_mass': 5.0
         }
         sim.update_physics_params(new_params)
         
         # Check if updated on existing ball
-        self.assertAlmostEqual(ball_shape.friction, 0.1)
+        self.assertAlmostEqual(ball_shape.friction, 0.01)
         self.assertAlmostEqual(ball_shape.elasticity, 0.9)
         self.assertAlmostEqual(ball.mass, 5.0)
         

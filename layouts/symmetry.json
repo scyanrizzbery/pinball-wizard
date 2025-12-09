@@ -175,13 +175,13 @@
     "rail_y_offset": 0.0,
     "physics": {
         "gravity": 3695.235278240266,
-        "friction": 0.99,
+        "friction": 0.01,
         "restitution": 0.46,
         "flipper_speed": 26.6,
         "flipper_resting_angle": -36.0,
         "flipper_stroke_angle": 48,
         "flipper_length": 0.21,
-        "plunger_release_speed": 1100,
+        "plunger_release_speed": 1700,
         "launch_angle": -2,
         "tilt_threshold": 10.0,
         "nudge_cost": 2.4,
@@ -227,6 +227,13 @@
             "camera_z": 0.5,
             "camera_pitch": 75,
             "camera_zoom": 1.0
+        },
+        "Top": {
+            "camera_x": 0.5,
+            "camera_y": 0.5,
+            "camera_z": 2,
+            "camera_pitch": 0,
+            "camera_zoom": 2.2999999999999994
         }
     },
     "last_preset": ""

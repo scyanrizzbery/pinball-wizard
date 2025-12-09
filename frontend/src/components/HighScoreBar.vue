@@ -112,4 +112,11 @@ const fillPercentage = computed(() => {
 .highscore-bar-container.fullscreen .marker-label {
     font-size: 14px;
 }
+
+/* Hide on small viewports */
+@media (max-width: 600px) {
+  .highscore-bar-container {
+    display: none;
+  }
+}
 </style>

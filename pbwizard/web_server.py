@@ -637,6 +637,21 @@ def handle_load_layout_by_name(data):
             if hasattr(capture, 'get_config'):
                 config = capture.get_config()
                 socketio.emit('physics_config_loaded', config, namespace='/config')
+            
+            # Record layout change in game history (for chart plotLine)
+            if hasattr(vision_system, 'game_history'):
+                import time
+                vision_system.game_history.append({
+                    'type': 'layout_change',
+                    'layout': layout_name,
+                    'timestamp': time.time(),
+                    'date': time.strftime("%Y-%m-%d %H:%M:%S")
+                })
+                # Keep history limited
+                if len(vision_system.game_history) > 50:
+                    vision_system.game_history.pop(0)
+            
+            logger.info(f"Layout changed to: {layout_name}")
         else:
             socketio.emit('layout_loaded', {'status': 'error', 'message': 'Layout not found'}, namespace='/config')
 

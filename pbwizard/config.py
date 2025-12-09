@@ -9,7 +9,7 @@ class PhysicsConfig:
     # Global Physics
     gravity_magnitude: float = 9000.0
     table_tilt: float = 8.5  # degrees
-    friction: float = 0.5
+    friction: float = 0.01
     restitution: float = 0.5
     
     # Ball
@@ -24,7 +24,7 @@ class PhysicsConfig:
     flipper_width: float = 0.05
     flipper_tip_width: float = 0.025
     flipper_elasticity: float = 0.5
-    flipper_friction: float = 0.8
+    flipper_friction: float = 0.01
     
     # Plunger
     launch_angle: float = 0.0

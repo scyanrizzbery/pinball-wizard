@@ -2,11 +2,11 @@
     "width": 0.6,
     "height": 1.2,
     "left_flipper_x_min": 0.25,
-    "left_flipper_x_max": 0.47,
+    "left_flipper_x_max": 0.3,
     "left_flipper_y_min": 0.8,
     "left_flipper_y_max": 0.9,
     "right_flipper_x_min": 0.7,
-    "right_flipper_x_max": 0.9199999999999999,
+    "right_flipper_x_max": 0.75,
     "right_flipper_y_min": 0.8,
     "right_flipper_y_max": 0.9,
     "bumpers": [
@@ -138,7 +138,7 @@
     "rail_y_offset": 0.0,
     "physics": {
         "gravity": 1830.954928190792,
-        "friction": 0.7,
+        "friction": 0.01,
         "restitution": 0.9,
         "flipper_speed": 21.9,
         "flipper_resting_angle": -35,
