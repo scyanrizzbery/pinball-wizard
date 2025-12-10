@@ -73,13 +73,6 @@
 
       <Logs :logs="logs" />
       
-      <!-- DEBUG: Test button for high score celebration -->
-      <button 
-        @click="testHighScoreCelebration" 
-        style="position: fixed; bottom: 10px; left: 10px; z-index: 1000; padding: 8px 16px; background: #ff6b6b; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;"
-      >
-        🎉 Test Celebration
-      </button>
     </div>
 
     <div id="input-area">
@@ -197,6 +190,15 @@ const stats = reactive({
   last_score: 0, // Track last game score
   game_over: false,
   is_high_score: false // Frontend-managed high score flag
+})
+
+// Watch for new high score from backend
+watch(() => stats.high_score, (newValue, oldValue) => {
+  if (newValue > oldValue && oldValue > 0) {
+    // New high score achieved! Backend updated the high_score
+    stats.is_high_score = true
+    addLog(`🏆 NEW HIGH SCORE: ${newValue}!`)
+  }
 })
 
 const isSimulation = computed(() => stats.is_simulation || false)
@@ -340,23 +342,6 @@ const toggleAutoStart = () => {
     autoStartTimeoutId.value = null
     console.log('[Auto-Start Toggle] Cancelled pending timeout')
   }
-}
-
-// DEBUG: Test function to trigger high score celebration
-const testHighScoreCelebration = () => {
-  console.log('🎉 Testing High Score Celebration')
-  
-  // Reset first so the watcher will fire again
-  stats.is_high_score = false
-  
-  // Use nextTick-style delay to ensure Vue detects the change
-  setTimeout(() => {
-    stats.high_score = 99999
-    stats.game_over = true
-    stats.is_high_score = true
-    console.log('After setting - is_high_score:', stats.is_high_score)
-    addLog('DEBUG: Triggered high score celebration test')
-  }, 50)
 }
 
 // Function to start new game
@@ -590,15 +575,6 @@ watch(() => stats.ball_count, (newCount, oldCount) => {
       if (stats.score > 0) {
         addLog(`Game Over! Final Score: ${stats.score}`)
         stats.last_score = stats.score // Save last score
-        
-        // Check for High Score
-        if (stats.score > stats.high_score) {
-            stats.high_score = stats.score
-            stats.is_high_score = true
-            addLog(`NEW HIGH SCORE: ${stats.score}!`)
-        } else {
-            stats.is_high_score = false
-        }
       }
       stats.game_over = true // Set game over flag
 
@@ -654,6 +630,10 @@ onMounted(() => {
         nudgeEvent.value = { direction: (Math.random() > 0.5 ? 'left' : 'right'), time: Date.now() }
         // 2. Trigger Physics Nudge (Free)
         sockets.control.emit('alien_nudge')
+        // 3. Vibrate device if supported (mobile haptic feedback)
+        if (navigator.vibrate) {
+            navigator.vibrate(200) // 200ms vibration
+        }
     })
         if (config.camera_presets) {
           cameraPresets.value = config.camera_presets
@@ -743,7 +723,7 @@ onMounted(() => {
   })
 
   sockets.game.on('stats_update', (data) => {
-    // Protect frontend-only properties from being overwritten by backend
+    // Only protect frontend-managed properties (not high_score - that comes from backend now)
     const frontendOnlyProps = ['is_high_score', 'last_score', 'game_over']
     const filteredData = { ...data }
     frontendOnlyProps.forEach(prop => delete filteredData[prop])

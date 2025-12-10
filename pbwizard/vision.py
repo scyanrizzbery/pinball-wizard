@@ -588,6 +588,7 @@ class SimulatedFrameCapture(FrameCapture):
         
         # Physics / Gameplay State
         self.score = 0
+        self.high_score = 0  # Track high score for this session
         self.lives = 3
         self.game_over = False
         
@@ -1313,6 +1314,9 @@ class SimulatedFrameCapture(FrameCapture):
             
             # Sync Score
             self.score = self.physics_engine.score
+            # Update high score if current score is higher
+            if self.score > self.high_score:
+                self.high_score = self.score
             
             # Sync Drop Targets
             self.drop_target_states = self.physics_engine.drop_target_states
@@ -1471,6 +1475,7 @@ class SimulatedFrameCapture(FrameCapture):
         return {
             'balls': out_balls,
             'score': self.score,
+            'high_score': self.high_score,
             'lives': self.lives,
             'game_over': self.game_over,
             'flippers': {

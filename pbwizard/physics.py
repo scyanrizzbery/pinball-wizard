@@ -382,14 +382,15 @@ class PymunkEngine(Physics):
 
     def _setup_static_geometry(self):
         print("DEBUG: Entering _setup_static_geometry")
-        # Walls
+        # Walls - Use high elasticity (0.9) so ball bounces off instead of sliding
         thickness = 10.0
+        wall_elasticity = 0.9
         # Left
-        self._add_static_segment((0, 0), (0, self.height), thickness=thickness)
+        self._add_static_segment((0, 0), (0, self.height), thickness=thickness, elasticity=wall_elasticity)
         # Right
-        self._add_static_segment((self.width, 0), (self.width, self.height), thickness=thickness)
+        self._add_static_segment((self.width, 0), (self.width, self.height), thickness=thickness, elasticity=wall_elasticity)
         # Top
-        self._add_static_segment((0, 0), (self.width, 0), thickness=thickness)
+        self._add_static_segment((0, 0), (self.width, 0), thickness=thickness, elasticity=wall_elasticity)
         
         # Top Arch (Deflector from Plunger Lane to Playfield) - Right Side
         # From top-right (above plunger lane) to top-center
@@ -397,7 +398,7 @@ class PymunkEngine(Physics):
         # Arch should start at (width, 0.15 * height) and go to (0.6 * width, 0)
         p1 = (self.width, self.height * 0.15)
         p2 = (self.width * 0.6, 0)
-        self._add_static_segment(p1, p2, thickness=thickness)
+        self._add_static_segment(p1, p2, thickness=thickness, elasticity=wall_elasticity)
         
         # Triangle Guide - Left Side (mirror of right arch)
         # From top-left corner to center-top area
@@ -533,9 +534,9 @@ class PymunkEngine(Physics):
     def _setup_plunger(self):
         """Setup plunger physics bodies and shapes."""
         # Plunger Lane
-        # Vertical wall separating plunger from playfield
+        # Vertical wall separating plunger from playfield - high elasticity for bounce
         lane_x = self.width * 0.85
-        self._add_static_segment((lane_x, self.height * 0.3), (lane_x, self.height), thickness=5.0)
+        self._add_static_segment((lane_x, self.height * 0.3), (lane_x, self.height), thickness=5.0, elasticity=0.9)
         logger.info(f"Plunger Wall: x={lane_x}")
 
         # Plunger (Kinematic Body)
