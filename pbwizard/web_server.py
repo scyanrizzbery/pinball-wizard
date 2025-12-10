@@ -1,9 +1,10 @@
 import base64
+import json
 import logging
 import os
+import time
 
 import cv2
-
 import eventlet
 
 eventlet.monkey_patch()
@@ -11,6 +12,7 @@ from flask import Flask, render_template
 from flask_socketio import SocketIO
 
 from pbwizard import constants
+
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +25,6 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Global reference to the vision system (set by main.py)
 vision_system = None
-import time
 
 def log_history_event(event_type, message):
     """Log a non-game event to history."""
@@ -796,10 +797,9 @@ def handle_get_models():
 @socketio.on('get_hyperparams', namespace='/training')
 def handle_get_hyperparams():
     """Load optimized hyperparameters from JSON file."""
-    hp_path = "hyperparams.json"
+    hp_path = "frontend/public/hyperparams.json"
     if os.path.exists(hp_path):
         try:
-            import json
             with open(hp_path, 'r') as f:
                 params = json.load(f)
                 socketio.emit('hyperparams_loaded', params, namespace='/training')
@@ -808,34 +808,6 @@ def handle_get_hyperparams():
             logger.error(f"Error loading hyperparams: {e}")
     else:
         logger.info("No hyperparams.json found")
-
-    try:
-        model_path = os.path.join(os.getcwd(), 'models', model_name)
-        if os.path.exists(model_path):
-            if hasattr(vision_system, 'agent') and hasattr(vision_system.agent, 'load_model'):
-                vision_system.agent.load_model(model_path)
-                logger.info(f"Loaded model: {model_name}")
-                log_history_event('model', f"Loaded model: {model_name}")  # Log event
-
-                # Save as last loaded model
-                if hasattr(vision_system, 'capture') and hasattr(vision_system.capture, 'save_config'):
-                    vision_system.capture.last_model = model_name
-                    vision_system.capture.save_config()
-
-                # Add to history
-                if hasattr(vision_system, 'add_history_event'):
-                    vision_system.add_history_event('model_change', {'model': model_name})
-
-                socketio.emit('model_loaded', {'status': 'success', 'model': model_name}, namespace='/training')
-            else:
-                socketio.emit('model_loaded',
-                              {'status': 'error', 'message': 'Agent not initialized or does not support loading'},
-                              namespace='/training')
-        else:
-            socketio.emit('model_loaded', {'status': 'error', 'message': 'Model file not found'}, namespace='/training')
-    except Exception as e:
-        logger.error(f"Error loading model: {e}")
-        socketio.emit('model_loaded', {'status': 'error', 'message': str(e)}, namespace='/training')
 
 
 @socketio.on('start_training', namespace='/training')

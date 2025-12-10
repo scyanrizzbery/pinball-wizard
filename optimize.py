@@ -7,11 +7,9 @@ import time
 import json
 import optuna
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.monitor import Monitor
-from optuna.visualization import plot_optimization_history, plot_param_importances
 
-from pbwizard import vision, hardware, agent
+from pbwizard import vision, hardware
 from pbwizard.environment import PinballEnv
 
 import threading
@@ -25,6 +23,7 @@ logger = logging.getLogger(__name__)
 os.environ['HEADLESS_SIM'] = 'true'
 
 from stable_baselines3.common.callbacks import BaseCallback
+
 
 class ProgressCallback(BaseCallback):
     def __init__(self, verbose=0, socketio=None):
@@ -83,6 +82,7 @@ class ProgressCallback(BaseCallback):
 
         return True
 
+
 def create_env(trial=None, socketio=None):
     """
     Creates a headless pinball environment for optimization.
@@ -127,6 +127,7 @@ def create_env(trial=None, socketio=None):
     # If trial is provided, we could potentially optimize environment params too!
     env = PinballEnv(vision_wrapper, hw, score_reader, headless=True)
     return env, cap
+
 
 def objective(trial):
     """
@@ -224,5 +225,5 @@ if __name__ == "__main__":
         logger.info(f"    {key}: {value}")
     
     # Save best params to file
-    with open('hyperparams.json', 'w') as f:
+    with open('frontend/public/hyperparams.json', 'w') as f:
         json.dump(study.best_trial.params, f, indent=4)

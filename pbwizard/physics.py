@@ -1,13 +1,17 @@
-import pymunk
-import numpy as np
-import logging
-import time
-
 import logging
 import time
 import threading
+import hashlib
+import random
+
+import pymunk
+import numpy as np
+
+from pbwizard.config import PhysicsConfig
+
 
 logger = logging.getLogger(__name__)
+
 
 # Collision type constants (must be integers for pymunk)
 COLLISION_TYPE_BALL = 1
@@ -64,10 +68,6 @@ class Physics:
             (p1[0] - px * r, p1[1] - py * r),
         ]
 
-
-import hashlib
-import random
-from pbwizard.config import PhysicsConfig
 
 class PymunkEngine(Physics):
     def __init__(self, layout, width, height, seed=None, config: PhysicsConfig = None):

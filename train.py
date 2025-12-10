@@ -1,12 +1,11 @@
 import os
 import time
 import logging
-import numpy as np
 import multiprocessing
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.utils import safe_mean
 
-from pbwizard import vision, hardware, agent, constants
+from pbwizard import vision, hardware, agent
 from pbwizard.environment import PinballEnv
 
 # Configure logging
@@ -15,6 +14,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
 
 class StateSyncCallback(BaseCallback):
     """
@@ -45,6 +45,7 @@ class StateSyncCallback(BaseCallback):
             self.last_sync = current_time
         return True
 
+
 class QueueStopCallback(BaseCallback):
     """
     Callback to check a multiprocessing queue for a STOP command.
@@ -63,6 +64,7 @@ class QueueStopCallback(BaseCallback):
             except:
                 pass
         return True
+
 
 class WebStatsCallback(BaseCallback):
     def __init__(self, status_queue, total_timesteps, model_name="Unknown", verbose=0):
@@ -147,6 +149,7 @@ class WebStatsCallback(BaseCallback):
                 logger.error(f"WebStatsCallback error: {e}")
         return True
 
+
 class ProgressBarCallback(BaseCallback):
     def __init__(self, total_timesteps, verbose=0):
         super().__init__(verbose)
@@ -159,6 +162,7 @@ class ProgressBarCallback(BaseCallback):
             logger.info(f"Training Progress: {progress:.1%} ({self.num_timesteps}/{self.total_timesteps})")
             self.last_log = self.num_timesteps
         return True
+
 
 def train_worker(config, state_queue, command_queue, status_queue):
     """
@@ -248,7 +252,7 @@ def train_worker(config, state_queue, command_queue, status_queue):
         
         # 4. Train
         status_queue.put(('status', 'started'))
-        agent_wrapper.train(total_timesteps=total_timesteps, callbacks=callbacks)
+        agent_wrapper.train(total_timesteps=total_timesteps, callbacks=callbacks, hyperparams=config)
         
         # 5. Save
         models_dir = "models"

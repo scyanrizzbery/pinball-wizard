@@ -435,21 +435,46 @@
 
     <!-- Training Tab -->
     <div v-show="activeTab === 'training'" class="tab-content">
-        <div v-if="!stats.is_training">
+        <div v-if="!stats.is_training" class="training-grid">
             <div class="setting-group">
                 <label>Model Name</label>
-                <input type="text" v-model="trainingConfig.modelName"
-                       style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
+                <input type="text" v-model="trainingConfig.modelName" class="input-full">
             </div>
             <div class="setting-group">
                 <label>Timesteps</label>
-                <input type="number" v-model="trainingConfig.timesteps"
-                       style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
+                <input type="number" v-model="trainingConfig.timesteps" class="input-full">
             </div>
             <div class="setting-group">
                 <label>Learning Rate</label>
-                <input type="number" v-model="trainingConfig.learningRate" step="0.0001"
-                       style="width: 80%; padding: 8px; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px;">
+                <input type="number" v-model="trainingConfig.learningRate" step="0.0001" class="input-full">
+            </div>
+            <div class="setting-group">
+                <label>Entropy (ent_coef)</label>
+                <input type="number" v-model="trainingConfig.entCoef" step="0.0001" class="input-full">
+            </div>
+            <div class="setting-group">
+                <label>Gamma (Discount)</label>
+                <input type="number" v-model="trainingConfig.gamma" step="0.01" max="1.0" class="input-full">
+            </div>
+             <div class="setting-group">
+                <label>GAE Lambda</label>
+                <input type="number" v-model="trainingConfig.gaeLambda" step="0.01" max="1.0" class="input-full">
+            </div>
+             <div class="setting-group">
+                <label>Steps (n_steps)</label>
+                <select v-model="trainingConfig.nSteps" class="input-full">
+                    <option :value="1024">1024</option>
+                    <option :value="2048">2048</option>
+                    <option :value="4096">4096</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>Batch Size</label>
+                <select v-model="trainingConfig.batchSize" class="input-full">
+                    <option :value="64">64</option>
+                    <option :value="128">128</option>
+                    <option :value="256">256</option>
+                </select>
             </div>
         </div>
       <div v-if="stats.is_training" style="margin-top: 15px;">
@@ -550,14 +575,23 @@ const activeTab = ref('settings')
 const trainingConfig = reactive({
   modelName: 'ppo_pinball',
   timesteps: 100000,
-  learningRate: 0.0003
+  learningRate: 0.0003,
+  entCoef: 0.01,
+  gamma: 0.99,
+  nSteps: 2048,
+  batchSize: 64,
+  gaeLambda: 0.95
 })
 
 // Update config when optimized params are received
 watch(() => props.optimizedHyperparams, (newParams) => {
   if (newParams) {
     if (newParams.learning_rate) trainingConfig.learningRate = newParams.learning_rate
-    // We could map other params here if added to the UI
+    if (newParams.ent_coef) trainingConfig.entCoef = newParams.ent_coef
+    if (newParams.gamma) trainingConfig.gamma = newParams.gamma
+    if (newParams.n_steps) trainingConfig.nSteps = newParams.n_steps
+    if (newParams.batch_size) trainingConfig.batchSize = newParams.batch_size
+    if (newParams.gae_lambda) trainingConfig.gaeLambda = newParams.gae_lambda
   }
 }, { immediate: true })
 
@@ -1062,5 +1096,40 @@ input[type="range"]::-moz-range-thumb {
 .metric-value {
   color: #eee;
   font-weight: bold;
+}
+
+/* Training Configuration Grid */
+.training-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.input-full {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    background: #333;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 4px;
+    margin-top: 5px;
+}
+
+/* 2 Columns on PC Viewport (> 1200px or so depending on panel width) 
+   Actually, since this is a side panel, we probably want it based on panel width.
+   But simple media query for desktop is usually fine. */
+@media (min-width: 1400px) {
+    .training-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+    
+    /* Ensure setting-group handles the grid cell properly */
+    .setting-group {
+        width: 100%;
+        margin-bottom: 0;
+    }
 }
 </style>

@@ -1,5 +1,4 @@
 import logging
-import os
 import time
 
 import gymnasium as gym
@@ -17,7 +16,14 @@ class PinballEnv(gym.Env):
     metadata = {'render_modes': ['human', 'rgb_array'], 'render_fps': 30}
 
 
-    def __init__(self, vision_system, hardware_controller, score_reader, headless: bool = False, random_layouts: bool = False, difficulty: str = 'medium'):
+    def __init__(self,
+                 vision_system,
+                 hardware_controller,
+                 score_reader,
+                 headless: bool = False,
+                 random_layouts: bool = False,
+                 difficulty: str = 'medium'):
+
         super(PinballEnv, self).__init__()
         
         self.vision = vision_system
@@ -234,17 +240,30 @@ class PinballEnv(gym.Env):
             self.steps_without_ball = 0 # Reset counter if ball is detected
 
         # Ball Lost Check (Termination)
+        # Grace period: Detect "lost" ball only after initial grace period (e.g. 20 steps)
+        # and if we have seen the ball at least once or grace period expired.
+        
+        # Initial wait for physics to spawn ball
+        if self.steps_without_ball > 20 and self.last_ball_pos is None:
+             terminated = True
+             logger.warning("Ball failed to spawn/detect after 20 steps.")
+
         ball_lost = False
         if hasattr(self.vision, 'ball_lost'):
             ball_lost = self.vision.ball_lost
         elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'ball_lost'):
             ball_lost = self.vision.capture.ball_lost
         
+        # Override ball_lost during grace period AND if ball is high up (likely spawning)
+        is_spawning = False
+        if ball_pos is not None and ball_pos[1] < 0.2: # Top 20%
+             is_spawning = True
+             
         if ball_pos is not None and ball_pos[1] > height * 0.98:
              logger.debug(f"Ball Lost Check: y={ball_pos[1]} > {height * 0.98} (Limit)")
              ball_lost = True
 
-        if ball_lost:
+        if ball_lost and not is_spawning:
             terminated = True
         
         if self.steps_without_ball > self.max_steps_without_ball:

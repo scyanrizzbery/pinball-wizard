@@ -1,13 +1,14 @@
 import logging
-from pbwizard.constants import ACTION_NOOP
-import numpy as np
 import os
 import random
 
 from stable_baselines3 import PPO
 
+from pbwizard.constants import ACTION_NOOP
+
 
 logger = logging.getLogger(__name__)
+
 
 class ReflexAgent:
     
@@ -207,7 +208,22 @@ class RLAgent:
         else:
             logger.warning("RLAgent initialized without env or model_path. Cannot train or predict.")
 
-    def train(self, total_timesteps=10000, callbacks=None):
+    def train(self, total_timesteps=10000, callbacks=None, hyperparams=None):
+        if hyperparams:
+            logger.info(f"Re-initializing model with custom hyperparameters: {hyperparams}")
+            self.model = PPO(
+                "MlpPolicy",
+                self.model.env if self.model else None, # Reuse env if available
+                verbose=1,
+                ent_coef=hyperparams.get('ent_coef', 0.01),
+                learning_rate=hyperparams.get('learning_rate', 3e-4),
+                n_steps=int(hyperparams.get('n_steps', 2048)),
+                batch_size=int(hyperparams.get('batch_size', 64)),
+                gamma=hyperparams.get('gamma', 0.99),
+                gae_lambda=hyperparams.get('gae_lambda', 0.95),
+                device='cpu'
+            )
+
         if self.model:
             logger.info(f"Starting training for {total_timesteps} timesteps...")
             self.model.learn(total_timesteps=total_timesteps, callback=callbacks)

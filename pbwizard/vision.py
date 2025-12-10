@@ -13,6 +13,7 @@ from pbwizard.physics import PymunkEngine
 
 logger = logging.getLogger(__name__)
 
+
 class ReplayManager:
     """
     Manages regarding and playing back game inputs to ensure deterministic replays.
@@ -103,6 +104,7 @@ try:
 except ImportError:
     pytesseract = None
     logger.warning("pytesseract module not found. Score reading will be disabled.")
+
 
 class ZoneManager:
     def __init__(self, width, height, layout=None):
@@ -470,7 +472,6 @@ class PinballLayout:
             self.save_config()
 
 
-
 class BallTracker:
     def __init__(self):
         # Initial color range for orange ball
@@ -501,7 +502,8 @@ class BallTracker:
                 cv2.circle(frame, center, 5, (0, 0, 255), -1)
                 
         return center, frame
-        
+
+
 class ScoreReader:
     def __init__(self):
         pass
@@ -523,6 +525,7 @@ class ScoreReader:
             return score
         except:
             return 0
+
 
 class SimulatedFrameCapture(FrameCapture):
 
@@ -633,6 +636,14 @@ class SimulatedFrameCapture(FrameCapture):
         
         # Load available layouts from disk
         self._load_available_layouts()
+
+    def reset_game_state(self):
+        """Reset the game state (score, lives, etc.)"""
+        self.score = 0
+        self.balls_remaining = 3
+        self.ball_lost = False # Reset ball lost flag
+        if self.physics_engine:
+            self.physics_engine.reset()
 
     def update_rails(self, rails_data):
         """Update rails from frontend editor."""

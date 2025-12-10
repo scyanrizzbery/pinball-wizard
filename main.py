@@ -27,6 +27,7 @@ load_dotenv()
 from pbwizard import vision, hardware, agent, web_server, constants
 import train # Import train module
 
+
 def main():
     logger.info("Starting Pinball Bot...")
     
@@ -633,6 +634,7 @@ def main():
     finally:
         cap.stop()
         logger.info("Clean exit.")
+
 
 if __name__ == "__main__":
     main()

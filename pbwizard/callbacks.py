@@ -1,6 +1,5 @@
-from stable_baselines3.common.callbacks import BaseCallback
-import numpy as np
 import progressbar
+from stable_baselines3.common.callbacks import BaseCallback
 
 
 class ProgressBarCallback(BaseCallback):

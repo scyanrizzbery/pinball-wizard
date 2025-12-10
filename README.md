@@ -47,7 +47,17 @@ docker compose run --rm -p 5000:5000 pinball-bot python train.py
 - Open `http://localhost:5000` to watch the training live.
 - Metrics are logged to the console.
 
-### 2. Manual Play Mode
+### 2. Hyperparameter Optimization (Optuna)
+Auto-tune the RL agent's learning parameters (learning rate, entropy, etc.) for better performance.
+```bash
+# Run optimization trial (uses GPU if available)
+docker compose run --rm -p 5000:5000 -p 8080:8080 pinball-bot python optimize.py
+```
+- **Real-time Progress**: The web UI (`http://localhost:5000`) visualizes the optimization trials in real-time.
+- **Optuna Dashboard**: View detailed trial statistics and parameter importance at `http://localhost:8080`.
+- **Apply Results**: The best hyperparameters are automatically saved to `frontend/public/hyperparams.json` and loaded by the UI for future training sessions.
+
+### 3. Manual Play Mode
 Test the physics and controls yourself without the AI.
 ```bash
 docker compose run --rm -p 5000:5000 pinball-bot python main.py

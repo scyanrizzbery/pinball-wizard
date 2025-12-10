@@ -1355,7 +1355,7 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
           pColor = 0xaaaaaa
           pSize = 0.012
           pType = 'smoke'
-          pOpacity = 0.08 * (0.2 + scoreMultiplier * 0.8) // Starts at 0.016, grows to 0.08
+          pOpacity = 0.04 * (0.2 + scoreMultiplier * 0.8) // Reduced from 0.08
           pLifeDecay = 0.008 // Fades faster for subtlety
           pGrowth = 1.015 // Slower growth
       } else if (combo < 30) {
@@ -1368,7 +1368,7 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
           
           emitRate = 0.5
           pColor = 0x0088ff
-          pOpacity = 0.12 * (0.2 + scoreMultiplier * 0.8) // Starts at 0.024, grows to 0.12
+          pOpacity = 0.06 * (0.2 + scoreMultiplier * 0.8) // Reduced from 0.12
           pSize = 0.015
           pLifeDecay = 0.01
           pGrowth = 1.02
@@ -1382,7 +1382,7 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
            
            emitRate = 0.8
            pColor = 0xff00ff
-           pOpacity = 0.15 * (0.2 + scoreMultiplier * 0.8) // Starts at 0.03, grows to 0.15
+           pOpacity = 0.075 * (0.2 + scoreMultiplier * 0.8) // Reduced from 0.15
            pSize = 0.018
            pLifeDecay = 0.012
            pGrowth = 1.025
@@ -1396,7 +1396,7 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
            
            emitRate = 1.2
            pColor = 0x00ff00
-           pOpacity = 0.18 * (0.2 + scoreMultiplier * 0.8) // Starts at 0.036, grows to 0.18
+           pOpacity = 0.09 * (0.2 + scoreMultiplier * 0.8) // Reduced from 0.18
            pSize = 0.02
            pGrowth = 1.03
            pLifeDecay = 0.014

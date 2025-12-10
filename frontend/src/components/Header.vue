@@ -6,7 +6,7 @@
 
     <div class="connection-status" style="font-size: 0.8em; color: #888;">
       <span class="status-dot" :class="connected ? 'status-connected' : 'status-disconnected'"></span>
-      <span class="status-text">{{ connected ? 'Connected to server' : 'Disconnected' }}</span>
+      <span class="status-text">{{ connected ? 'Connected' : 'Disconnected' }}</span>
     </div>
 
     <div id="stats-container">

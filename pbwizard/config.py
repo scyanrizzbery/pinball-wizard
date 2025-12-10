@@ -1,6 +1,5 @@
+from dataclasses import dataclass, asdict
 
-from dataclasses import dataclass, field, asdict
-from typing import Optional
 
 @dataclass
 class PhysicsConfig:
