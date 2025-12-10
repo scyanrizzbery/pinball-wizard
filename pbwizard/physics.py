@@ -3,6 +3,10 @@ import numpy as np
 import logging
 import time
 
+import logging
+import time
+import threading
+
 logger = logging.getLogger(__name__)
 
 # Collision type constants (must be integers for pymunk)
@@ -133,6 +137,9 @@ class PymunkEngine(Physics):
         
         # Event tracking for RL
         self.events = []
+        
+        self.lock = threading.RLock()
+        self._is_stepping = False
         
         self._setup_static_geometry()
         print(f"DEBUG: After setup_static_geometry static_body pos: {self.space.static_body.position}")
@@ -988,6 +995,16 @@ class PymunkEngine(Physics):
         }
 
     def add_ball(self, pos):
+        with self.lock:
+            # Always use callback to ensure thread/step safety (bypass locking check issues)
+            self.space.add_post_step_callback(self._add_ball_safe, pos)
+            return None
+
+    def _add_ball_safe(self, space, pos):
+        if len(self.balls) >= 5:
+            logger.warning("Max balls (5) reached, ignoring add_ball request.")
+            return None
+            
         mass = self.config.ball_mass
         radius = self.config.ball_radius if hasattr(self.config, 'ball_radius') else 12.0
         moment = pymunk.moment_for_circle(mass, 0, radius)
@@ -1003,34 +1020,35 @@ class PymunkEngine(Physics):
 
     def nudge(self, dx, dy, check_tilt=True):
         """Apply an impulse to all balls to simulate a table nudge."""
-        # Nudging the table moves the table under the ball.
-        # Relative to the table, the ball moves in the opposite direction of the nudge?
-        # No, if I push the table LEFT, the ball (due to inertia) effectively moves RIGHT relative to the table.
-        # But usually "Nudge Left" means "I want the ball to go Left".
-        # So let's just apply impulse in the direction of dx, dy.
-        # Scale up for physics engine (vision used small pixels)
-        scale = 400.0  # Increased from 50.0 to 400.0 for effectiveness
-        impulse = (dx * scale, dy * scale)
-        
-        # Accumulate Tilt
-        if check_tilt and hasattr(self.config, 'nudge_cost'):
-            self.tilt_value += self.config.nudge_cost
+        with self.lock:
+            # Nudging the table moves the table under the ball.
+            # Relative to the table, the ball moves in the opposite direction of the nudge?
+            # No, if I push the table LEFT, the ball (due to inertia) effectively moves RIGHT relative to the table.
+            # But usually "Nudge Left" means "I want the ball to go Left".
+            # So let's just apply impulse in the direction of dx, dy.
+            # Scale up for physics engine (vision used small pixels)
+            scale = 400.0  # Increased from 50.0 to 400.0 for effectiveness
+            impulse = (dx * scale, dy * scale)
             
-        # Check Threshold
-        threshold = getattr(self.config, 'tilt_threshold', 10.0)
-        if self.tilt_value > threshold:
-             if not self.is_tilted:
-                 logger.warning(f"TILT! Value {self.tilt_value:.1f} > {threshold}")
-                 self.set_tilt(True)
-        else:
-             # Just a warning?
-             pass
-        
-        for b in self.balls:
-            b.activate()
-            b.apply_impulse_at_local_point(impulse)
+            # Accumulate Tilt
+            if check_tilt and hasattr(self.config, 'nudge_cost'):
+                self.tilt_value += self.config.nudge_cost
+                
+            # Check Threshold
+            threshold = getattr(self.config, 'tilt_threshold', 10.0)
+            if self.tilt_value > threshold:
+                if not self.is_tilted:
+                    logger.warning(f"TILT! Value {self.tilt_value:.1f} > {threshold}")
+                    self.set_tilt(True)
+            else:
+                # Just a warning?
+                pass
             
-        logger.info(f"NUDGE Applied: {impulse}")
+            for b in self.balls:
+                b.activate()
+                b.apply_impulse_at_local_point(impulse)
+                
+            logger.info(f"NUDGE Applied: {impulse}")
 
     def set_tilt(self, tilted):
         """Set tilt state."""
@@ -1120,6 +1138,12 @@ class PymunkEngine(Physics):
 
     def reset(self):
         """Reset the physics simulation to initial state."""
+        with self.lock:
+            # Always use callback for safety
+            self.space.add_post_step_callback(lambda s, k: self._reset_safe(), None)
+
+    def _reset_safe(self):
+        """Internal reset logic, safe to call when not stepping."""
         self.score = 0
         self.combo_count = 0
         self.combo_timer = 0.0
@@ -1146,12 +1170,13 @@ class PymunkEngine(Physics):
         logger.info("Physics engine reset.")
 
     def update(self, dt):
-        # Update bumper flash timers
-        for i in range(len(self.bumper_states)):
-            if self.bumper_states[i] > 0:
-                self.bumper_states[i] -= dt * 5.0 # Decay speed
-                if self.bumper_states[i] < 0:
-                    self.bumper_states[i] = 0.0
+        with self.lock:
+            # Update bumper flash timers
+            for i in range(len(self.bumper_states)):
+                if self.bumper_states[i] > 0:
+                    self.bumper_states[i] -= dt * 5.0 # Decay speed
+                    if self.bumper_states[i] < 0:
+                        self.bumper_states[i] = 0.0
                     
         # Tilt Decay
         if self.tilt_value > 0:
@@ -1345,8 +1370,12 @@ class PymunkEngine(Physics):
         # Sub-stepping for stability (Prevent tunneling)
         steps = 10
         sub_dt = dt / steps
-        for _ in range(steps):
-            self.space.step(sub_dt)
+        self._is_stepping = True
+        try:
+            for _ in range(steps):
+                self.space.step(sub_dt)
+        finally:
+            self._is_stepping = False
             
         # Debug Log
         if self.balls and np.random.random() < 0.02: # ~2% chance
@@ -1383,15 +1412,20 @@ class PymunkEngine(Physics):
         body.angular_velocity = change / dt
 
     def actuate_flipper(self, side, active):
-        if self.is_tilted:
-            return # Flippers disabled during tilt
-            
-        if side in self.flippers:
-            self.flippers[side]['active'] = active
-        elif side == 'upper':
-             # Activate all upper flippers?
-             for f in self.flippers['upper']:
-                 f['active'] = active
+        with self.lock:
+            # Physics changes must be safe if stepping? 
+            # Actually, actuate_flipper only changes dict state ('active' flag), 
+            # it doesn't add/remove bodies. So it should be fine.
+            # BUT, let's be paranoid if it ever does more.
+            # For now, just the flag update is safe.
+            if self.is_tilted:
+                return # Flippers disabled during tilt
+                
+            if side in self.flippers:
+                self.flippers[side]['active'] = active
+            elif side == 'upper':
+                for f in self.flippers['upper']:
+                    f['active'] = active
 
     def get_state(self):
         # Return state dict for frontend

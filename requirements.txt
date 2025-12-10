@@ -13,3 +13,6 @@ pytest
 progressbar2
 pymunk==6.6.0
 watchdog
+optuna
+optuna-dashboard
+tensorboard

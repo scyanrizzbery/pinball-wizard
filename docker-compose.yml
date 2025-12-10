@@ -88,6 +88,16 @@ services:
     # Open Cypress Test Runner (requires X11)
     entrypoint: cypress open
 
+  optuna-dashboard:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+    command: optuna-dashboard sqlite:///pinball_ppo_optimization.db --port 8080 --host 0.0.0.0
+    networks:
+      - pbwizard-network
+
 networks:
   pbwizard-network:
     driver: bridge

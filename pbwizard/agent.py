@@ -167,16 +167,42 @@ class RLAgent:
             logger.info(f"Loading RL model from {model_path}")
             self.model = PPO.load(model_path)
         elif env:
-            logger.info("Initializing new PPO model with custom hyperparameters")
+            # Check for optimized hyperparameters
+            hp_path = "hyperparams.json"
+            hyperparams = {
+                "ent_coef": 0.01,
+                "learning_rate": 3e-4,
+                "n_steps": 2048,
+                "batch_size": 64,
+                "gamma": 0.99,
+                "gae_lambda": 0.95
+            }
+            
+            if os.path.exists(hp_path):
+                try:
+                    import json
+                    with open(hp_path, 'r') as f:
+                        loaded_params = json.load(f)
+                        # Only update valid keys
+                        for k, v in loaded_params.items():
+                             if k in hyperparams or k == 'gae_lambda':
+                                 hyperparams[k] = v
+                    logger.info(f"Loaded optimized hyperparameters: {hyperparams}")
+                except Exception as e:
+                    logger.error(f"Failed to load hyperparameters: {e}")
+
+            logger.info("Initializing new PPO model")
             self.model = PPO(
                 "MlpPolicy", 
                 env, 
                 verbose=1,
-                ent_coef=0.01, # Reduced from 0.03
-                learning_rate=3e-4,
-                n_steps=2048,
-                batch_size=64,
-                gamma=0.99
+                ent_coef=hyperparams['ent_coef'],
+                learning_rate=hyperparams['learning_rate'],
+                n_steps=int(hyperparams['n_steps']),
+                batch_size=int(hyperparams['batch_size']),
+                gamma=hyperparams['gamma'],
+                gae_lambda=hyperparams.get('gae_lambda', 0.95),
+                device='cpu' # Force CPU for MlpPolicy
             )
         else:
             logger.warning("RLAgent initialized without env or model_path. Cannot train or predict.")

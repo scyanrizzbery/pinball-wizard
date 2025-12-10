@@ -16,3 +16,5 @@ cypress.env.json
 node_modules/
 package-lock.json
 replays/
+optuna_logs/
+pinball_ppo_optimization.db

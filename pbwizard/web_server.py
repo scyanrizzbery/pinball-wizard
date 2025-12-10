@@ -792,11 +792,22 @@ def handle_get_models():
         logger.error(f"Error listing models: {e}")
 
 
-@socketio.on('load_model', namespace='/training')
-def handle_load_model(data):
-    model_name = data.get('model')
-    if not model_name:
-        return
+
+@socketio.on('get_hyperparams', namespace='/training')
+def handle_get_hyperparams():
+    """Load optimized hyperparameters from JSON file."""
+    hp_path = "hyperparams.json"
+    if os.path.exists(hp_path):
+        try:
+            import json
+            with open(hp_path, 'r') as f:
+                params = json.load(f)
+                socketio.emit('hyperparams_loaded', params, namespace='/training')
+                logger.info(f"Emitted hyperparams: {params}")
+        except Exception as e:
+            logger.error(f"Error loading hyperparams: {e}")
+    else:
+        logger.info("No hyperparams.json found")
 
     try:
         model_path = os.path.join(os.getcwd(), 'models', model_name)
@@ -899,4 +910,4 @@ def start_server(vision_sys, port=5000):
 
     # Start streaming thread
     socketio.start_background_task(stream_frames)
-    socketio.run(app, host='0.0.0.0', port=port, debug=True, use_reloader=False)
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, use_reloader=True)

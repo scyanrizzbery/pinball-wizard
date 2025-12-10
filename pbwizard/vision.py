@@ -1254,40 +1254,46 @@ class SimulatedFrameCapture(FrameCapture):
         self.thread.start()
         logger.info("Simulation started")
 
+    def manual_step(self, dt=0.016):
+        """Perform a single step of simulation (physics + logic + render)."""
+        # Physics Step
+        if self.physics_engine:
+            self.physics_engine.update(dt)
+            
+        # Process Replay Inputs
+        if self.replay_manager.is_playing:
+            events = self.replay_manager.get_events_for_frame()
+            for evt in events:
+                # Dispatch to apply functions
+                if evt['type'] == 'flipper':
+                    self._apply_flipper_input(evt['value'])
+                elif evt['type'] == 'plunger':
+                    self._apply_plunger_input(evt['value'])
+                elif evt['type'] == 'nudge':
+                    self._apply_nudge_input(evt['value'])
+        
+        # Tick Replay Clock
+        self.replay_manager.tick()
+        
+        # Render Frame
+        self._draw_frame()
+
     def _capture_loop(self):
         # We assume 60FPS simulation loop
         while self.running:
             dt = 0.016
             start_time = time.time()
             
-            # Physics Step
-            if self.physics_engine:
-                self.physics_engine.update(dt)
-                
-            # Process Replay Inputs
-            if self.replay_manager.is_playing:
-                events = self.replay_manager.get_events_for_frame()
-                for evt in events:
-                    # Dispatch to apply functions
-                    if evt['type'] == 'flipper':
-                        self._apply_flipper_input(evt['value'])
-                    elif evt['type'] == 'plunger':
-                        self._apply_plunger_input(evt['value'])
-                    elif evt['type'] == 'nudge':
-                        self._apply_nudge_input(evt['value'])
-            
-            # Tick Replay Clock
-            self.replay_manager.tick()
-            
-            # Render Frame
-            self._draw_frame()
+            self.manual_step(dt)
 
             # Sleep remainder
             elapsed = time.time() - start_time
             if not self.headless:
                 sleep_time = max(0, dt - elapsed)
                 time.sleep(sleep_time)
-            # Headless: no sleep - run as fast as possible for training
+            else:
+                # Headless: run as fast as possible but yield to other green threads
+                time.sleep(0)
 
     def _draw_frame(self):
         # Update sync variables

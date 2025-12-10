@@ -535,6 +535,7 @@ const props = defineProps({
   selectedLayout: String,
   selectedPreset: String,
   selectedDifficulty: String,
+  optimizedHyperparams: Object,
   showFlipperZones: {
     type: Boolean,
     default: true
@@ -551,6 +552,14 @@ const trainingConfig = reactive({
   timesteps: 100000,
   learningRate: 0.0003
 })
+
+// Update config when optimized params are received
+watch(() => props.optimizedHyperparams, (newParams) => {
+  if (newParams) {
+    if (newParams.learning_rate) trainingConfig.learningRate = newParams.learning_rate
+    // We could map other params here if added to the UI
+  }
+}, { immediate: true })
 
 const saveLayout = () => {
   if (confirm("Overwrite current layout?")) {

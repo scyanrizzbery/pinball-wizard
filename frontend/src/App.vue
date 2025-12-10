@@ -61,11 +61,18 @@
 
       <GameHistory :gameHistory="stats.game_history" :gamesPlayed="stats.games_played" />
 
-      <Settings :physics="physics" :stats="stats" :cameraPresets="cameraPresets" :models="models" :layouts="layouts"
-        v-model:selectedModel="selectedModel" v-model:selectedLayout="selectedLayout"
-        v-model:selectedPreset="selectedPreset" :selectedDifficulty="selectedDifficulty"
-        :showFlipperZones="showFlipperZones"
-        @update-physics="updatePhysics" @apply-preset="applyPreset"
+      <Settings class="settings-panel"
+        :physics="physics"
+        :stats="stats"
+        :models="models"
+        :layouts="layouts"
+        :camera-presets="cameraPresets"
+        :selected-difficulty="selectedDifficulty"
+        :optimized-hyperparams="optimizedHyperparams"
+        v-model:selected-model="selectedModel"
+        v-model:selected-layout="selectedLayout"
+        v-model:selected-preset="selectedPreset"
+        @update-physics="handleUpdatePhysics" @reset-config="handleResetConfig" @apply-preset="applyPreset"
         @save-preset="savePreset" @delete-preset="deletePreset" @load-model="loadModel"
         @change-layout="changeLayout" @start-training="startTraining" @stop-training="stopTraining"
         @update-difficulty="updateDifficulty" @update:showFlipperZones="showFlipperZones = $event"
@@ -141,6 +148,8 @@ const debounceTimers = {}
 const nudgeEvent = ref(null)
 const viewMode = ref('3d')
 const layoutConfig = ref(null)
+const optimizedHyperparams = ref(null)
+
 const isLoadingLayout = ref(false)
 const hasUnsavedChanges = ref(false)
 const isSyncingPhysics = ref(false)
@@ -670,6 +679,25 @@ onMounted(() => {
         }, 0)
       }
     }
+  })
+
+  sockets.training.on('models_list', (data) => {
+    models.value = data
+    if (!selectedModel.value && data.length > 0) {
+      selectedModel.value = data[0].filename
+    }
+  })
+
+  // Listen for optimized hyperparameters
+  sockets.training.on('hyperparams_loaded', (params) => {
+    console.log('Received optimized hyperparameters:', params)
+    optimizedHyperparams.value = params
+    addLog('Loaded optimized hyperparameters')
+  })
+
+  sockets.training.on('connect', () => {
+    sockets.training.emit('get_models')
+    sockets.training.emit('get_hyperparams')
   })
 
   sockets.config.on('presets_updated', (presets) => {
