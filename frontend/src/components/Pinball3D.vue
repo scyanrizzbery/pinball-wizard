@@ -2401,6 +2401,13 @@ let fireworksInterval = null
 
 const triggerFireworks = () => {
     console.log('🎆 triggerFireworks called')
+    
+    // Clear any existing interval to prevent duplicates
+    if (fireworksInterval) {
+        clearInterval(fireworksInterval)
+        fireworksInterval = null
+    }
+
     if (!props.stats.is_high_score) {
         console.log('🎆 Exiting - is_high_score is false')
         return
@@ -2567,9 +2574,15 @@ const triggerFireworks = () => {
     // Small delay before broken cannon starts sputtering (post-explosion)
     setTimeout(() => {
         launchConfetti()
+        
+        // Safety check before creating interval
+        if (fireworksInterval) clearInterval(fireworksInterval)
+        
         fireworksInterval = setInterval(() => {
+            // Only continue if it's a high score AND game is over (or just happened)
             if (!props.stats.is_high_score || !props.stats.game_over) {
                 clearInterval(fireworksInterval)
+                fireworksInterval = null
                 return
             }
             launchConfetti()
@@ -2582,7 +2595,22 @@ watch(() => props.stats.is_high_score, (val) => {
     if (val) {
         triggerFireworks()
     } else {
-        if (fireworksInterval) clearInterval(fireworksInterval)
+        if (fireworksInterval) {
+            clearInterval(fireworksInterval)
+            fireworksInterval = null
+        }
+    }
+})
+
+watch(() => props.stats.game_over, (val) => {
+    console.log('🏁 game_over watcher fired:', val)
+    if (val && props.stats.is_high_score) {
+        triggerFireworks()
+    } else {
+        if (!val && fireworksInterval) {
+            clearInterval(fireworksInterval)
+            fireworksInterval = null
+        }
     }
 })
 

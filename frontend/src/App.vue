@@ -361,6 +361,7 @@ const startNewGame = () => {
 
   
   stats.game_over = false // Reset game over flag
+  stats.is_high_score = false // Reset high score flag
   stats.score = 0 // Reset score visually immediately
   sockets.control.emit('start_game')
 }
