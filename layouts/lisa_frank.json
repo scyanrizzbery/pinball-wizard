@@ -1,0 +1,130 @@
+{
+    "name": "Lisa Frank",
+    "flippers": {
+        "left": {
+            "x_min": 0.25,
+            "x_max": 0.30,
+            "y_min": 0.8,
+            "y_max": 0.9
+        },
+        "right": {
+            "x_min": 0.70,
+            "x_max": 0.75,
+            "y_min": 0.8,
+            "y_max": 0.9
+        }
+    },
+    "bumpers": [
+        {
+            "x": 0.3,
+            "y": 0.25,
+            "radius_ratio": 0.035
+        },
+        {
+            "x": 0.5,
+            "y": 0.2,
+            "radius_ratio": 0.035
+        },
+        {
+            "x": 0.7,
+            "y": 0.25,
+            "radius_ratio": 0.035
+        },
+        {
+            "x": 0.4,
+            "y": 0.35,
+            "radius_ratio": 0.035
+        },
+        {
+            "x": 0.6,
+            "y": 0.35,
+            "radius_ratio": 0.035
+        },
+        {
+            "x": 0.5,
+            "y": 0.45,
+            "radius_ratio": 0.035
+        }
+    ],
+    "drop_targets": [
+        {
+            "x": 0.2,
+            "y": 0.5,
+            "width": 0.08,
+            "height": 0.02
+        },
+        {
+            "x": 0.35,
+            "y": 0.5,
+            "width": 0.08,
+            "height": 0.02
+        },
+        {
+            "x": 0.5,
+            "y": 0.5,
+            "width": 0.08,
+            "height": 0.02
+        },
+        {
+            "x": 0.65,
+            "y": 0.5,
+            "width": 0.08,
+            "height": 0.02
+        }
+    ],
+    "captures": [
+        {
+            "x": 0.15,
+            "y": 0.65,
+            "radius": 0.04,
+            "hold_time": 2.0
+        }
+    ],
+    "upper_flippers": [],
+    "rails": [
+        {
+            "p1": {
+                "x": 0.18,
+                "y": 0.40
+            },
+            "p2": {
+                "x": 0.36,
+                "y": 0.83
+            }
+        },
+        {
+            "p1": {
+                "x": 0.82,
+                "y": 0.50
+            },
+            "p2": {
+                "x": 0.64,
+                "y": 0.83
+            }
+        }
+    ],
+    "physics": {
+        "gravity_magnitude": 1500.0,
+        "table_tilt": 6.5,
+        "friction": 0.05,
+        "restitution": 0.75,
+        "ball_mass": 0.080,
+        "bumper_force": 350.0
+    },
+    "camera_presets": {
+        "Top Down": {
+            "camera_x": 0.5,
+            "camera_y": 0.5,
+            "camera_z": 2.0,
+            "camera_pitch": 0,
+            "camera_zoom": 1.0
+        },
+        "Player View": {
+            "camera_x": 0.5,
+            "camera_y": 0.9,
+            "camera_z": 0.3,
+            "camera_pitch": 60,
+            "camera_zoom": 1.0
+        }
+    }
+}

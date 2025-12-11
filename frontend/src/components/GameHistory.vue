@@ -92,6 +92,17 @@ const loadReplay = (hash) => {
   console.log("Loading replay for hash:", hash)
   if (sockets && sockets.game) {
     sockets.game.emit('load_replay', { hash: hash })
+    
+    // Listen for replay status updates
+    sockets.game.on('replay_status', (data) => {
+      if (data.status === 'loading') {
+        console.log("⏳ Loading replay...")
+      } else if (data.status === 'playing') {
+        console.log("✅ Replay is now playing!")
+      } else if (data.status === 'error') {
+        console.error("❌ Replay failed:", data.message)
+      }
+    })
   }
 }
 

@@ -13,8 +13,8 @@
        @dragover.prevent
        @drop="onDrop">
 
-    <div v-if="stats && stats.is_training"
-      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; color: white;">
+    <!-- Training Overlay (Above Game Over) -->
+    <div v-if="stats && stats.is_training" class="overlay-screen training-overlay">
       <h2>TRAINING IN PROGRESS</h2>
       <p style="font-size: 1.2em; font-weight: bold; color: #4caf50;">{{ Math.round(stats.training_progress * 100) }}%</p>
       <p>Step {{ formatNumber(stats.current_step) }} / {{ formatNumber(stats.total_steps) }}</p>
@@ -22,6 +22,14 @@
         <div
           :style="{ width: (stats.training_progress * 100) + '%', height: '100%', background: '#4caf50', transition: 'width 0.3s' }">
         </div>
+      </div>
+    </div>
+
+    <!-- Replay Indicator -->
+    <div v-if="isReplayActive" class="overlay-screen replay-overlay">
+      <div class="replay-indicator">
+        <div class="replay-icon">▶</div>
+        <div class="replay-text">REPLAY</div>
       </div>
     </div>
 
@@ -142,6 +150,8 @@ const props = defineProps({
     isFullscreen: { type: Boolean, default: false },
 })
 
+const emit = defineEmits(['toggle-fullscreen', 'toggle-view', 'ship-destroyed'])
+
 const container = ref(null)
 let scene, camera, renderer, controls
 let resizeObserver
@@ -188,6 +198,11 @@ const containerSize = computed(() => {
 })
 
 const activeBallCount = ref(0)
+
+// Computed: Check if replay is active
+const isReplayActive = computed(() => {
+  return props.stats?.is_replay === true
+})
 
 // Mobile Controls State
 const controlsActive = ref(false)
@@ -688,15 +703,72 @@ const createTable = (config = null) => {
   flippers = { left: null, right: null, dropTargets: [], bumpers: [] }
   zoneMeshes = [] // Clear zone meshes array
 
-  // Floor - Brighter playfield
+// Floor - Brighter playfield with Texture Support
   const floorGeo = new THREE.PlaneGeometry(0.6, 1.2)
-  const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x2a2a44, // Brighter blue-gray (was #1a1a2e)
-    roughness: 0.4,
-    metalness: 0.6,
-    emissive: 0x1a1a2e,
-    emissiveIntensity: 0.15
-  })
+  
+  // Determine layout ID for texture lookup
+  let layoutId = null
+  if (config) {
+      if (config.current_layout_id) {
+          layoutId = config.current_layout_id
+      } else if (config.name) {
+          layoutId = config.name.toLowerCase().replace(/ /g, '_')
+      }
+  }
+
+  const textureLoader = new THREE.TextureLoader()
+  let floorMat
+  
+  // Try to load texture dynamically - no hardcoded list
+  if (layoutId) {
+      const texturePath = `/textures/${layoutId}.png`
+      
+      // Attempt to load texture with error handling
+      const texture = textureLoader.load(
+          texturePath,
+          // onLoad callback
+          () => {
+              // Texture loaded successfully
+              console.log(`Loaded texture for layout: ${layoutId}`)
+          },
+          // onProgress callback
+          undefined,
+          // onError callback
+          () => {
+              // Texture not found, use default material
+              console.log(`No texture found for layout: ${layoutId}, using default`)
+              if (floor && floor.material) {
+                  floor.material.dispose()
+                  floor.material = new THREE.MeshStandardMaterial({
+                      color: 0x2a2a44,
+                      roughness: 0.4,
+                      metalness: 0.6,
+                      emissive: 0x1a1a2e,
+                      emissiveIntensity: 0.15
+                  })
+              }
+          }
+      )
+      texture.colorSpace = THREE.SRGBColorSpace
+      
+      floorMat = new THREE.MeshStandardMaterial({
+        map: texture,
+        roughness: 0.4,
+        metalness: 0.3,
+        emissive: 0x1a1a2e,
+        emissiveIntensity: 0.05
+      })
+  } else {
+      // No layout ID, use default
+      floorMat = new THREE.MeshStandardMaterial({
+        color: 0x2a2a44,
+        roughness: 0.4,
+        metalness: 0.6,
+        emissive: 0x1a1a2e,
+        emissiveIntensity: 0.15
+      })
+  }
+
   const floor = new THREE.Mesh(floorGeo, floorMat)
   floor.receiveShadow = true
   tableGroup.add(floor)
@@ -775,8 +847,12 @@ const createTable = (config = null) => {
          // Create group for UFO bumper
          const bumperGroup = new THREE.Group()
 
-         // Main dome - brighter metallic silver
+         // Main dome - brighter metallic silver with texture
+         const bumperTexture = textureLoader.load('/textures/bumper_dome.png')
+         bumperTexture.colorSpace = THREE.SRGBColorSpace
+         
          const domeMat = new THREE.MeshStandardMaterial({
+           map: bumperTexture,
            color: 0xcccccc, // Brighter silver
            roughness: 0.15,
            metalness: 0.95,
@@ -846,53 +922,255 @@ const createTable = (config = null) => {
            lights,
            lightColors,
            isActive: false,
-           bumper2D // Store reference for updates
+           bumper2D, // Store reference for updates
+           originalPos: new THREE.Vector3(mapX(b.x), mapY(b.y), 0) // Store original position for shake restore
          }
+
+         // Health Bar
+         const barGroup = new THREE.Group()
+         barGroup.position.set(0, 0.06, 0.05)
+         const bgGeo = new THREE.PlaneGeometry(0.06, 0.008)
+         const bgMat = new THREE.MeshBasicMaterial({ color: 0x550000 })
+         const bgMesh = new THREE.Mesh(bgGeo, bgMat)
+         barGroup.add(bgMesh)
+         const fgGeo = new THREE.PlaneGeometry(0.06, 0.008)
+         fgGeo.translate(0.03, 0, 0)
+         const fgMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+         const fgMesh = new THREE.Mesh(fgGeo, fgMat)
+         fgMesh.position.x = -0.03
+         fgMesh.position.z = 0.001
+         barGroup.add(fgMesh)
+         bumperGroup.add(barGroup)
+         bumperGroup.userData.healthBar = fgMesh
          tableGroup.add(bumperGroup)
          flippers.bumpers.push(bumperGroup)
          bumperMeshes.push(bumperGroup)
       })
     }
 
-    // Drop Targets - Enhanced with beveled edges and gradient colors
+
+    // --- Mothership (Boss) ---
+    // Persistent group referenced by updateMothership, created once.
+    const mothershipGroup = new THREE.Group()
+    mothershipGroup.visible = false // Hidden by default
+    
+    // Rotator container for the ship body (to face flippers)
+    const shipRotator = new THREE.Group()
+    shipRotator.rotation.z = Math.PI // Rotate 180 degrees so top faces flippers (South)
+    mothershipGroup.add(shipRotator)
+    
+    // 1. Main Saucer Body (Metallic Grey)
+    // Flattened sphere for top and bottom
+    const saucerGeo = new THREE.SphereGeometry(0.15, 32, 16)
+    saucerGeo.scale(1, 0.3, 1) // Flatten Y
+    const saucerMat = new THREE.MeshStandardMaterial({
+        color: 0x8888aa, // Metallic Blue-Grey
+        roughness: 0.2,
+        metalness: 0.9,
+        envMapIntensity: 1.0
+    })
+    const saucer = new THREE.Mesh(saucerGeo, saucerMat)
+    shipRotator.add(saucer)
+
+    // 2. Glowing Engine Ring (Center)
+    const ringGeo = new THREE.TorusGeometry(0.14, 0.015, 16, 64)
+    ringGeo.rotateX(Math.PI / 2)
+    const ringMat = new THREE.MeshBasicMaterial({ 
+        color: 0x00ffff, // Cyan Glow
+        side: THREE.DoubleSide
+    })
+    const ring = new THREE.Mesh(ringGeo, ringMat)
+    shipRotator.add(ring)
+    mothershipGroup.userData.ring = ring // For animation
+
+    // 3. Cockpit Dome (Glass)
+    const domeGeo = new THREE.SphereGeometry(0.06, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2)
+    const domeMat = new THREE.MeshStandardMaterial({
+        color: 0xff00ff, // Magenta Glass
+        roughness: 0.0,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.8,
+        emissive: 0x440044,
+        emissiveIntensity: 0.5
+    })
+    const dome = new THREE.Mesh(domeGeo, domeMat)
+    dome.position.y = 0.03
+    shipRotator.add(dome)
+    mothershipGroup.userData.dome = dome // For animation
+
+    // 4. Rotating Lights (Underneath)
+    const lightsGroup = new THREE.Group()
+    const lightGeo = new THREE.SphereGeometry(0.015, 8, 8)
+    const lightMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 })
+    
+    for (let l = 0; l < 8; l++) {
+        const angle = (l / 8) * Math.PI * 2
+        const rad = 0.1
+        const lm = new THREE.Mesh(lightGeo, lightMat)
+        lm.position.set(Math.cos(angle) * rad, -0.02, Math.sin(angle) * rad)
+        lightsGroup.add(lm)
+    }
+    shipRotator.add(lightsGroup)
+    mothershipGroup.userData.lightsGroup = lightsGroup
+    
+    // 5. Spinning Police Light (Top)
+    // Red Cylinder Housing - Use 6 segments (Hex prism) for visibility of rotation
+    const policeLightGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.04, 6)
+    const policeLightMat = new THREE.MeshStandardMaterial({
+        color: 0xff0000,
+        emissive: 0xff0000,
+        emissiveIntensity: 0.6,
+        metalness: 0.5,
+        roughness: 0.2,
+        flatShading: true // Make facets visible
+    })
+    const policeLight = new THREE.Mesh(policeLightGeo, policeLightMat)
+    policeLight.position.y = 0.08 // Top of dome (dome y=0.03 + height)
+    shipRotator.add(policeLight)
+    
+    // Add Internal "Reflector" (White box) to make spin obvious
+    const reflector = new THREE.Mesh(
+        new THREE.BoxGeometry(0.03, 0.03, 0.005), 
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+    )
+    reflector.position.x = 0.01 // Offset to one side
+    policeLight.add(reflector)
+
+    // Second Reflector (Opposite side)
+    const reflector2 = new THREE.Mesh(
+        new THREE.BoxGeometry(0.03, 0.03, 0.005), 
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+    )
+    reflector2.position.x = -0.01 // Opposite offset
+    policeLight.add(reflector2)
+    
+    // Rotating Beacon 1 (SpotLight)
+    const beacon = new THREE.SpotLight(0xff0000, 20.0, 10.0, Math.PI / 3, 0.5, 1)
+    beacon.position.set(0, 0, 0) 
+    
+    const beaconTarget = new THREE.Object3D()
+    beaconTarget.position.set(1, 0, 0) // Point outwards
+    policeLight.add(beaconTarget)
+    beacon.target = beaconTarget
+    policeLight.add(beacon)
+
+    // Rotating Beacon 2 (Opposite)
+    const beacon2 = new THREE.SpotLight(0xff0000, 20.0, 10.0, Math.PI / 3, 0.5, 1)
+    beacon2.position.set(0, 0, 0)
+    
+    const beaconTarget2 = new THREE.Object3D()
+    beaconTarget2.position.set(-1, 0, 0) // Point opposite
+    policeLight.add(beaconTarget2)
+    beacon2.target = beaconTarget2
+    policeLight.add(beacon2)
+
+    mothershipGroup.userData.policeLight = policeLight
+    
+    // Health Bar Container (Keep existing logic)
+    // Health Bar Container (Keep existing logic)
+    const hbContainer = new THREE.Group()
+    // Move to Upper Right: (+X, +Y) relative to ship center
+    hbContainer.position.set(0.18, 0.18, 0.05) 
+    mothershipGroup.add(hbContainer)
+    
+    // Health Bar Back
+    const hbBack = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.03, 0.015), 
+        new THREE.MeshStandardMaterial({ 
+            color: 0x333333,
+            roughness: 0.5,
+            metalness: 0.5 
+        })
+    )
+    hbContainer.add(hbBack)
+    
+    // Health Bar Fill
+    const hbFill = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.03, 0.02), 
+        new THREE.MeshStandardMaterial({ 
+            color: 0x00ff00,
+            emissive: 0x00aa00,
+            emissiveIntensity: 0.5,
+            roughness: 0.2,
+            metalness: 0.8
+        })
+    )
+    hbFill.position.z = 0.005 // Slightly in front
+    // Easier: offset mesh so x=0 is left edge.
+    hbFill.geometry.translate(0.1, 0, 0) // Pivot left
+    hbFill.position.x = -0.1
+    
+    hbContainer.add(hbFill)
+    mothershipGroup.userData.fillMesh = hbFill
+    
+    tableGroup.add(mothershipGroup)
+    flippers.mothership = mothershipGroup // Store reference
+
+    // Drop Targets - Colorful Rectangles
     if (config.drop_targets) {
       flippers.dropTargets = [] // Initialize array
 
+      // Rainbow Colors
+      const dropTargetColors = [0xff0000, 0xffaa00, 0xffff00, 0x00ff00, 0x00ffff, 0x0000ff, 0xff00ff]
+
       // 2D representation for top-down view
-      const target2DGeo = new THREE.PlaneGeometry(1, 1)
+      // We can reuse the same geometry logic for 2D if we just scale Z to flat
 
       config.drop_targets.forEach((t, idx) => {
         const w = t.width * 0.6
-        const h = 0.04 // Slightly taller
-        const d = t.height * 1.2
+        const h = 0.04 // Height above table (standard target height)
+        const d = t.height * 1.2 // Thickness (depth in Y)
         
-        // Colorful gradient targets
-        const colors = [0xff00ff, 0x00ffff, 0xffff00, 0xff0088, 0x00ff88]
-        const targetColor = colors[idx % colors.length]
+        // Cycle colors
+        const targetColor = dropTargetColors[idx % dropTargetColors.length]
+
+        // Load drop target texture
+        const dropTargetTexture = textureLoader.load('/textures/drop_target.png')
+        dropTargetTexture.colorSpace = THREE.SRGBColorSpace
 
         const targetMat = new THREE.MeshStandardMaterial({
+          map: dropTargetTexture,
           color: targetColor,
-          roughness: 0.4,
-          metalness: 0.5,
+          roughness: 0.2,
+          metalness: 0.6,
           emissive: targetColor,
-          emissiveIntensity: 0.3
+          emissiveIntensity: 0.4
         })
 
-        const target = new THREE.Mesh(new THREE.BoxGeometry(w, d, h), targetMat)
-        target.position.set(mapX(t.x), mapY(t.y), h/2)
+        // Simple Box for Drop Target
+        const geometry = new THREE.BoxGeometry(w, d, h)
+        // Center of BoxGeometry is (0,0,0).
+        // If we want it to sit ON the table (Z=0), we shift it up by h/2
+        // BUT: physics bodies are 2D. 3D representation is centered at body center.
+        // Body center is (t.x, t.y).
+        
+        const target = new THREE.Mesh(geometry, targetMat)
+        
+        // Position: mapX/mapY converts normalized coords to world coords.
+        // Physics engine treats t.x/t.y as Top-Left corner, but Three.js positions Mesh at Center.
+        // We must offset by half dimensions to align visual with physics.
+        target.position.set(mapX(t.x + t.width/2), mapY(t.y + t.height/2), h/2)
         target.castShadow = true
+        target.receiveShadow = true
 
-        // Add 2D representation for top-down view (flat rectangle on floor)
+        // Add 2D representation for top-down view
+        const target2DGeo = new THREE.PlaneGeometry(w, d)
         const target2DMat = new THREE.MeshBasicMaterial({
           color: targetColor,
           side: THREE.DoubleSide
         })
         const target2D = new THREE.Mesh(target2DGeo, target2DMat)
-        target2D.scale.set(w, d, 1)
-        target2D.position.set(mapX(t.x), mapY(t.y), 0.001) // Just above floor
-        tableGroup.add(target2D)
-
+        target2D.position.set(mapX(t.x + t.width/2), mapY(t.y + t.height/2), 0.001) // Just above floor
+        // Rotate to match "depth" (Y-axis) alignment? No, PlaneGeometry default is XY plane.
+        // In top down (Z-up), this lies flat on XY plane? 
+        // No, PlaneGeometry is in XY plane. We want it flat on floor (XY plane). Yes.
+        
+        // Wait, standard PlaneGeometry is XY. If we look down Z, it faces us.
+        // Correct.
+        
         tableGroup.add(target)
+        tableGroup.add(target2D)
         flippers.dropTargets.push(target)
       })
     }
@@ -1662,6 +1940,9 @@ const animate = () => {
     // Animate UFO bumper lights continuously
     animateUFOLights()
     
+    // Animate Mothership (Police Light & Pulse)
+    animateMothership()
+    
     // Animate Fireworks
     if (window.fireworksGroup) animateParticleSystem(window.fireworksGroup)
 
@@ -1881,6 +2162,44 @@ const animateUFOLights = () => {
   })
 }
 
+const animateMothership = () => {
+    const group = flippers.mothership
+    
+    // Debug entry
+    // console.log("AnimateMothership called", group ? "Group OK" : "No Group", group && group.visible ? "Visible" : "Hidden")
+
+    if (!group || !group.visible) return
+    
+    const time = Date.now() * 0.001
+    
+    // Rotate Lights (Underneath)
+    if (group.userData.lightsGroup) {
+        group.userData.lightsGroup.rotation.y = time * 2.0 
+    }
+    
+    // Pulse Ring
+    if (group.userData.ring) {
+        const pulse = Math.sin(time * 5) * 0.5 + 0.5
+        group.userData.ring.material.opacity = 0.5 + pulse * 0.5
+        // Cyan color pulse
+        group.userData.ring.material.color.setHSL(0.5, 1.0, 0.5 + pulse * 0.5) 
+    }
+
+    // Pulse Dome
+    if (group.userData.dome) {
+        group.userData.dome.material.emissiveIntensity = 0.5 + Math.sin(time * 3) * 0.3 + 0.2
+    }
+      
+    // Rotate Police Light (Fast Spin)
+    if (group.userData.policeLight) {
+        // Continuous rotation based on time (ensure smooth loop)
+        // Rotate Y relative to the SHIP ROTATOR group (which is Z flipped).
+        // Since logic is continuous time, direction depends on sign.
+        const rot = -time * 10.0
+        group.userData.policeLight.rotation.y = rot
+    }
+}
+
 const initThree = () => {
   scene = new THREE.Scene()
   scene.background = new THREE.Color(0x1a1a28) // Brighter background (was #0a0a15)
@@ -2050,35 +2369,145 @@ const initThree = () => {
   const updateDropTargets = (dropTargetStates) => {
     if (!flippers.dropTargets || !dropTargetStates) return
     
+    // console.log('[updateDropTargets] States received:', dropTargetStates)
+    // console.log('[updateDropTargets] Mesh count:', flippers.dropTargets.length)
+    
     flippers.dropTargets.forEach((mesh, i) => {
       if (i < dropTargetStates.length) {
-        mesh.visible = dropTargetStates[i]
+        const newVisible = dropTargetStates[i]
+        if (mesh.visible !== newVisible) {
+          // console.log(`[updateDropTargets] Target ${i}: ${mesh.visible} -> ${newVisible}`)
+        }
+        mesh.visible = newVisible
+        // console.log(`[updateDropTargets] Target ${i} mesh.visible is now:`, mesh.visible, 'position:', mesh.position)
       }
     })
   }
 
-  const updateBumpers = (bumperStates) => {
-    if (!flippers.bumpers || !bumperStates) return
+  const updateBumpers = (state) => {
+    if (!flippers.bumpers || !state) return
+    const bumperStates = state.bumper_states || []
+    const bumperHealth = state.bumper_health || []
     
     flippers.bumpers.forEach((bumperGroup, i) => {
+      // Health State Tracking (for events)
+      const currentHealth = (i < bumperHealth.length) ? bumperHealth[i] : 100
+      const prevHealth = bumperGroup.userData.lastHealth !== undefined ? bumperGroup.userData.lastHealth : 100
+      bumperGroup.userData.lastHealth = currentHealth
+      
+      // Damage Smoke (< 50% Health)
+      if (currentHealth < 50 && currentHealth > 0 && bumperGroup.visible) {
+           const damageRatio = (50 - currentHealth) / 50.0 // 0.0 to 1.0 (at 0 health)
+           // Chance to spawn smoke increases with damage (0.01 to 0.1 per frame)
+           if (Math.random() < 0.05 + (damageRatio * 0.15)) {
+               const pos = bumperGroup.position.clone()
+               // Randomize pos slightly (top of bumper)
+               pos.z += 0.05
+               const pGroup = ballParticles[0]
+               if (pGroup) {
+                   // Smoke: Dark Gray, slow moving, grows, fades
+                   spawnParticles(pGroup, 1, pos, pos, 0x555555, 0.2, 0.03 + (damageRatio * 0.02), 1.01, 0.02)
+               }
+           }
+      }
+
+      // Destruction / Explosion
+      if (currentHealth <= 0 && prevHealth > 0) {
+          // Explode!
+          if (bumperGroup.visible) {
+             const pos = bumperGroup.position.clone()
+             // Spawn explosion particles
+             const particleCount = 20
+             const pGroup = ballParticles[0] // borrow a particle group or create a temp one?
+             // Actually, we have a pool. Let's use spawnParticles helper if we can, or just manual
+             // We'll use a specific explosion bloom
+             
+             // Simple "spark" explosion at bumper position
+             if (pGroup) {
+                 spawnParticles(pGroup, 30, pos, pos, 0xff5500, 1.0, 0.05, 1.02, 0.03) // Fire
+                 spawnParticles(pGroup, 30, pos, pos, 0xffffff, 1.0, 0.02, 1.05, 0.05) // White sparks
+             }
+             bumperGroup.visible = false
+             
+             // Mark as destroyed and emit event
+             if (!bumperGroup.userData.destroyed) {
+                 bumperGroup.userData.destroyed = true
+                 console.log(`[Pinball3D] Bumper ${i} destroyed! Emitting event...`)
+                 emit('ship-destroyed')
+             }
+             
+             // Trigger Audio-Visual FX
+             if (SoundManager) SoundManager.playDestruction()
+             triggerShake({ type: 'alien', strength: 0.5, direction: 'left' }) // Shake!
+          }
+      }
+      
+      // Respawn / Teleport
+      if (currentHealth > 0 && prevHealth <= 0) {
+          // Teleport in!
+          if (!bumperGroup.visible) {
+             bumperGroup.visible = true
+             bumperGroup.scale.setScalar(0.01)
+             bumperGroup.userData.respawnAnim = 0.0
+             
+             const pos = bumperGroup.position.clone()
+             // Spawn teleport ring particles
+             if (ballParticles[0]) {
+                 spawnParticles(ballParticles[0], 20, pos, pos, 0x00ffff, 0.8, 0.04, 1.01, 0.02)
+             }
+          }
+      }
+
+      // Skip visual updates if dead (invisible)
+      if (currentHealth <= 0) {
+          if (bumperGroup.visible) bumperGroup.visible = false
+          return 
+      }
+      
+      // Respawn Animation (Scale up)
+      if (bumperGroup.userData.respawnAnim !== undefined) {
+          bumperGroup.userData.respawnAnim += 0.05
+          if (bumperGroup.userData.respawnAnim >= 1.0) {
+              bumperGroup.userData.respawnAnim = undefined
+              bumperGroup.scale.setScalar(1.0)
+          } else {
+              // Elastic bounce in
+              const t = bumperGroup.userData.respawnAnim
+              const scale = 1.0 + Math.sin(t * Math.PI * 2) * (1.0 - t) * 0.5
+              bumperGroup.scale.setScalar(Math.min(1.0, t) * scale) // Grow from 0
+          }
+      }
+
       if (i < bumperStates.length) {
         const active = bumperStates[i] > 0
         const domeMesh = bumperGroup.userData.domeMesh
         const ringMesh = bumperGroup.userData.ringMesh
         const lights = bumperGroup.userData.lights
 
-        // Set active state for animation control
         bumperGroup.userData.isActive = active
 
-        // Store hit timestamp for scale animation
         if (active && !bumperGroup.userData.lastHitTime) {
           bumperGroup.userData.lastHitTime = Date.now()
         } else if (!active) {
           bumperGroup.userData.lastHitTime = null
         }
+        
+        // Shake Effect on Active
+        if (active) {
+            // Jitter position slightly
+            const jitter = 0.005
+            if (bumperGroup.userData.originalPos) {
+                bumperGroup.position.x = bumperGroup.userData.originalPos.x + (Math.random() - 0.5) * jitter
+                bumperGroup.position.y = bumperGroup.userData.originalPos.y + (Math.random() - 0.5) * jitter
+            }
+        } else {
+            // Restore position
+            if (bumperGroup.userData.originalPos) {
+                bumperGroup.position.copy(bumperGroup.userData.originalPos)
+            }
+        }
 
         if (active) {
-            // Make everything white and bright during hit
             if (domeMesh) {
               domeMesh.material.color.setHex(0xffffff)
               domeMesh.material.emissive.setHex(0xffffff)
@@ -2088,7 +2517,6 @@ const initThree = () => {
               ringMesh.material.emissive.setHex(0xffffff)
               ringMesh.material.emissiveIntensity = 2.0
             }
-            // Lights set to white (animation will make them blink fast)
             if (lights) {
               lights.forEach(light => {
                 light.material.color.setHex(0xffffff)
@@ -2096,7 +2524,6 @@ const initThree = () => {
               })
             }
         } else {
-            // Return to normal UFO appearance
             if (domeMesh) {
               domeMesh.material.color.setHex(0xcccccc)
               domeMesh.material.emissive.setHex(0x666666)
@@ -2106,8 +2533,38 @@ const initThree = () => {
               ringMesh.material.emissive.setHex(0x444444)
               ringMesh.material.emissiveIntensity = 0.3
             }
-            // Lights will be restored to rainbow by animation
+            if (lights && bumperGroup.userData.lightColors) {
+              lights.forEach((light, j) => {
+                const color = bumperGroup.userData.lightColors[j]
+                light.material.color.setHex(color)
+                light.material.emissive.setHex(color)
+              })
+            }
         }
+
+        // Scale Animation (Bounce)
+        if (bumperGroup.userData.lastHitTime && bumperGroup.userData.respawnAnim === undefined) {
+           const elapsed = Date.now() - bumperGroup.userData.lastHitTime
+           const duration = 150
+           if (elapsed < duration) {
+               const progress = elapsed / duration
+               const scale = 1.0 + Math.sin(progress * Math.PI) * 0.2
+               bumperGroup.scale.setScalar(scale)
+           } else {
+               bumperGroup.scale.setScalar(1.0)
+           }
+        }
+      }
+
+      // Health Bar Update
+      if (bumperGroup.userData.healthBar && i < bumperHealth.length) {
+         const health = bumperHealth[i]
+         const healthPct = Math.max(0, health / 100.0)
+         bumperGroup.userData.healthBar.scale.x = healthPct
+         
+         if (healthPct > 0.5) bumperGroup.userData.healthBar.material.color.setHex(0x00ff00)
+         else if (healthPct > 0.2) bumperGroup.userData.healthBar.material.color.setHex(0xffff00)
+         else bumperGroup.userData.healthBar.material.color.setHex(0xff0000)
       }
     })
   }
@@ -2161,25 +2618,61 @@ const initThree = () => {
       }
   })
 
+  const updateMothership = (msState) => {
+    // Mothership rendering update
+    const group = flippers.mothership
+    if (!group) return
+
+    if (!msState || !msState.active) {
+      group.visible = false
+      return
+    }
+
+    // It's active!
+    group.visible = true
+    
+    // Position
+    if (msState.x !== undefined && msState.y !== undefined) {
+        group.position.set(mapX(msState.x), mapY(msState.y), 0.05)
+    }
+
+    // --- Animation ---
+    // Moved to animateMothership() for smooth 60fps playback
+
+    // Health Bar
+    if (group.userData.fillMesh && msState.max_health > 0) {
+        let healthPct = msState.health / msState.max_health
+        healthPct = Math.max(0, Math.min(1, healthPct))
+        
+        // Scale X
+        group.userData.fillMesh.scale.x = healthPct
+        
+        // Color depends on health? Green -> Yellow -> Red
+        const mat = group.userData.fillMesh.material
+        if (healthPct > 0.5) mat.color.setHex(0x00ff00)
+        else if (healthPct > 0.2) mat.color.setHex(0xffff00)
+        else mat.color.setHex(0xff0000)
+    }
+  }
+
   const onGameState = (state) => {
     if (!state || !state.balls) return
-
-    // CRITICAL LOGGING: Track ball count changes
-    const prevCount = activeBallCount.value
-    const newCount = state.balls.length
-    if (prevCount !== newCount) {
-      console.error(`🎱 BALL COUNT CHANGED: ${prevCount} → ${newCount}`)
-      console.trace('Ball count change stack trace')
-    }
 
     updateBalls(state.balls)
     activeBallCount.value = state.balls.length // Track active balls
     updateFlippers(state)
     updateDropTargets(state.drop_targets)
-    updateBumpers(state.bumper_states)
+    updateBumpers(state)
+    if (state.mothership) updateMothership(state.mothership)
 
-    // Handle Sound Events
+    // Handle Sound & Visual Events
     if (state.events && state.events.length > 0) {
+      state.events.forEach(event => {
+          if (event.type === 'nudge') {
+              triggerShake(event)
+          }
+      })
+      
       // console.log("Received events:", state.events)
       
       // Calculate dynamic pitch based on multiplier and combo
@@ -2550,24 +3043,55 @@ watch(() => props.nudgeEvent, (newVal, oldVal) => {
 const shakeOffset = { x: 0, y: 0 }
 let shakeFrame = 0
 
-const triggerShake = (direction) => {
-  // console.log('Pinball3D: triggerShake called')
-  const intensity = 0.2
-  const dir = direction.toLowerCase() === 'left' ? -1 : 1
+const triggerShake = (eventData) => {
+  // console.log('Pinball3D: triggerShake called', eventData)
   
-  // Simple shake animation loop
+  // Default values
+  let intensity = 0.2
+  let maxFrames = 10
+  let dir = 1
+  let isAlien = false
+  
+  // Handle different input forms
+  // Handle different input forms
+  if (typeof eventData === 'string') {
+      dir = eventData.toLowerCase() === 'left' ? -1 : 1
+  } else if (eventData && typeof eventData === 'object') {
+      // Handle server event (intensity, direction object) or local prop (direction string)
+      if (eventData.direction && typeof eventData.direction === 'string') {
+          dir = eventData.direction.toLowerCase() === 'left' ? -1 : 1
+      }
+      
+      if (eventData.type === 'alien' || (eventData.intensity && eventData.intensity > 1.0)) {
+          isAlien = true
+          intensity = eventData.strength || eventData.intensity || 1.0 
+          maxFrames = 60 
+      } else if (eventData.intensity) {
+          intensity = eventData.intensity
+      }
+  }
+
+  // Shake animation loop
   let frame = 0
-  const maxFrames = 10
   
   const shake = () => {
     if (frame >= maxFrames) {
       shakeOffset.x = 0
+      shakeOffset.y = 0 // Reset Y too
       return
     }
     
     // Oscillate
     const decay = 1 - (frame / maxFrames)
-    shakeOffset.x = Math.sin(frame * 1.5) * intensity * decay * dir
+    
+    if (isAlien) {
+        // Chaotic shake x/y
+        shakeOffset.x = (Math.random() - 0.5) * intensity * decay
+        shakeOffset.y = (Math.random() - 0.5) * intensity * decay
+    } else {
+        // Standard horizontal shake
+        shakeOffset.x = Math.sin(frame * 1.5) * intensity * decay * dir
+    }
     
     frame++
     requestAnimationFrame(shake)
@@ -2770,7 +3294,7 @@ const triggerFireworks = () => {
 }
 
 watch(() => props.stats.is_high_score, (val) => {
-    console.log('🎉 is_high_score watcher fired:', val)
+    // console.log('🎉 is_high_score watcher fired:', val)
     if (val) {
         triggerFireworks()
     } else {
@@ -3098,7 +3622,7 @@ const handleKeydown = (e) => {
 .sound-toggle-btn {
     position: absolute;
     top: 1px;
-    right: -9px;
+    right: 0;
     background: rgba(0, 0, 0, 0.6);
     border: none;
     border-radius: 50%;
@@ -3225,8 +3749,49 @@ const handleKeydown = (e) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 20; /* Above training overlay and canvas */
-  pointer-events: none; /* Let clicks pass through if needed, though usually Game Over stops input */
+  z-index: 3000; /* Base z-index for overlays */
+  pointer-events: none; /* Let clicks pass through if needed */
+}
+
+/* Training Overlay - Highest priority */
+.training-overlay {
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  z-index: 3100; /* Above Game Over */
+}
+
+/* Replay Indicator - High priority */
+.replay-overlay {
+  z-index: 3050; /* Above Game Over, below Training */
+  background: transparent;
+  pointer-events: none;
+}
+
+.replay-indicator {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 100, 0, 0.9);
+  padding: 10px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(255, 100, 0, 0.5);
+  animation: pulse 2s infinite;
+}
+
+.replay-icon {
+  font-size: 1.5em;
+  color: white;
+  animation: blink 1s infinite;
+}
+
+.replay-text {
+  font-size: 1.2em;
+  font-weight: bold;
+  color: white;
+  letter-spacing: 2px;
 }
 
 .tilted-overlay {

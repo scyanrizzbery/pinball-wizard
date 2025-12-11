@@ -66,6 +66,7 @@ def stream_frames():
                             'high_score': game_state.get('high_score', 0),
                             'balls': game_state.get('balls_remaining', 0),
                             'ball_count': len(game_state.get('balls', [])),  # Actual balls on table
+                            'current_ball': game_state.get('current_ball', 1),
                             'games_played': game_state.get('games_played', 0),
                             'game_history': game_state.get('game_history', []),
                             'is_tilted': game_state.get('is_tilted', False),
@@ -73,7 +74,8 @@ def stream_frames():
                             'nudge': game_state.get('nudge', None),
                             'combo_count': 0,
                             'score_multiplier': 1.0,
-                            'combo_active': False
+                            'combo_active': False,
+                            'game_over': game_state.get('game_over', False)
                         }
 
                     # Add combo data from physics engine
@@ -222,12 +224,17 @@ def handle_input(data):
     elif key == 'Space':
         if event_type == 'down':
             logger.info("Input: Pull Plunger")
-            if hasattr(capture, 'pull_plunger'):
-                capture.pull_plunger(1.0)  # Full pull for now
+            # Use handle_plunger to ensure event is recorded for replay
+            if hasattr(capture, 'handle_plunger'):
+                capture.handle_plunger({'action': 'press'})
+            # Fallback for relaunch (manual ball spawn)
+            if hasattr(capture, 'relaunch_ball'):
+                capture.relaunch_ball()
         else:
             logger.info("Input: Release Plunger")
-            if hasattr(capture, 'release_plunger'):
-                capture.release_plunger()
+            # Use handle_plunger to ensure event is recorded for replay
+            if hasattr(capture, 'handle_plunger'):
+                capture.handle_plunger({'action': 'release'})
     elif key == 'ShiftLeft' and event_type == 'down':
         if hasattr(capture, 'nudge_left'):
             capture.nudge_left()
@@ -267,18 +274,15 @@ def handle_start_game():
 
     logger.info("Start game command received")
 
-    # Add ball if none exist
-    if hasattr(capture, 'physics_engine'):
+    # Always reset game state for a new game
+    if hasattr(capture, 'reset_game_state'):
+        logger.info("Starting new game: Resetting game state")
+        capture.reset_game_state()
+    elif hasattr(capture, 'physics_engine'):
+        # Fallback if reset not available (should not happen)
         if len(capture.physics_engine.balls) == 0:
-            logger.info("Auto-start: Adding ball to plunger")
             if hasattr(capture, 'add_ball'):
                 capture.add_ball()
-
-            # Let the auto-fire plunger logic in physics.py handle the launch
-            # This is more reliable than firing immediately
-            logger.debug("Auto-start: Ball added, auto-fire will launch it")
-        else:
-            logger.debug("Auto-start: Ball already exists, skipping")
 
 # Replay Endpoints
 @socketio.on('load_replay', namespace='/game')
@@ -289,9 +293,17 @@ def handle_load_replay(data):
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
     
     if hasattr(capture, 'handle_load_replay'):
+        # Notify frontend that replay is loading
+        socketio.emit('replay_status', {'status': 'loading', 'hash': data.get('hash')}, namespace='/game')
+        
         # Pass the replay JSON data directly to the capture system
         # Data should contain: seed, events, layout
-        capture.handle_load_replay(data)
+        success = capture.handle_load_replay(data)
+        
+        if success:
+            socketio.emit('replay_status', {'status': 'playing', 'hash': data.get('hash')}, namespace='/game')
+        else:
+            socketio.emit('replay_status', {'status': 'error', 'message': 'Failed to load replay'}, namespace='/game')
         
 @socketio.on('get_game_hash', namespace='/game')
 def handle_get_game_hash():
@@ -601,8 +613,6 @@ def handle_get_layouts():
             if hasattr(capture, 'available_layouts'):
                 layouts = []
                 for key, data in capture.available_layouts.items():
-                    if key == 'default': continue  # Skip default layout
-
                     # Use the 'name' property from the layout data if available
                     display_name = data.get('name', key.replace('_', ' ').title())
                     layouts.append({
@@ -882,4 +892,4 @@ def start_server(vision_sys, port=5000):
 
     # Start streaming thread
     socketio.start_background_task(stream_frames)
-    socketio.run(app, host='0.0.0.0', port=port, debug=True, use_reloader=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, use_reloader=False)

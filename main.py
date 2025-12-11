@@ -145,9 +145,7 @@ def main():
             self.ai_enabled = True
             self.high_score = 0
             self.games_played = 0
-            self.last_ball_count = 0
-            self.high_score = 0
-            self.games_played = 0
+            self.last_score = 0
             self.current_ball_count = 0
             self.last_ball_count = 0
             self.game_history = [] # List of {type, score, timestamp, ...}
@@ -239,12 +237,16 @@ def main():
             else:
                 current_balls = self.current_ball_count
 
-            if self.last_ball_count > 0 and current_balls == 0:
+            
+            # Only reset IF game is actually over
+            if self.last_ball_count > 0 and current_balls == 0 and hasattr(self.capture, 'game_over') and self.capture.game_over:
                 self.games_played += 1
                 
                 is_high_score = False
                 if current_score == self.high_score and current_score > 0:
                         is_high_score = True
+
+                self.last_score = current_score
 
                 # Add to history
                 self.game_history.append({
@@ -277,7 +279,7 @@ def main():
                 # Reset drop targets
                 if hasattr(self.capture, 'drop_target_states') and hasattr(self.capture, 'layout'):
                     self.capture.drop_target_states = [True] * len(self.capture.layout.drop_targets)
-                    
+
             self.last_ball_count = current_balls
                 
             nudge_data = None
@@ -291,10 +293,29 @@ def main():
             if hasattr(self.capture, 'is_tilted'):
                 is_tilted = self.capture.is_tilted
 
+            current_ball_num = 1
+            if hasattr(self.capture, 'current_ball'):
+                current_ball_num = self.capture.current_ball
+            
+            # Calculate balls remaining (lives) for UI display
+            # If game over, 0. If in play, 3 - current_ball + 1 (roughly) 
+            # or just rely on vision.py logic if it has 'lives'
+            balls_rem = 0
+            if hasattr(self.capture, 'game_over') and self.capture.game_over:
+                balls_rem = 0
+            else:
+                # 3 total balls. Ball 1 = 3 left? Or BALL 1 of 3.
+                # Let's send current_ball and let UI decide.
+                # But we also want 'balls_remaining' for legacy support
+                 balls_rem = max(0, 3 - current_ball_num + 1)
+
             stats = {
                 'score': current_score,
+                'last_score': self.last_score,
                 'high_score': self.high_score,
-                'balls': current_balls,
+                'balls': balls_rem, # balls_remaining
+                'balls_remaining': balls_rem,
+                'current_ball': current_ball_num,
                 'ball_count': current_balls,  # Actual balls on table
                 'games_played': self.games_played,
                 'nudge': nudge_data,
@@ -303,7 +324,8 @@ def main():
                 'is_simulation': self.is_simulation,
                 'game_history': self.game_history,
                 'hash': game_hash,
-                'seed': seed
+                'seed': seed,
+                'game_over': self.capture.game_over if hasattr(self.capture, 'game_over') else False
             }
             
             # Fetch Hash/Seed from Physics Engine

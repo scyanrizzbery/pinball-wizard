@@ -1,29 +1,31 @@
-import eventlet
-eventlet.monkey_patch()
-
 import os
+import argparse
+import sys
 import logging
 import time
 import json
 import optuna
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.callbacks import BaseCallback
 
 from pbwizard import vision, hardware
 from pbwizard.environment import PinballEnv
 
-import threading
-from pbwizard import web_server 
-
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(processName)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-# Force Headless Mode for Simulation (Unlocks FPS)
+# Force Headless Mode for Simulation
 os.environ['HEADLESS_SIM'] = 'true'
 
-from stable_baselines3.common.callbacks import BaseCallback
+# Prevent NumPy/PyTorch from using multiple threads per process (oversubscription)
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
+# Conditional imports for Main process
+socketio_server = None
 
 class ProgressCallback(BaseCallback):
     def __init__(self, verbose=0, socketio=None):
@@ -34,9 +36,9 @@ class ProgressCallback(BaseCallback):
         self.frame_count = 0
         
     def _on_step(self) -> bool:
-        # Crucial: Yield to eventlet green threads (web server, physics)
-        # Without this, the training loop starves the background threads.
-        time.sleep(0)
+        # Crucial: Yield to eventlet green threads if using eventlet
+        if self.socketio:
+            time.sleep(0) # Yield for cooperative multitasking
         
         # 1. Log FPS every 5000 steps
         if self.n_calls % 5000 == 0:
@@ -57,6 +59,9 @@ class ProgressCallback(BaseCallback):
                     cap = env.vision.capture
                     
                     # Emit Frame
+                    if hasattr(cap, 'render'):
+                        cap.render() # Force render for UI snapshot
+                        
                     frame = cap.get_frame()
                     if frame is not None:
                          import cv2
@@ -79,7 +84,6 @@ class ProgressCallback(BaseCallback):
 
                 except Exception as e:
                     pass # Don't crash training on UI error
-
         return True
 
 
@@ -92,7 +96,7 @@ def create_env(trial=None, socketio=None):
     
     # Use default layout
     layout_config = None
-    layout_path = os.path.join(os.getcwd(), 'layouts', 'symmetry.json')
+    layout_path = os.path.join(os.getcwd(), 'layouts', 'default.json')
     if os.path.exists(layout_path):
         with open(layout_path, 'r') as f:
             layout_config = json.load(f)
@@ -113,10 +117,6 @@ def create_env(trial=None, socketio=None):
 
     vision_wrapper = TrainingVisionWrapper(cap)
     
-    # We need to set this global for web_server.stream_frames to work (if used)
-    # But here we are manually pushing frames.
-    # web_server.vision_system = vision_wrapper
-
     # Mock Score Reader
     class MockScoreReader:
         def read_score(self, frame): return 0
@@ -124,7 +124,6 @@ def create_env(trial=None, socketio=None):
     score_reader = MockScoreReader()
 
     # Create Environment
-    # If trial is provided, we could potentially optimize environment params too!
     env = PinballEnv(vision_wrapper, hw, score_reader, headless=True)
     return env, cap
 
@@ -142,7 +141,8 @@ def objective(trial):
     gae_lambda = trial.suggest_categorical("gae_lambda", [0.9, 0.95, 0.98])
     
     # Setup Environment
-    env, cap = create_env(socketio=web_server.socketio)
+    # Pass global socketio_server only if this process has one (Manager)
+    env, cap = create_env(socketio=socketio_server)
     env = Monitor(env) # Monitor for stats
     
     try:
@@ -158,21 +158,23 @@ def objective(trial):
             gae_lambda=gae_lambda,
             verbose=0,
             tensorboard_log="./optuna_logs/",
-            device='cpu' # Force CPU for MlpPolicy to avoid GPU overhead (small data)
+            device='cpu' # Force CPU 
         )
 
-        # Train for a limited budget (e.g., 50k steps) to evaluate performance
-        # Using a PruningCallback would be ideal here if using SB3's integration, 
-        # but for simplicity we'll just train and return final mean reward.
         total_timesteps = 50000 
-        model.learn(total_timesteps=total_timesteps, callback=ProgressCallback(socketio=web_server.socketio))
+        model.learn(total_timesteps=total_timesteps, callback=ProgressCallback(socketio=socketio_server))
 
-        # Evaluate logic (e.g. last 100 episodes mean reward)
-        # We can extract this from the environment Monitor wrapper or model.ep_info_buffer
-        mean_reward = -1000
+        # Evaluate logic - get reward from completed episodes
+        mean_reward = -1000  # Default 
+        
         if len(model.ep_info_buffer) > 0:
             import numpy as np
-            mean_reward = np.mean([ep_info['r'] for ep_info in model.ep_info_buffer])
+            rewards = [ep_info['r'] for ep_info in model.ep_info_buffer]
+            mean_reward = np.mean(rewards)
+            logger.info(f"Trial completed {len(rewards)} episodes, mean reward: {mean_reward:.2f}")
+        else:
+            logger.warning(f"No episodes completed in {total_timesteps} timesteps!")
+            mean_reward = -1000
         
         return mean_reward
 
@@ -185,45 +187,101 @@ def objective(trial):
         cap.stop()
         env.close()
 
-if __name__ == "__main__":
-    # Check for GPU
-    import torch
-    if torch.cuda.is_available():
-        device_name = torch.cuda.get_device_name(0)
-        logger.info(f"🚀 CUDA Available! Using GPU: {device_name}")
-    else:
-        logger.warning("⚠️ CUDA Not Available. running on CPU.")
+def run_worker(study_name, storage_name, n_trials=None):
+    """Worker process function: runs optimization loop."""
+    # Re-configure logging for worker process (processName kwarg handles ID)
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(processName)s: %(message)s', force=True)
+    logger.info(f"Worker process started. PID: {os.getpid()}. Joining study '{study_name}'...")
+    try:
+        study = optuna.load_study(study_name=study_name, storage=storage_name)
+        study.optimize(objective, n_trials=n_trials) 
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logger.error(f"Worker failed: {e}")
+        import traceback
+        traceback.print_exc()
 
-    # Start Web Server in Background Thread
-    def run_server():
-        web_server.socketio.run(web_server.app, host='0.0.0.0', port=5000, debug=False, use_reloader=False)
-    
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
-    logger.info("Web Server started on port 5000")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Pinball Optimization")
+    parser.add_argument("--worker", action="store_true", help="Run in worker mode (no web server)")
+    parser.add_argument("--trials", type=int, default=100, help="Total number of trials (approximate)")
+    args = parser.parse_args()
 
     study_name = "pinball_ppo_optimization"
     storage_name = "sqlite:///{}.db".format(study_name)
-    
-    logger.info("Starting Optuna Optimization...")
-    study = optuna.create_study(
-        study_name=study_name, 
-        storage=storage_name, 
-        direction="maximize",
-        load_if_exists=True,
-        pruner=optuna.pruners.MedianPruner()
-    )
-    
-    # Run optimization
-    study.optimize(objective, n_trials=20) # Start with 20 trials
 
-    # Print results
-    logger.info("Optimization finished!")
-    logger.info(f"Best trial: {study.best_trial.value}")
-    logger.info("Best parameters:")
-    for key, value in study.best_trial.params.items():
-        logger.info(f"    {key}: {value}")
-    
-    # Save best params to file
-    with open('frontend/public/hyperparams.json', 'w') as f:
-        json.dump(study.best_trial.params, f, indent=4)
+    if args.worker:
+        # WORKER MODE: No Eventlet, No UI
+        run_worker(study_name, storage_name, n_trials=25) # Each worker does chunk
+    else:
+        # MANAGER MODE: Eventlet + UI + Subprocesses
+        import eventlet
+        eventlet.monkey_patch()
+        from pbwizard import web_server
+        import threading
+        import subprocess
+        import sys
+        
+        # Set global for objective to use
+        socketio_server = web_server.socketio
+        
+        # Start Web Server
+        def run_server():
+            web_server.socketio.run(web_server.app, host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+        
+        server_thread = threading.Thread(target=run_server, daemon=True)
+        server_thread.start()
+        logger.info("Web Server started on port 5000")
+
+        # Create/Load Study
+        logger.info("Creating Optuna Study...")
+        study = optuna.create_study(
+            study_name=study_name, 
+            storage=storage_name, 
+            direction="maximize",
+            load_if_exists=True,
+            pruner=optuna.pruners.MedianPruner()
+        )
+
+        # Spawn Workers
+        workers = []
+        num_cores = max(1, os.cpu_count())
+        num_workers = max(1, num_cores - 1) # Reserve 1 core for Manager+Server
+        
+        logger.info(f"Spawning {num_workers} background workers...")
+        
+        for i in range(num_workers):
+            cmd = [sys.executable, "optimize.py", "--worker"]
+            p = subprocess.Popen(cmd)
+            workers.append(p)
+        
+        try:
+            # Run Manager's share of trials (Visual)
+            # This ensures at least one process is feeding the UI
+            logger.info("Manager starting visual optimization loop...")
+            study.optimize(objective, n_trials=args.trials) 
+            
+            # Note: args.trials here is just for the manager's loop limit. 
+            # Subprocesses run independently. Total trials = ManagerTrials + (NumWorkers * WorkerTrials)
+            # This is a bit loose but fine for this purpose. 
+            
+            logger.info("Manager finished trials.")
+            
+            logger.info("Optimization finished!")
+            logger.info(f"Best trial: {study.best_trial.value}")
+            logger.info("Best parameters:")
+            for key, value in study.best_trial.params.items():
+                logger.info(f"    {key}: {value}")
+            
+            # Save best params to file
+            with open('frontend/public/hyperparams.json', 'w') as f:
+                json.dump(study.best_trial.params, f, indent=4)
+
+        except KeyboardInterrupt:
+            logger.info("Stopping optimization...")
+        finally:
+            logger.info("Terminating workers...")
+            for p in workers:
+                p.terminate()
+                p.wait()

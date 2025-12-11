@@ -221,10 +221,6 @@ const containerSize = computed(() => {
 // Watch for ball count changes and log them
 const lastBallCount = ref(0)
 watch(ballCount, (newCount, oldCount) => {
-  if (newCount !== oldCount && oldCount > 0) {
-    console.error(`🎱 [2D MODE] BALL COUNT CHANGED: ${oldCount} → ${newCount}`)
-    console.trace('2D Mode ball count change')
-  }
   lastBallCount.value = newCount
 })
 

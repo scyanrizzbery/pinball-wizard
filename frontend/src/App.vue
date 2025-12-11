@@ -13,7 +13,7 @@
                         <ScoreBoard
                             :score="stats.score"
                             :highScore="stats.high_score"
-                            :balls="stats.balls"
+                            :balls="stats.current_ball || 1"
                             :comboCount="stats.combo_count || 0"
                             :scoreMultiplier="stats.score_multiplier || 1.0"
                             :comboActive="stats.combo_active || false"
@@ -53,6 +53,7 @@
                         :isFullscreen="isFullscreen"
                         @toggle-view="toggleViewMode"
                         @toggle-fullscreen="toggleFullscreen"
+                        @ship-destroyed="handleShipDestroyed"
                     />
                     <ComboDisplay
                         :comboCount="stats.combo_count || 0"
@@ -67,6 +68,14 @@
                         :score="stats.score"
                         :highScore="stats.high_score"
                         :isFullscreen="isFullscreen"
+                    />
+
+                    <ToastNotification
+                        :show="toastVisible"
+                        :title="toastTitle"
+                        :message="toastMessage"
+                        :isFullscreen="isFullscreen"
+                        @hide="toastVisible = false"
                     />
                 </div>
 
@@ -174,16 +183,12 @@ import Pinball3D from './components/Pinball3D.vue'
 import Controls from './components/Controls.vue'
 import Settings from './components/Settings.vue'
 import GameHistory from './components/GameHistory.vue'
-import io from 'socket.io-client'
 import Logs from './components/Logs.vue'
+import ToastNotification from './components/ToastNotification.vue'
+import sockets from './services/socket'
 
-const sockets = {
-    game: io('/game'),
-    control: io('/control'),
-    config: io('/config'),
-    training: io('/training')
-}
 provide('sockets', sockets)
+// window.sockets assigned in main.js now
 const connected = ref(false)
 const connectionError = ref(false)
 const videoSrc = ref('')
@@ -220,11 +225,38 @@ const addLog = (message) => {
     if (logs.value.length > 50) logs.value.shift()
 }
 
+// Track bumper destructions for milestone notifications
+const bumpersDestroyed = ref(0)
+const MILESTONES = [5, 10, 25, 50, 100]
+
+// Toast notification state
+const toastVisible = ref(false)
+const toastTitle = ref('')
+const toastMessage = ref('')
+
+const handleShipDestroyed = () => {
+    bumpersDestroyed.value++
+    const count = bumpersDestroyed.value
+    
+    // Check if this is a milestone
+    if (MILESTONES.includes(count)) {
+        addLog(`🛸 MILESTONE: ${count} SHIPS DESTROYED! 🛸`)
+        console.log(`[Milestone] ${count} ships destroyed!`)
+        
+        // Show toast notification
+        toastTitle.value = `MILESTONE: ${count} SHIPS DESTROYED!`
+        toastMessage.value = 'Keep up the great work!'
+        toastVisible.value = true
+    }
+}
+
 
 const stats = reactive({
     score: 0,
     high_score: 0,
-    balls: 0,  // balls_remaining (3, 2, 1, 0)
+    balls: 0,  // Legacy prop (unused now in favor of current_ball)
+    balls_remaining: 3, // Actual balls remaining (3, 2, 1)
+    current_ball: 1, // Current ball number (1, 2, 3)
     ball_count: 0,  // actual balls on table
     games_played: 0,
     game_history: [],
@@ -357,8 +389,9 @@ const handleInput = (key, type) => {
         if (key === 'Slash') buttonStates.right = true
         if (key === 'Space') {
             buttonStates.launch = true
-            // Manual Start: If game is over or not started (0 balls), start new game
-            if (stats.game_over || (stats.balls === 0 && stats.ball_count === 0)) {
+            // Manual Start: If game is over, start new game.
+            // Otherwise, let the event pass through to backend (controls plunger/relaunch)
+            if (stats.game_over) {
                 console.log('[Manual Start] Space pressed, starting new game...')
                 startNewGame()
                 return // Don't send input event for start
@@ -393,6 +426,9 @@ const toggleAI = () => {
 const toggleAutoStart = () => {
     toggles.autoStart = !toggles.autoStart
     addLog(`Auto-start ${toggles.autoStart ? 'Enabled' : 'Disabled'}`)
+    
+    // Sync to backend so vision.py knows about it!
+    sockets.config.emit('set_physics_param', { key: 'auto_plunge_enabled', value: toggles.autoStart })
 
     // Cancel pending auto-start if disabled (check against toggles.autoStart)
     if (!toggles.autoStart && autoStartTimeoutId.value) {
@@ -420,10 +456,12 @@ const startNewGame = () => {
     stats.game_over = false // Reset game over flag
     stats.is_high_score = false // Reset high score flag
     stats.score = 0 // Reset score visually immediately
+    bumpersDestroyed.value = 0 // Reset ship counter
     sockets.control.emit('start_game')
 }
 
 const changeLayout = (layoutId) => {
+    console.trace('[App] changeLayout called with:', layoutId)
     if (layoutId && typeof layoutId === 'string') {
         selectedLayout.value = layoutId
     }
@@ -596,6 +634,8 @@ const saveChanges = () => {
     hasUnsavedChanges.value = false
 }
 
+
+
 const handleKeydown = (e) => {
     // Ignore keyboard events if user is typing in an input field
     const target = e.target
@@ -633,22 +673,27 @@ watch(() => stats.combo_count, (newCombo, oldCombo) => {
 })
 
 // Watch for ball count changes to detect game over and auto-restart
+// Watch for ball count changes to detect game over and auto-restart
 watch(() => stats.ball_count, (newCount, oldCount) => {
-    // console.log(`[Ball Count Watch] ${oldCount} → ${newCount}, balls remaining: ${stats.balls}`)
+    // console.log(`[Ball Count Watch] ${oldCount} → ${newCount}, balls remaining: ${stats.balls_remaining}`)
 
     // If all balls drained (ball_count went to 0) and we have balls remaining
     if (oldCount > 0 && newCount === 0) {
         // console.log('[Ball Count Watch] All balls drained!')
 
-        // If we still have balls remaining, add a new one after a short delay
-        if (stats.balls > 0) {
-            // console.log(`[Ball Count Watch] ${stats.balls} balls remaining, auto-adding ball in 2 seconds...`)
-            setTimeout(() => {
-                if (toggles.autoStart && stats.ball_count === 0) {
-                    console.log('[Ball Count Watch] Adding new ball...')
-                    startNewGame()
-                }
-            }, 2000)
+        // If we still have balls remaining (checked from updated stats)
+        // Note: stats.balls_remaining comes from backend "lives" logic (3, 2, 1)
+        // If > 0, we expect backend to respawn
+        if (stats.balls_remaining > 0) {
+             // console.log(`[Ball Count Watch] ${stats.balls_remaining} balls remaining, waiting for respawn...`)
+             // Do NOTHING here. Backend handles respawn.
+             // We only implemented startNewGame helper if we needed to trigger it
+             // But usually physics engine adds ball automatically?
+             // Wait, in vision.py we implemented explicit physics_engine.add_ball
+             // So we don't need to call startNewGame() here!
+             // Calling startNewGame() resets the backend state (Ball 1), causing infinite loop.
+             
+             // Just let backend spawn the ball.
         } else {
             // Game over - all balls drained and no balls remaining
             // console.log('[Ball Count Watch] GAME OVER! Starting new game in 3 seconds...')
@@ -656,15 +701,17 @@ watch(() => stats.ball_count, (newCount, oldCount) => {
                 addLog(`Game Over! Final Score: ${stats.score}`)
                 stats.last_score = stats.score // Save last score
             }
-            stats.game_over = true // Set game over flag
+            // stats.game_over is also set by backend, but we can set it here for immediate UI
+            stats.game_over = true 
 
             // Auto-start new game after game over
+            // DISABLED Auto-Start to allow user to see Game Over screen
             setTimeout(() => {
-                if (toggles.autoStart) {
-                    // console.log('[Ball Count Watch] Starting new game after game over...')
-                    startNewGame()
-                }
-            }, 5000) // Increased delay to allow for celebration
+               if (toggles.autoStart) {
+                   // console.log('[Ball Count Watch] Starting new game after game over...')
+                   startNewGame()
+               }
+            }, 5000) 
         }
     }
 })
@@ -691,7 +738,7 @@ onMounted(() => {
     document.addEventListener('touchstart', resumeAudio, {once: true})
 
     sockets.config.on('physics_config_loaded', (config) => {
-        console.log('Physics Config Loaded:', config)
+        // console.log('Physics Config Loaded:', config)
         if (config) {
             isSyncingPhysics.value = true
             if (physicsSyncReleaseTimer) {
@@ -703,17 +750,30 @@ onMounted(() => {
                 Object.keys(config).forEach(key => {
                     physics[key] = config[key]
                 })
+
+                // Sync Auto-Start toggle from backend config
+                if (config.auto_plunge_enabled !== undefined) {
+                    toggles.autoStart = config.auto_plunge_enabled
+                    addLog(`Auto-Start synced from config: ${config.auto_plunge_enabled}`)
+                }
+
                 // Register global callback for Alien Shake effect
                 SoundManager.setAlienResponseCallback(() => {
                     console.log('👽 GLOBAL ALIEN RESPONSE TRIGGERED!')
-                    // 1. Trigger Visual Shake
-                    nudgeEvent.value = {direction: (Math.random() > 0.5 ? 'left' : 'right'), time: Date.now()}
-                    // 2. Trigger Physics Nudge (Free)
-                    sockets.control.emit('alien_nudge')
-                    // 3. Vibrate device if supported (mobile haptic feedback)
-                    if (navigator.vibrate) {
-                        navigator.vibrate(200) // 200ms vibration
+                    // 1. Trigger Visual Shake (Stronger, explicit 'alien' type)
+                    nudgeEvent.value = {
+                        direction: (Math.random() > 0.5 ? 'left' : 'right'), 
+                        time: Date.now(),
+                        type: 'alien',
+                        strength: 5.0 // Much stronger visual application
                     }
+                    
+                    // 2. Trigger Physics Nudge (Free, massive force)
+                    sockets.control.emit('alien_nudge')
+                    
+                    // 3. Vibrate device if supported - redundant here as SoundManager handles it, 
+                    // but good for redundancy or specific UI feedback.
+                    // SoundManager has better pattern now.
                 })
                 if (config.camera_presets) {
                     cameraPresets.value = config.camera_presets
@@ -760,7 +820,7 @@ onMounted(() => {
 
     // Listen for optimized hyperparameters
     sockets.training.on('hyperparams_loaded', (params) => {
-        console.log('Received optimized hyperparameters:', params)
+        // console.log('Received optimized hyperparameters:', params)
         optimizedHyperparams.value = params
         addLog('Loaded optimized hyperparameters')
     })
@@ -780,6 +840,11 @@ onMounted(() => {
     sockets.game.on('connect', () => {
         connected.value = true
         addLog('Connected to game server')
+        
+        // Expose sockets for E2E testing
+        if (window) {
+            window.sockets = sockets
+        }
 
         // Start initial game after a short delay (let physics engine initialize)
         setTimeout(() => {
@@ -787,7 +852,8 @@ onMounted(() => {
             // console.log(`[Initial Game] ball_count: ${stats.ball_count}`)
 
             // If auto-start is enabled and no balls exist, start the first game
-            if (toggles.autoStart && stats.ball_count === 0) {
+            // Added check for score and games_played to prevent resets on socket reconnection
+            if (toggles.autoStart && stats.ball_count === 0 && stats.score === 0 && stats.games_played === 0 && !stats.game_over) {
                 // console.log('[Initial Game] Starting first game automatically')
                 addLog('Starting first game...')
                 startNewGame()
@@ -823,7 +889,8 @@ onMounted(() => {
 
     sockets.game.on('stats_update', (data) => {
         // Only protect frontend-managed properties (not high_score - that comes from backend now)
-        const frontendOnlyProps = ['is_high_score', 'last_score', 'game_over']
+        // Allow game_over to be synced from backend!
+        const frontendOnlyProps = ['is_high_score'] // last_score now comes from backend
         const filteredData = {...data}
         frontendOnlyProps.forEach(prop => delete filteredData[prop])
 
@@ -851,7 +918,7 @@ onMounted(() => {
         if (data.status === 'success') {
             isLoadingLayout.value = false
             // Request the new physics config to update 3D view
-            sockets.config.emit('load_physics')
+            // sockets.config.emit('load_physics') // redundant? checks loop
         } else {
             isLoadingLayout.value = false
         }
@@ -920,8 +987,13 @@ onMounted(() => {
         addLog(data.message)
     })
 
+    sockets.game.on('ball_loaded', (data) => {
+        console.log(`🔫 Ball ${data.ball_number} loaded - playing revolver ratchet sound`)
+        SoundManager.playRevolverRatchet(0.8)
+    })
+
     sockets.training.on('models_list', (data) => {
-        console.log("Provably Fair / Model Verification Hashes:", data)
+        // console.log("Provably Fair / Model Verification Hashes:", data)
         const currentSelection = selectedModel.value
         models.value = data
 

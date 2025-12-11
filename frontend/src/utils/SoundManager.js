@@ -607,6 +607,102 @@ class SoundManager {
         this.playClap(0.8, pitch);
     }
 
+    playDestruction() {
+        if (!this.enabled) return;
+        // Heavy explosion sound: Low kick + Noise wash
+        this.playKick(1.2, 0.5); // Deep impact
+        this.playNoise(0.4, 0.6, 200); // Low rumble
+        this.playNoise(0.2, 0.3, 1000); // Crunch
+    }
+
+    playRevolverRatchet(vol = 0.8) {
+        if (!this.enabled) return;
+        this.resume();
+        const t = this.ctx.currentTime;
+
+        // Authentic revolver cocking using noise bursts for mechanical clicks
+        // No oscillators - just transient mechanical sounds
+
+        // 1. Initial hammer click (short, sharp noise burst)
+        const hammerNoise = this.ctx.createBufferSource();
+        const hammerBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.03, this.ctx.sampleRate);
+        const hammerData = hammerBuffer.getChannelData(0);
+        for (let i = 0; i < hammerData.length; i++) {
+            // Sharp attack, quick decay
+            const envelope = Math.exp(-i / (this.ctx.sampleRate * 0.01));
+            hammerData[i] = (Math.random() * 2 - 1) * envelope;
+        }
+        hammerNoise.buffer = hammerBuffer;
+
+        const hammerFilter = this.ctx.createBiquadFilter();
+        hammerFilter.type = 'bandpass';
+        hammerFilter.frequency.value = 300;
+        hammerFilter.Q.value = 2;
+
+        const hammerGain = this.ctx.createGain();
+        hammerGain.gain.value = vol * 0.7;
+
+        hammerNoise.connect(hammerFilter);
+        hammerFilter.connect(hammerGain);
+        hammerGain.connect(this.masterGain);
+        hammerNoise.start(t);
+
+        // 2. Cylinder ratchet clicks (6 mechanical clicks, slower)
+        for (let i = 0; i < 6; i++) {
+            const clickTime = t + 0.1 + (i * 0.1); // 100ms between clicks
+
+            // Create short click noise
+            const clickNoise = this.ctx.createBufferSource();
+            const clickBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.02, this.ctx.sampleRate);
+            const clickData = clickBuffer.getChannelData(0);
+
+            for (let j = 0; j < clickData.length; j++) {
+                // Very short transient
+                const envelope = Math.exp(-j / (this.ctx.sampleRate * 0.005));
+                clickData[j] = (Math.random() * 2 - 1) * envelope;
+            }
+            clickNoise.buffer = clickBuffer;
+
+            // Filter for metallic click
+            const clickFilter = this.ctx.createBiquadFilter();
+            clickFilter.type = 'highpass';
+            clickFilter.frequency.value = 800 + (i * 100); // Slight pitch variation
+
+            const clickGain = this.ctx.createGain();
+            clickGain.gain.value = vol * (0.5 - i * 0.04); // Gradually quieter
+
+            clickNoise.connect(clickFilter);
+            clickFilter.connect(clickGain);
+            clickGain.connect(this.masterGain);
+            clickNoise.start(clickTime);
+        }
+
+        // 3. Final lock "chunk" (heavier, lower click)
+        const lockTime = t + 0.7;
+        const lockNoise = this.ctx.createBufferSource();
+        const lockBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.05, this.ctx.sampleRate);
+        const lockData = lockBuffer.getChannelData(0);
+
+        for (let i = 0; i < lockData.length; i++) {
+            const envelope = Math.exp(-i / (this.ctx.sampleRate * 0.015));
+            lockData[i] = (Math.random() * 2 - 1) * envelope;
+        }
+        lockNoise.buffer = lockBuffer;
+
+        const lockFilter = this.ctx.createBiquadFilter();
+        lockFilter.type = 'lowpass';
+        lockFilter.frequency.value = 400; // Lower, heavier sound
+        lockFilter.Q.value = 1;
+
+        const lockGain = this.ctx.createGain();
+        lockGain.gain.value = vol * 0.9;
+
+        lockNoise.connect(lockFilter);
+        lockFilter.connect(lockGain);
+        lockGain.connect(this.masterGain);
+        lockNoise.start(lockTime);
+    }
+
     // Handle 10x combo milestones
     checkComboMilestone(combo) {
         const milestone = Math.floor(combo / 10);
@@ -688,7 +784,10 @@ class SoundManager {
             const delay = (currentTime - t) * 1000;
             console.log(`[SoundManager] Scheduling alien response callback in ${delay.toFixed(0)}ms`);
             setTimeout(() => {
-                console.log('[SoundManager] Executing alien response callback now');
+                if (navigator.vibrate) {
+                    navigator.vibrate([200, 100, 500, 100, 1000]); // Intense pattern
+                }
+
                 try {
                     callbackToUse();
                 } catch (e) {
@@ -715,19 +814,19 @@ class SoundManager {
             filter.frequency.setValueAtTime(300, currentTime); // Cut off high buzz
             filter.Q.value = 1;
 
-            // Heavy envelope
+            // Heavy envelope - EXTENDED DURATION
             const vol = i === 2 ? 0.4 : 0.6; // Lower octave louder
             gain.gain.setValueAtTime(0, currentTime);
             gain.gain.exponentialRampToValueAtTime(vol, currentTime + 0.1); // Punchy attack
             gain.gain.setValueAtTime(vol, currentTime + blastDuration - 0.5);
-            gain.gain.exponentialRampToValueAtTime(0.01, currentTime + blastDuration);
+            gain.gain.exponentialRampToValueAtTime(0.01, currentTime + blastDuration + 2.0); // Longer fade out
 
             osc.connect(filter);
             filter.connect(gain);
             gain.connect(this.masterGain);
 
             osc.start(currentTime);
-            osc.stop(currentTime + blastDuration);
+            osc.stop(currentTime + blastDuration + 2.0);
         });
 
         console.log('🛸 Close Encounters full sequence played (human + alien bass blast)!');

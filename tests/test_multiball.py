@@ -44,6 +44,11 @@ class TestMultiball(unittest.TestCase):
         pass
 
     def test_multiball_activation(self):
+        # Step physics to ensure ball addition callbacks complete
+        for _ in range(5):
+            self.sim.physics_engine.space.step(0.016)
+        self.sim._draw_frame() # Sync balls from physics
+        
         # Check physics engine balls directly (not sim.balls which may not be synced)
         engine_balls = len(self.sim.physics_engine.balls) if self.sim.physics_engine else 0
         print(f"Initial balls: {engine_balls}")

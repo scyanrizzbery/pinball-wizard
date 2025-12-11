@@ -3,6 +3,8 @@
     <!-- Main Score -->
     <div class="stat-box main-score">
       <span class="label">SCORE</span>
+      <!-- Hidden score for testing/accessibility (opacity 0 so it's in DOM) -->
+      <span class="score-value-test" data-cy="score-value" style="opacity: 0; position: absolute; pointer-events: none;">{{ formattedScore }}</span>
       <div class="score-board">
         <template v-for="(item, index) in scoreReels" :key="index">
           <div class="score-reel" v-if="item.type === 'digit'">
@@ -108,6 +110,7 @@ const getComboBadgeStyle = () => {
 
 const scoreReels = computed(() => getReelItems(props.score, 7))
 const highScoreReels = computed(() => getReelItems(props.highScore, 7))
+const formattedScore = computed(() => props.score.toString())
 </script>
 
 <style scoped>

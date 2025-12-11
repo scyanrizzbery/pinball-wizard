@@ -218,6 +218,17 @@ const handleInput = (key, type) => {
   box-shadow: 0 0 6px #4caf50;
 }
 
+.toggle-btn.test-btn {
+  background: rgba(255, 152, 0, 0.1);
+  border-color: #ff9800;
+  color: #ff9800;
+}
+
+.toggle-btn.test-btn:hover {
+  background: rgba(255, 152, 0, 0.2);
+  box-shadow: 0 0 10px rgba(255, 152, 0, 0.2);
+}
+
 @media (max-width: 900px) {
   .desktop-only {
     display: none !important;

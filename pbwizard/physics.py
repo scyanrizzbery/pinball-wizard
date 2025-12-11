@@ -22,6 +22,7 @@ COLLISION_TYPE_DROP_TARGET = 5
 COLLISION_TYPE_PLUNGER = 6
 COLLISION_TYPE_LEFT_PLUNGER = 7
 COLLISION_TYPE_RAIL = 8
+COLLISION_TYPE_MOTHERSHIP = 9
 
 # Mapping for logging
 COLLISION_LABELS = {
@@ -32,7 +33,8 @@ COLLISION_LABELS = {
     5: "drop_target",
     6: "plunger_stop",
     7: "left_plunger",
-    8: "rail"
+    8: "rail",
+    9: "mothership"
 }
 
 
@@ -117,6 +119,8 @@ class PymunkEngine(Physics):
         self.balls = []
         self.flippers = {}
         self.bumper_states = [] # List of flash timers (0.0 to 1.0)
+        self.bumper_health = [] # List of health values (0 to 100)
+        self.bumper_respawn_timers = [] # List of respawn timers (0.0 means active)
         self.bumper_shape_map = {} # Map shape to index
         self.drop_target_states = [] # List of drop target states (True = up, False = down)
         self.drop_target_shape_map = {} # Map shape to index
@@ -138,6 +142,13 @@ class PymunkEngine(Physics):
         # Event tracking for RL
         self.events = []
         
+        # Mothership State
+        self.mothership_active = False
+        self.mothership_body = None
+        self.mothership_shape = None
+        self.mothership_health = 0
+        self.mothership_max_health = 500
+        
         self.lock = threading.RLock()
         self._is_stepping = False
         
@@ -147,6 +158,15 @@ class PymunkEngine(Physics):
         print(f"DEBUG: After setup_flippers static_body pos: {self.space.static_body.position}")
         self._setup_collision_logging()
         print(f"DEBUG: After setup_collision_logging static_body pos: {self.space.static_body.position}")
+
+    @property
+    def auto_plunge_enabled(self):
+        """Proxy to config value."""
+        return self.config.auto_plunge_enabled
+
+    @auto_plunge_enabled.setter
+    def auto_plunge_enabled(self, value):
+        self.config.auto_plunge_enabled = value
         
     def apply_config_changes(self):
         """Apply any changes made to the configuration."""
@@ -188,7 +208,10 @@ class PymunkEngine(Physics):
         # Score values for different features
         SCORE_VALUES = {
             COLLISION_TYPE_BUMPER: 10,
-            COLLISION_TYPE_DROP_TARGET: 500
+            COLLISION_TYPE_DROP_TARGET: 500,
+            COLLISION_TYPE_BUMPER: 10,
+            COLLISION_TYPE_DROP_TARGET: 500,
+            COLLISION_TYPE_MOTHERSHIP: 50
         }
         
         # Setup collision handler - API changed in pymunk 7.x
@@ -205,8 +228,17 @@ class PymunkEngine(Physics):
             except Exception as e:
                 import pymunk
                 logger.error(f"Pymunk version {pymunk.version}: Could not set up collision handler: {e}")
-                logger.warning("Collision logging and scoring is DISABLED!")
-                return
+                
+        # --- Specific Handler for Plunger Launch ---
+
+        # Add specific handler for Ball <-> Plunger to fix "swimming" physics
+        try:
+             h_plunger = self.space.add_collision_handler(COLLISION_TYPE_BALL, COLLISION_TYPE_PLUNGER)
+             h_plunger.begin = self._handle_plunger_hit
+             logger.info("Added specific plunger collision handler")
+        except Exception as e:
+             logger.error(f"Failed to add plunger handler: {e}")
+
         
         if handler is None:
             logger.error("Failed to create collision handler")
@@ -290,6 +322,28 @@ class PymunkEngine(Physics):
                         if bumper_shape in self.bumper_shape_map:
                             idx = self.bumper_shape_map[bumper_shape]
                             self.bumper_states[idx] = 1.0
+                            
+                            # Decrease Bumper Health
+                            if idx < len(self.bumper_health):
+                                # Scale damage by score multiplier (higher combo = more damage)
+                                base_damage = 10
+                                damage = base_damage * (self.score_multiplier if self.score_multiplier >= 1.0 else 1.0)
+                                self.bumper_health[idx] = max(0, self.bumper_health[idx] - damage)
+                                logger.debug(f"Bumper {idx} hit! Health: {self.bumper_health[idx]}")
+                                
+                                if self.bumper_health[idx] <= 0:
+                                    # Destroy Bumper
+                                    self.bumper_respawn_timers[idx] = 999999.0 # Do not respawn automatically
+                                    self.space.remove(bumper_shape)
+                                    logger.info(f"Bumper {idx} destroyed!")
+                                    
+                                    # Check if all bumpers are destroyed
+                                    active_bumpers = [h for h in self.bumper_health if h > 0]
+                                    logger.debug(f"Active bumpers count: {len(active_bumpers)}, Mothership active: {self.mothership_active}")
+                                    if not active_bumpers and not self.mothership_active:
+                                        if hasattr(self, 'spawn_mothership'):
+                                            logger.info("All bumpers destroyed! Triggering spawn_mothership() form collisions...")
+                                            self.spawn_mothership()
 
                             # Apply active deflection force (like a real pinball bumper)
                             ball_body = ball_shape.body
@@ -318,15 +372,67 @@ class PymunkEngine(Physics):
                                     ball_pos
                                 )
                                 logger.debug(f"Bumper {idx} deflected ball with force {bumper_force}")
+                                
+                    if other == COLLISION_TYPE_MOTHERSHIP:
+                         old_health = self.mothership_health
+                         self.mothership_health -= (10 * self.score_multiplier)
+                         logger.info(f"👽 Mothership HIT! Health: {old_health} -> {self.mothership_health} (Max: {self.mothership_max_health})")
+                         
+                         if self.mothership_health <= 0:
+                             logger.info("💥 MOTHERSHIP DESTROYED! 💥")
+                             # Award massive bonus
+                             bonus = 50000 * self.score_multiplier
+                             self.score += int(bonus)
+                             final_score += int(bonus)
+                             
+                             # Clean up physics body safe - Use UNIQUE KEY
+                             self.space.add_post_step_callback(self._remove_mothership_safe, "remove_ms")
+                             
+                             # Reset all bumpers to active - Use UNIQUE KEY
+                             self.space.add_post_step_callback(self._reset_bumpers_safe, "reset_bumpers")
+                             
+                             # Start Multiball (add 2 balls)
+                             for _ in range(2):
+                                 lane_x = self.width * (0.9 + random.uniform(-0.02, 0.02))
+                                 lane_y = self.height * 0.5
+                                 self.add_ball((lane_x, lane_y))
+                                 
+                             self.events.append({
+                                'type': 'mothership_destroyed',
+                                'score': int(bonus),
+                                'total_score': self.score
+                             })
+                             
+                             # Destroy Shake
+                             self.events.append({
+                                 'type': 'nudge',
+                                 'direction': {'x': 0, 'y': 0}, # Omni-directional shake
+                                 'time': time.time(),
+                                 'intensity': 2.0 # Strong shake
+                             })
 
+                         else:
+                             # Default hit event for shake
+                             # If not destroyed, still shake a bit
+                             self.events.append({
+                                 'type': 'nudge', # Reuse nudge/shake logic
+                                 'direction': {'x': 0, 'y': 0},
+                                 'time': time.time(),
+                                 'intensity': 0.5 # Small shake
+                             })
                     # Handle Drop Target if hit
                     if other == COLLISION_TYPE_DROP_TARGET:
+                        # Check global bank cooldown (prevents instant re-trigger if ball trapped)
+                        if getattr(self, 'drop_target_cooldown', 0) > 0:
+                            return True
+
                         drop_target_shape = shapes[0] if type_a == COLLISION_TYPE_DROP_TARGET else shapes[1]
                         if drop_target_shape in self.drop_target_shape_map:
                             idx = self.drop_target_shape_map[drop_target_shape]
                             if idx < len(self.drop_target_states) and self.drop_target_states[idx]:
                                 # Mark as hit (down)
                                 self.drop_target_states[idx] = False
+                                logger.info(f"🎯 Drop target {idx} HIT! State changed to False")
                                 # Remove safely using post-step callback
                                 self.space.add_post_step_callback(self._remove_drop_target_safe, drop_target_shape)
                                 logger.debug(f"Drop target {idx} hit! Scheduled for removal.")
@@ -346,9 +452,11 @@ class PymunkEngine(Physics):
                                     # Add a new ball to plunger lane (multiball!), max 5 balls
                                     if len(self.balls) < 5:
                                         lane_x = self.width * 0.94
-                                        lane_y = self.height * 0.9
+                                        # Random spacing to prevent overlap/explosion
+                                        offset_y = random.uniform(-40, 40)
+                                        lane_y = (self.height * 0.9) + offset_y
                                         self.add_ball((lane_x, lane_y))
-                                        logger.info(f"🎱 Multiball: Added ball #{len(self.balls)} to plunger lane")
+                                        logger.info(f"🎱 Multiball: Added ball #{len(self.balls)} to plunger lane at Y={lane_y:.1f}")
                                     else:
                                         logger.info("🎱 Multiball: Max balls reached, no new ball added.")
 
@@ -421,6 +529,7 @@ class PymunkEngine(Physics):
         # Bumpers
         # Bumpers
         self.bumper_states = []
+        self.bumper_health = []
         self.bumper_shape_map = {}
         for i, b in enumerate(self.layout.bumpers):
             pos = (b['x'] * self.width, b['y'] * self.height)
@@ -429,12 +538,15 @@ class PymunkEngine(Physics):
                 radius = b['radius_ratio'] * self.width
             shape = self._add_static_circle(pos, radius, elasticity=1.5)
             self.bumper_states.append(0.0)
+            self.bumper_health.append(100)
+            self.bumper_respawn_timers.append(0.0)
             self.bumper_shape_map[shape] = i
 
 
         # Drop Targets
         self.drop_target_states = []
         self.drop_target_shape_map = {}
+        logger.info(f"Creating {len(self.layout.drop_targets)} drop targets...")
         for i, t in enumerate(self.layout.drop_targets):
             x = t['x'] * self.width
             y = t['y'] * self.height
@@ -446,6 +558,7 @@ class PymunkEngine(Physics):
             self.drop_target_shapes.append(shape)
             self.drop_target_states.append(True)  # True = up/active
             self.drop_target_shape_map[shape] = i
+            logger.info(f"Drop target {i} created at ({cx:.1f}, {cy:.1f}), size ({w:.1f}x{h:.1f}), state: {self.drop_target_states[i]}")
             
         # Upper Deck - DISABLED to remove invisible collisions
         # if self.layout.upper_deck:
@@ -492,6 +605,7 @@ class PymunkEngine(Physics):
             for shape in self.drop_target_shapes:
                 if shape in self.space.shapes:
                     self.space.remove(shape)
+                    logger.debug(f"Removed existing drop target shape from space")
         except Exception as e:
             logger.warning(f"Error clearing drop targets: {e}")
             
@@ -515,7 +629,16 @@ class PymunkEngine(Physics):
             self.drop_target_states.append(True)
             self.drop_target_shape_map[shape] = i
             
-        logger.info(f"Reset {len(self.drop_target_shapes)} drop targets.")
+            # Verify shape was added to space
+            if shape in self.space.shapes:
+                logger.debug(f"Drop target {i} successfully added to physics space at ({cx:.1f}, {cy:.1f})")
+            else:
+                logger.error(f"Drop target {i} NOT in physics space after creation!")
+            
+        # Set Cooldown to prevent immediate re-trigger by trapped balls
+        self.drop_target_cooldown = 2.0
+            
+        logger.info(f"Reset {len(self.drop_target_shapes)} drop targets. Total shapes in space: {len(self.space.shapes)}")
 
     def _remove_drop_target_safe(self, space, shape):
         """Safely remove a drop target shape (called via post-step callback)."""
@@ -532,6 +655,8 @@ class PymunkEngine(Physics):
             self.space.remove(shape)
             
         self.bumper_states = []
+        self.bumper_health = []
+        self.bumper_respawn_timers = []
         self.bumper_shape_map = {}
         
         # Re-create bumpers
@@ -540,14 +665,37 @@ class PymunkEngine(Physics):
             radius = 20.0
             shape = self._add_static_circle(pos, radius, elasticity=1.5)
             self.bumper_states.append(0.0)
+            self.bumper_health.append(100)
+            self.bumper_respawn_timers.append(0.0)
             self.bumper_shape_map[shape] = i
+
+
+    def _handle_plunger_hit(self, arbiter, space, data):
+        """Custom handler for plunger launch to fix 'swimming' physics."""
+        # Only override if plunger is actively firing
+        if self.plunger_state not in ['firing', 'releasing']:
+            return True # Normal collision
+
+        ball_shape = arbiter.shapes[0]
+        ball_body = ball_shape.body
+        
+        # Calculate boost without overriding physics completely
+        # Just help it along if it's too slow? 
+        # Actually, let's trust the physics engine with better Material Properties (Elasticity).
+        # Returning True enables normal collision response.
+        
+        # We can add a slight speed boost if needed, but let's try pure kinetic first.
+        # But maybe ensure we don't have angular velocity messing it up.
+        ball_body.angular_velocity *= 0.1 # Dampen spin significantly during launch
+        
+        return True # Enable physical collision (Kinetic transfer)
 
     def _setup_plunger(self):
         """Setup plunger physics bodies and shapes."""
         # Plunger Lane
         # Vertical wall separating plunger from playfield - high elasticity for bounce
         lane_x = self.width * 0.85
-        self._add_static_segment((lane_x, self.height * 0.3), (lane_x, self.height), thickness=5.0, elasticity=0.9)
+        self._add_static_segment((lane_x, self.height * 0.3), (lane_x, self.height), thickness=5.0, elasticity=0.9, friction=0.0)
         logger.info(f"Plunger Wall: x={lane_x}")
 
         # Plunger (Kinematic Body)
@@ -567,8 +715,8 @@ class PymunkEngine(Physics):
         # Base
         base_h = self.plunger_height
         base_shape = pymunk.Poly.create_box(self.plunger_body, (self.plunger_width, base_h))
-        base_shape.elasticity = 0.0
-        base_shape.friction = 0.01
+        base_shape.elasticity = 0.8 # High bounciness for kinetic transfer
+        base_shape.friction = 0.0 # No friction to prevent 'grabbing'
         base_shape.collision_type = COLLISION_TYPE_PLUNGER
         
         # Lips to center the ball
@@ -583,8 +731,8 @@ class PymunkEngine(Physics):
         
         l_lip_verts = [(ll_x1, ll_y1), (ll_x2, ll_y1), (ll_x2, ll_y2), (ll_x1, ll_y2)]
         l_lip_shape = pymunk.Poly(self.plunger_body, l_lip_verts)
-        l_lip_shape.elasticity = 0.0
-        l_lip_shape.friction = 0.01
+        l_lip_shape.elasticity = 0.5
+        l_lip_shape.friction = 0.0
         l_lip_shape.collision_type = COLLISION_TYPE_PLUNGER
 
         # Right Lip
@@ -595,8 +743,8 @@ class PymunkEngine(Physics):
         
         r_lip_verts = [(rl_x1, rl_y1), (rl_x2, rl_y1), (rl_x2, rl_y2), (rl_x1, rl_y2)]
         r_lip_shape = pymunk.Poly(self.plunger_body, r_lip_verts)
-        r_lip_shape.elasticity = 0.0
-        r_lip_shape.friction = 0.01
+        r_lip_shape.elasticity = 0.5
+        r_lip_shape.friction = 0.0
         r_lip_shape.collision_type = COLLISION_TYPE_PLUNGER
 
         self.space.add(self.plunger_body, base_shape, l_lip_shape, r_lip_shape)
@@ -781,11 +929,11 @@ class PymunkEngine(Physics):
                  self.plunger_body.position = (self.plunger_body.position.x, target)
                  self.plunger_body.velocity = (0, 0)
 
-    def _add_static_segment(self, p1, p2, thickness=1.0, elasticity=0.5, collision_type=COLLISION_TYPE_WALL):
+    def _add_static_segment(self, p1, p2, thickness=1.0, elasticity=0.5, friction=0.01, collision_type=COLLISION_TYPE_WALL):
         body = self.space.static_body
         shape = pymunk.Segment(body, p1, p2, thickness)
         shape.elasticity = elasticity
-        shape.friction = 0.01
+        shape.friction = friction
         shape.collision_type = collision_type
         self.space.add(shape)
         return shape
@@ -849,10 +997,10 @@ class PymunkEngine(Physics):
         w, h = size
         half_w, half_h = w / 2, h / 2
         vertices = [
-            (pos[0] - half_w, pos[1] - half_h),
-            (pos[0] + half_w, pos[1] - half_h),
-            (pos[0] + half_w, pos[1] + half_h),
-            (pos[0] - half_w, pos[1] + half_h),
+            (pos[0] - half_w, pos[1] - half_h),  # Top-Left
+            (pos[0] - half_w, pos[1] + half_h),  # Bottom-Left
+            (pos[0] + half_w, pos[1] + half_h),  # Bottom-Right
+            (pos[0] + half_w, pos[1] - half_h),  # Top-Right
         ]
         shape = pymunk.Poly(body, vertices)
         shape.elasticity = elasticity
@@ -998,6 +1146,36 @@ class PymunkEngine(Physics):
             'target_angle': 0.0
         }
 
+    def reset_game(self):
+        """Reset the physics engine state for a new game."""
+        # 1. Clear Balls
+        for b in self.balls[:]:
+            self.remove_ball(b)
+        self.balls = []
+        self.active_balls = []
+        
+        # 2. Reset Score and Rules
+        self.score = 0
+        self.combo_count = 0
+        self.combo_timer = 0.0
+        self.multiplier = 1.0
+        
+        # 3. Reset Feature States
+        self.bumper_states = [0.0] * len(self.layout.bumpers)
+        self.bumper_health = [100] * len(self.layout.bumpers) # Reset to full health
+        
+        # Reset drop targets (recreates physics bodies)
+        self.reset_drop_targets()
+        
+        # 4. Reset Kickbacks/Other
+        self.kickback_cooldowns = {}
+        
+        # Reset Mothership
+        if self.mothership_active:
+             self._remove_mothership_immediate()
+        
+        logger.info("Physics Engine State Reset")
+
     def add_ball(self, pos):
         with self.lock:
             # Always use callback to ensure thread/step safety (bypass locking check issues)
@@ -1015,8 +1193,12 @@ class PymunkEngine(Physics):
         
         # Check max balls limit
         if len(self.balls) >= 5:
-            logger.warning(f"Max balls (5) reached, ignoring add_ball request.")
-            return None
+            # Check if any balls are "dead" / NaN
+            self.balls = [b for b in self.balls if not np.isnan(b.position.x)]
+            
+            if len(self.balls) >= 10:
+                logger.warning(f"Max balls (10) reached, ignoring add_ball request.")
+                return None
             
         mass = self.config.ball_mass
         radius = self.config.ball_radius if hasattr(self.config, 'ball_radius') else 12.0
@@ -1030,6 +1212,20 @@ class PymunkEngine(Physics):
         self.space.add(body, shape)
         self.balls.append(body)
         return body
+
+    def remove_ball(self, ball):
+        """Remove a ball from the physics space and tracking list."""
+        if ball in self.balls:
+            # Check if b has shapes attached (our custom monkey-patch)
+            if hasattr(ball, 'shapes'):
+                self.space.remove(ball, *ball.shapes)
+            else:
+                # Fallback: remove body, but might leave phantom shapes?
+                # Pymunk doesn't easily let us find shapes for a body without iterating.
+                self.space.remove(ball)
+                
+            self.balls.remove(ball)
+            logger.debug(f"Ball removed: {ball.position}")
 
     def nudge(self, dx, dy, check_tilt=True):
         """Apply an impulse to all balls to simulate a table nudge."""
@@ -1096,7 +1292,8 @@ class PymunkEngine(Physics):
         for b in self.balls:
             if b.position.x > lane_x and b.position.y > self.height * 0.5:
                 # Calculate launch velocity based on angle
-                base_speed = self.config.plunger_release_speed
+                # Increase base speed to ensure ball clears the lane (Fix for immediate drains)
+                base_speed = self.config.plunger_release_speed * 1.5
                 angle_rad = np.radians(self.config.launch_angle)
                 
                 # 0 degrees = Straight Up (0, -1)
@@ -1171,14 +1368,9 @@ class PymunkEngine(Physics):
         # We will add a 'resetting' flag that callbacks can check.
         self._resetting = True
         
-        # Re-initialize static geometry
+        # Re-initialize static geometry (includes drop targets, bumpers, plunger, walls)
         self._setup_static_geometry()
         self._setup_flippers()
-        self._setup_plungers()
-        self._setup_kickbacks()
-        self._setup_bumpers()
-        self._setup_drop_targets()
-        self._setup_walls()
         self._setup_collision_logging()
         
         # Reset game state variables
@@ -1192,6 +1384,11 @@ class PymunkEngine(Physics):
         self.combo_count = 0 
         self.combo_timer = 0.0
         self.score_multiplier = 1.0
+        
+        self.mothership_active = False
+        self.mothership_body = None
+        self.mothership_shape = None
+        self.mothership_health = 0
         
         self._resetting = False
         
@@ -1208,7 +1405,34 @@ class PymunkEngine(Physics):
                     self.bumper_states[i] -= dt * 5.0 # Decay speed
                     if self.bumper_states[i] < 0:
                         self.bumper_states[i] = 0.0
-                    
+                        
+            # Update bumper respawn timers
+        if self.bumper_respawn_timers:
+            all_bumpers_dead = True
+            for i in range(len(self.bumper_respawn_timers)):
+                if self.bumper_respawn_timers[i] > 0:
+                    self.bumper_respawn_timers[i] -= dt
+                    if self.bumper_respawn_timers[i] <= 0:
+                        # Respawn Bumper
+                        self.bumper_respawn_timers[i] = 0.0
+                        self.bumper_health[i] = 100
+                        
+                        # Find shape and add back to space
+                        for shape, idx in self.bumper_shape_map.items():
+                            if idx == i:
+                                if shape not in self.space.shapes:
+                                    self.space.add(shape)
+                                    logger.info(f"Bumper {i} respawned!")
+                                break
+                        
+                        all_bumpers_dead = False
+                else:
+                    all_bumpers_dead = False
+            
+            # Check for Mothership Spawn Condition
+            if all_bumpers_dead and len(self.bumper_respawn_timers) > 0 and not self.mothership_active:
+                if hasattr(self, 'spawn_mothership'):
+                     self.spawn_mothership()
         # Tilt Decay
         if self.tilt_value > 0:
             decay_rate = getattr(self.config, 'tilt_decay', 0.1) * 60.0 # Config usually small per frame?
@@ -1231,29 +1455,12 @@ class PymunkEngine(Physics):
         # Update combo timer
         self.update_combo_timer(dt)
         
-        # Remove lost balls (below height + margin)
-        # Iterate copy to modify list
-        for b in self.balls[:]:
-            if b.position.y > self.height + 100:
-                if getattr(self, 'god_mode', False):
-                     # Teleport to plunger lane
-                     lane_x = self.width * 0.9
-                     lane_y = self.height * 0.9
-                     b.position = (lane_x, lane_y)
-                     b.velocity = (0, 0)
-                     logger.info("God Mode: Ball rescued and teleported to plunger.")
-                     continue # Skip removal
-            
-                self.space.remove(b, *b.shapes)
-                self.balls.remove(b)
-                
-                # Reset combo and multiplier on drain ONLY IF NO BALLS LEFT
-                if len(self.balls) == 0:
-                    if self.combo_count > 0 or self.score_multiplier > 1.0:
-                        logger.debug("Last ball drained! Combo and Multiplier reset.")
-                        self.combo_count = 0
-                        self.combo_timer = 0.0
-                        self.score_multiplier = 1.0
+        # Consolidate ball status checks (Drain, Stuck, Out of Bounds)
+        # This function now handles removal, so we don't do it here.
+        # But we need to ensure it's called. It's called below.
+        
+        # Check for stuck balls (and now DRAIN logic too)
+        self.check_stuck_ball(dt)
                 
         # Update Flipper Physics (Kinematic rotation)
         # Use dynamic speed (default 30.0)
@@ -1275,7 +1482,9 @@ class PymunkEngine(Physics):
                 ball.velocity.length < 100.0):  # Ball is relatively stationary (increased threshold)
 
                 # Auto-fire plunger if in resting state
-                if self.plunger_state == 'resting':
+                # Check auto-plunge config (default True)
+                auto_plunge = getattr(self, 'auto_plunge_enabled', True)
+                if self.plunger_state == 'resting' and auto_plunge:
                     # Check cooldown to prevent rapid re-triggering
                     current_time = time.time()
                     if not hasattr(self, 'last_auto_plunger_time'):
@@ -1368,6 +1577,11 @@ class PymunkEngine(Physics):
 
         # Check for stuck balls
         self.check_stuck_ball(dt)
+
+        # Update Drop Target Cooldown
+        if hasattr(self, 'drop_target_cooldown') and self.drop_target_cooldown > 0:
+            self.drop_target_cooldown -= dt
+
 
         
         # Configurable angles (degrees)
@@ -1584,8 +1798,32 @@ class PymunkEngine(Physics):
             logger.error(f"Error in _rebuild_rails: {e}")
 
     def check_stuck_ball(self, dt):
-        """Check if any ball is stuck (low velocity for extended time)."""
+        """Check if any ball is stuck, out of bounds, or drained."""
+        balls_to_remove = []
+        
         for b in self.balls:
+            # 1. Out of Bounds (Bottom) - DRAIN
+            if b.position.y > self.height + 100:
+                 if getattr(self, 'god_mode', False):
+                     # Teleport to plunger lane
+                     lane_x = self.width * 0.94 # Center of lane
+                     lane_y = self.height * 0.9
+                     b.position = (lane_x, lane_y)
+                     b.velocity = (0, 0)
+                     logger.info("God Mode: Ball rescued and teleported to plunger.")
+                     continue # Skip removal
+                 
+                 logger.info(f"Ball drained (Y > bound): {b.position} (Vel: {b.velocity})")
+                 balls_to_remove.append(b)
+                 continue
+            
+            # 2. Out of Bounds (Top) - REMOVE
+            if b.position.y < -300: # Way above top
+                 logger.warning(f"Ball removed (Y < -300): {b.position} (Velocity: {b.velocity})")
+                 balls_to_remove.append(b)
+                 continue
+                 
+            # 3. Stuck Check
             speed = b.velocity.length
             # Threshold: 5.0 pixels/sec (very slow)
             if speed < 5.0:
@@ -1613,6 +1851,19 @@ class PymunkEngine(Physics):
                 b.stuck_timer = 0.0
                 b.stuck_event_sent = False
 
+        # Remove flagged balls
+        for b in balls_to_remove:
+            self.remove_ball(b)
+            
+        # Reset combo/multiplier if NO BALLS LEFT (only after processing removals)
+        if len(self.balls) == 0 and balls_to_remove: 
+             # Only if we actually removed something and now have 0
+             if self.combo_count > 0 or self.score_multiplier > 1.0:
+                  logger.debug("Last ball drained! Combo and Multiplier reset.")
+                  self.combo_count = 0
+                  self.combo_timer = 0.0
+                  self.score_multiplier = 1.0
+
     def rescue_ball(self):
         """Rescue stuck balls by moving them to the plunger lane."""
         logger.info("Rescuing stuck ball(s)...")
@@ -1630,3 +1881,75 @@ class PymunkEngine(Physics):
         lane_y = self.height * 0.9
         self.add_ball((lane_x, lane_y))
         logger.info("Ball rescued to plunger lane.")
+
+    def spawn_mothership(self):
+        """Spawn the Mothership Boss! (Scheduled safe)"""
+        # Always schedule to ensure safety regardless of call context (update loop vs collision)
+        self.space.add_post_step_callback(self._spawn_mothership_internal, "spawn_mothership")
+
+    def _spawn_mothership_internal(self, space, key):
+        """Internal spawn logic."""
+        if self.mothership_active:
+             return True
+
+        logger.info("👽 SPAWNING MOTHERSHIP! 👽")
+        self.mothership_active = True
+        self.mothership_health = self.mothership_max_health
+        
+        # Position: Top center, large body
+        pos = (self.width * 0.5, self.height * 0.25)
+        self.mothership_body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        self.mothership_body.position = pos
+        
+        # Shape: Large hexagon or circle
+        radius = 60.0
+        # self.mothership_shape = pymunk.Circle(self.mothership_body, radius)
+        # Use a poly for a more interesting shape (Hexagon)
+        import math
+        n_sides = 6
+        verts = []
+        for i in range(n_sides):
+            angle = i * (2 * math.pi / n_sides)
+            verts.append((radius * math.cos(angle), radius * math.sin(angle)))
+            
+        self.mothership_shape = pymunk.Poly(self.mothership_body, verts)
+        self.mothership_shape.elasticity = 0.4
+        self.mothership_shape.friction = 0.5
+        self.mothership_shape.collision_type = COLLISION_TYPE_MOTHERSHIP
+        
+        self.space.add(self.mothership_body, self.mothership_shape)
+        
+        self.events.append({
+            'type': 'mothership_spawn',
+            'health': self.mothership_health
+        })
+        return True
+
+
+
+    def _remove_mothership_safe(self, space, key):
+        """Remove mothership safely."""
+        if self.mothership_shape and self.mothership_shape in space.shapes:
+            space.remove(self.mothership_shape)
+        if self.mothership_body and self.mothership_body in space.bodies:
+            space.remove(self.mothership_body)
+            
+        self.mothership_active = False
+        self.mothership_shape = None
+        self.mothership_body = None
+        return True
+
+    def _reset_bumpers_safe(self, space, key):
+        """Reset bumpers to active state safely."""
+        logger.info("Restoring all bumpers...")
+        for i in range(len(self.bumper_health)):
+            self.bumper_health[i] = 100
+            self.bumper_respawn_timers[i] = 0.0
+            
+            # Restore Shape if missing
+            for shape, idx in self.bumper_shape_map.items():
+                if idx == i:
+                    if shape not in self.space.shapes:
+                        self.space.add(shape)
+                    break
+        return True

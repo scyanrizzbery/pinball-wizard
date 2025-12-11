@@ -431,6 +431,7 @@
         <button class="control-btn" @click="$emit('reset-config')" :disabled="stats.is_training"
           style="width: 100%; background-color: #d32f2f;">Reset Physics</button>
       </div>
+
     </div>
 
     <!-- Training Tab -->
@@ -567,7 +568,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update-physics', 'reset-config', 'start-training', 'stop-training', 'apply-preset', 'save-preset', 'delete-preset', 'update:selectedModel', 'update:selectedLayout', 'update:selectedPreset', 'load-model', 'change-layout', 'update-difficulty', 'save-new-layout', 'save-layout', 'update:showFlipperZones'])
+const emit = defineEmits(['update-physics', 'reset-config', 'start-training', 'stop-training', 'apply-preset', 'save-preset', 'delete-preset', 'update:selectedModel', 'update:selectedLayout', 'update:selectedPreset', 'load-model', 'change-layout', 'update-difficulty', 'save-new-layout', 'save-layout', 'update:showFlipperZones', 'destroy-bumpers'])
 
 const activeTab = ref('settings')
 

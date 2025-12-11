@@ -23,8 +23,9 @@ class ReplayManager:
         self.is_playing = False
         self.replay_data = {
             'seed': None,
-            'layout': None, 
-            'events': [] # List of (frame_index, type, value)
+            'layout': None,
+            'final_score': 0,  # Original score from recording
+            'events': []  # List of (frame_index, type, value)
         }
         self.current_frame = 0
         self.event_cursor = 0
@@ -37,15 +38,17 @@ class ReplayManager:
             self.replay_data = {
                 'seed': seed,
                 'layout': layout_name,
+                'final_score': 0,  # Will be set when recording stops
                 'events': []
             }
             self.current_frame = 0
             logger.info(f"Replay Recording Started. Seed: {seed}")
 
-    def stop_recording(self):
+    def stop_recording(self, final_score=0):
         with self.lock:
             self.is_recording = False
-            logger.info(f"Replay Recording Stopped. Total Frames: {self.current_frame}, Total Events: {len(self.replay_data['events'])}")
+            self.replay_data['final_score'] = final_score  # Store the final score
+            logger.info(f"Replay Recording Stopped. Final Score: {final_score}, Total Frames: {self.current_frame}, Total Events: {len(self.replay_data['events'])}")
 
     def record_event(self, event_type, value):
         if not self.is_recording: return
@@ -89,15 +92,7 @@ class ReplayManager:
             self.current_frame += 1
 
 
-try:
-    from watchdog.observers import Observer
-    from watchdog.events import FileSystemEventHandler
-    WATCHDOG_AVAILABLE = True
-except ImportError:
-    WATCHDOG_AVAILABLE = False
-    Observer = object  # Dummy base class
-    FileSystemEventHandler = object # Dummy base class
-    logger.warning("watchdog module not found. Layout file watching will be disabled.")
+
 
 try:
     import pytesseract
@@ -133,31 +128,7 @@ class ZoneManager:
         }
 
 
-class LayoutFileHandler(FileSystemEventHandler):
-    def __init__(self, vision_system):
-        self.vision_system = vision_system
-        self.last_reload = 0
 
-    def on_any_event(self, event):
-        if not WATCHDOG_AVAILABLE: return
-        if event.is_directory:
-            return
-        
-        if event.event_type not in ['created', 'modified', 'deleted']:
-            return
-
-        filename = os.path.basename(event.src_path)
-        if not filename.endswith('.json'):
-            return
-
-        # Debounce reloads (watchdog can fire multiple events for one save)
-        current_time = time.time()
-        if current_time - self.last_reload < 0.5:
-            return
-        self.last_reload = current_time
-
-        logger.info(f"Layout file changed: {event.src_path} ({event.event_type})")
-        self.vision_system.refresh_layouts(filename if event.event_type != 'deleted' else None)
 
 
 class FrameCapture:
@@ -196,7 +167,8 @@ class FrameCapture:
 
     def stop(self):
         self.running = False
-        self.thread.join()
+        if self.thread is not None:
+            self.thread.join()
         if self.cap:
             self.cap.release()
             logger.info("Camera stopped")
@@ -207,7 +179,7 @@ class PinballLayout:
         # Default values
         self.width = 0.6  # 60cm
         self.height = 1.2 # 120cm
-        self.name = 'Default'
+        self.name = 'default'
         
         # Flipper Configuration (Normalized 0-1)
         # Widened to match 3D view aesthetics (was 0.35/0.65)
@@ -341,6 +313,7 @@ class PinballLayout:
             logger.error(f"Failed to save layout to {filepath}: {e}")
 
     def load(self, config):
+        self.config = config
         if 'name' in config:
             self.name = config['name']
             
@@ -445,6 +418,7 @@ class PinballLayout:
                 'bumper_force': 'bumper_force',
                 'god_mode': 'god_mode',
                 'table_tilt': 'table_tilt',
+                'auto_plunge_enabled': 'auto_plunge_enabled',
             }
             
             for param_name, value in params.items():
@@ -537,7 +511,7 @@ class SimulatedFrameCapture(FrameCapture):
 
     def __init__(self, width=600, height=800, layout_config=None, socketio=None):
         self.layout = PinballLayout(config=layout_config)
-        self.current_layout_id = 'Default'  # Track the current layout ID
+        self.current_layout_id = 'default'  # Track the current layout ID
         self.width = width
         self.height = height
         self.socketio = socketio
@@ -598,11 +572,13 @@ class SimulatedFrameCapture(FrameCapture):
         # Physics / Gameplay State
         self.score = 0
         self.high_score = 0  # Track high score for this session
-        self.lives = 3
+        self.current_ball = 1 # Track current ball number (1, 2, 3)
+        self.lives = 3 # Legacy remaining logic, keeping for compatibility but logic moved to current_ball
         self.game_over = False
         
         # Multiball
         self.multiball_cooldown_timer = 0.0
+        self.respawn_timer = 0.0
         
         # Nudge/Tilt
         self.nudge_x = 0.0
@@ -617,12 +593,6 @@ class SimulatedFrameCapture(FrameCapture):
         # Drop Targets
         self.drop_target_states = [] # True = Up
         
-        # Initialize Watchdog
-        if WATCHDOG_AVAILABLE:
-            self.observer = Observer()
-            self.observer.schedule(LayoutFileHandler(self), path='layouts', recursive=False)
-            self.observer.start()
-            
         # Socket Listeners
         if self.socketio:
             self.socketio.on_event('flipper_input', self.handle_input, namespace='/game')
@@ -642,17 +612,13 @@ class SimulatedFrameCapture(FrameCapture):
         
         # Load available layouts from disk
         self._load_available_layouts()
+        
+        # Auto-launch settings
+        self.auto_plunge_enabled = layout_config.get('auto_plunge_enabled', False) if layout_config else False
+        self.waiting_for_launch = False
 
-    def reset_game_state(self):
-        """Reset the game state (score, lives, etc.)"""
-        self.score = 0
-        self.balls_remaining = 3
-        self.ball_lost = False # Reset ball lost flag
-        if self.physics_engine:
-            self.physics_engine.reset()
-            # Step physics once to process async add_ball callback
-            # This ensures ball exists before first observation
-            self.physics_engine.update(0.016)
+
+        self.launch_requested = False
 
     def update_rails(self, rails_data):
         """Update rails from frontend editor."""
@@ -790,6 +756,10 @@ class SimulatedFrameCapture(FrameCapture):
         # Start recording if not replaying
         if not self.replay_manager.is_playing:
             self.replay_manager.start_recording(self.current_seed, self.layout.name)
+            
+            # Spawn initial ball (Ball 1)
+            # Use callback to ensure safety even during init
+            self.physics_engine.add_ball((self.width * 0.94, self.height * 0.9))
 
         self.drop_target_states = [True] * len(self.layout.drop_targets)
         self.current_upper_angles = []
@@ -1024,25 +994,43 @@ class SimulatedFrameCapture(FrameCapture):
                  if os.path.exists(filepath):
                      with open(filepath, 'r') as f:
                          replay_json = json.load(f)
+                     logger.info(f"✅ Loaded replay file: {filepath}")
                  else:
-                     logger.error(f"Replay file not found: {filepath}")
-                     return
+                     logger.error(f"❌ Replay file not found: {filepath}")
+                     return False
 
-            logger.info(f"Loading Replay... Seed: {replay_json.get('seed')}")
+            logger.info(f"🎬 Starting Replay... Seed: {replay_json.get('seed')}, Layout: {replay_json.get('layout')}, Original Score: {replay_json.get('final_score', 'N/A')}")
+            
+            # Store the replay's original score for display at game over
+            self.replay_original_score = replay_json.get('final_score', 0)
+            
             seed = self.replay_manager.start_playback(replay_json)
             
-            # Reset Game with Seed
+            # Reset Game with Seed, keeping replay active
             self._init_physics(seed=seed)
-            self.reset_game_state()
+            self.reset_game_state(stop_replay=False)
+            
+            # Add initial ball for replay
+            if self.physics_engine:
+                logger.info("Adding ball for replay playback")
+                self.physics_engine.add_ball(pos=(self.width * 0.94, self.height * 0.9))
+            
+            logger.info(f"🎬 Replay started: {len(replay_json.get('events', []))} events")
+            return True
             
         except Exception as e:
-            logger.error(f"Failed to load replay: {e}")
+            logger.error(f"❌ Failed to load replay: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
     def save_replay(self):
         if self.replay_manager.is_recording:
-             self.replay_manager.stop_recording()
-             # Logic to save to file?
-             # For now, maybe just keep in memory or dump to 'replays/' folder
+             # Get final score before stopping recording
+             final_score = self.physics_engine.score if self.physics_engine else 0
+             self.replay_manager.stop_recording(final_score=final_score)
+             
+             # Save to file
              replays_dir = 'replays'
              if not os.path.exists(replays_dir):
                  os.makedirs(replays_dir)
@@ -1055,31 +1043,35 @@ class SimulatedFrameCapture(FrameCapture):
              try:
                  with open(filepath, 'w') as f:
                      json.dump(replay_data, f)
-                 logger.info(f"Replay saved to {filepath}")
+                 logger.info(f"Replay saved to {filepath} with score {final_score}")
              except Exception as e:
                  logger.error(f"Failed to save replay: {e}")
 
-    def reset_game_state(self):
+    def reset_game_state(self, stop_replay=True):
         # Save previous game replay if it exists
         if self.replay_manager.is_recording:
             self.save_replay()
+        
+        # Stop any active replay playback if requested
+        if stop_replay and self.replay_manager.is_playing:
+            self.replay_manager.stop_playback()
             
+        # Reset game state variables
         self.balls = []
         self.score = 0
         self.lives = 3
+        self.current_ball = 1
         self.game_over = False
         self.is_tilted = False
         self.tilt_value = 0.0
         self.drop_target_states = [True] * len(self.layout.drop_targets)
+        self.respawn_timer = 0.0
         
-        # Start new recording since we are resetting state (and likely physics init called separately)
-        # Actually _init_physics handles starting recording if it generates a new seed.
-        # But if we just call reset_game_state() without _init_physics(), we might be in trouble?
-        # Usually they go together or _init_physics is called first.
+        # CRITICAL FIX: Re-initialize physics with NEW seed to ensure unique game hash
+        # This generates a new seed and starts a new replay recording
+        self._init_physics()
         
-        # Add initial ball to physics engine
-        if self.physics_engine:
-            self.physics_engine.add_ball(pos=(self.width * 0.94, self.height * 0.9))
+        logger.info("Reset Game State: New game started with new seed")
 
     def handle_input(self, data):
         # Ignore inputs during replay
@@ -1280,7 +1272,11 @@ class SimulatedFrameCapture(FrameCapture):
         else:
             logger.info("Simulation started in Headless Mode (Manual Stepping)")
 
-    def manual_step(self, dt=0.016):
+    def render(self):
+        """Force a render of the current frame (for snapshots)."""
+        self._draw_frame()
+
+    def manual_step(self, dt=0.016, render=True):
         """Perform a single step of simulation (physics + logic + render)."""
         # Physics Step
         if self.physics_engine:
@@ -1298,11 +1294,67 @@ class SimulatedFrameCapture(FrameCapture):
                 elif evt['type'] == 'nudge':
                     self._apply_nudge_input(evt['value'])
         
+        # 3-Ball Rule: Check for drain
+        if self.physics_engine:
+             if hasattr(self, 'respawn_timer') and self.respawn_timer > 0:
+                 self.respawn_timer -= dt
+                 # Don't check for drain while waiting for respawn physics
+             elif not self.physics_engine.balls and not self.game_over:
+                 # No balls left on table
+                 
+                 if self.current_ball < 3:
+                     # Check auto-launch
+                     if not self.auto_plunge_enabled and not getattr(self, 'launch_requested', False):
+                         # Check if we should wait for manual launch
+                         auto_plunge = False
+                         if hasattr(self, 'physics_engine') and hasattr(self.physics_engine, 'auto_plunge_enabled'):
+                              auto_plunge = self.physics_engine.auto_plunge_enabled
+                         elif hasattr(self.layout, 'physics_params'):
+                              auto_plunge = self.layout.physics_params.get('auto_plunge_enabled', False)
+                         else:
+                              auto_plunge = self.layout.config.get('auto_plunge_enabled', False)
+                         
+                         # Check internal override too (synced from somewhere?)
+                         if self.auto_plunge_enabled: auto_plunge = True
+                         if not auto_plunge:
+                             if not self.waiting_for_launch:
+                                 self.waiting_for_launch = True
+                             return
+                         # If auto_plunge IS true (but self.auto_plunge_enabled was stale), we fall through to spawn
+
+
+                     self.waiting_for_launch = False
+                     self.launch_requested = False
+
+                     old_ball = self.current_ball
+                     self.current_ball += 1
+                     logger.info(f"Ball {old_ball} drained. Spawning Ball {self.current_ball}...")
+                     
+                     self.physics_engine.add_ball(pos=(self.width * 0.94, self.height * 0.9))
+                     
+                     # Emit ball_loaded event for revolver sound effect
+                     if self.socketio:
+                         self.socketio.emit('ball_loaded', {'ball_number': self.current_ball}, namespace='/game')
+                     
+                     # Set cooldown to allow ball to be added and detected (e.g., 3.0s)
+                     self.respawn_timer = 3.0 
+                 else:
+                     self.game_over = True
+                     # Use replay's original score if playing back, otherwise use current score
+                     if self.replay_manager.is_playing and hasattr(self, 'replay_original_score'):
+                         self.last_score = self.replay_original_score
+                         logger.info(f"Ball {self.current_ball} drained. REPLAY GAME OVER. Original Score: {self.last_score}")
+                     else:
+                         # Use physics engine score directly to ensure we get the final score
+                         self.last_score = self.physics_engine.score if self.physics_engine else 0
+                         logger.info(f"Ball {self.current_ball} drained. GAME OVER. Final Score: {self.last_score}")
+        
         # Tick Replay Clock
         self.replay_manager.tick()
         
         # Render Frame
-        self._draw_frame()
+        if render:
+            self._draw_frame()
 
     def _capture_loop(self):
         # We assume 60FPS simulation loop
@@ -1475,6 +1527,26 @@ class SimulatedFrameCapture(FrameCapture):
             bottom_right = (int(plunger_pos.x + plunger_w/2), int(plunger_pos.y + plunger_h/2))
             cv2.rectangle(canvas, top_left, bottom_right, (150, 150, 150), -1)  # Gray filled rectangle
 
+        # Draw Mothership
+        if self.physics_engine and getattr(self.physics_engine, 'mothership_active', False):
+             if self.physics_engine.mothership_body:
+                 pos = self.physics_engine.mothership_body.position
+                 # Draw Hexagon
+                 radius = 60
+                 color = (255, 0, 255) # Magenta
+                 cv2.circle(canvas, (int(pos.x), int(pos.y)), int(radius), color, -1)
+                 # Health Bar
+                 health = self.physics_engine.mothership_health
+                 max_health = self.physics_engine.mothership_max_health
+                 bar_w = 100
+                 bar_h = 10
+                 x1 = int(pos.x - bar_w/2)
+                 y1 = int(pos.y - radius - 20)
+                 cv2.rectangle(canvas, (x1, y1), (x1 + bar_w, y1 + bar_h), (50, 50, 50), -1)
+                 if max_health > 0:
+                    fill_w = int(bar_w * (health / max_health))
+                    cv2.rectangle(canvas, (x1, y1), (x1 + fill_w, y1 + bar_h), (0, 255, 0), -1)
+
         # Draw Balls
         for ball in self.balls:
             pos = (int(ball['pos'][0]), int(ball['pos'][1]))
@@ -1507,8 +1579,11 @@ class SimulatedFrameCapture(FrameCapture):
         return {
             'balls': out_balls,
             'score': self.score,
+            'last_score': getattr(self, 'last_score', 0),
             'high_score': self.high_score,
             'lives': self.lives,
+            'balls_remaining': 3 - self.current_ball + 1 if not self.game_over else 0, # For UI that wants "Balls Left"
+            'current_ball': self.current_ball, # For UI that wants "Ball 1", "Ball 2"
             'game_over': self.game_over,
             'flippers': {
                 'left_angle': self.current_left_angle,
@@ -1520,6 +1595,7 @@ class SimulatedFrameCapture(FrameCapture):
             'tilt_value': self.tilt_value,
             'nudge': {'x': self.nudge_x, 'y': self.nudge_y},
             'bumper_states': getattr(self.physics_engine, 'bumper_states', []) if self.physics_engine else [],
+            'bumper_health': getattr(self.physics_engine, 'bumper_health', []) if self.physics_engine else [],
             'plunger': {
                 'x': self.physics_engine.plunger_body.position.x / self.width if self.physics_engine and hasattr(self.physics_engine, 'plunger_body') else 0.925,
                 'y': self.physics_engine.plunger_body.position.y / self.height if self.physics_engine and hasattr(self.physics_engine, 'plunger_body') else 0.95,
@@ -1530,7 +1606,21 @@ class SimulatedFrameCapture(FrameCapture):
                 'y': self.physics_engine.left_plunger_body.position.y / self.height if self.physics_engine and hasattr(self.physics_engine, 'left_plunger_body') else 0.95,
                 'state': getattr(self.physics_engine, 'left_plunger_state', 'resting') if self.physics_engine else 'resting'
             },
-            'events': events
+            'mothership': {
+                'active': getattr(self.physics_engine, 'mothership_active', False) if self.physics_engine else False,
+                'health': getattr(self.physics_engine, 'mothership_health', 0) if self.physics_engine else 0,
+                'max_health': getattr(self.physics_engine, 'mothership_max_health', 100) if self.physics_engine else 100,
+                'x': self.physics_engine.mothership_body.position.x / self.width if self.physics_engine and getattr(self.physics_engine, 'mothership_body', None) else 0.5,
+                'y': self.physics_engine.mothership_body.position.y / self.height if self.physics_engine and getattr(self.physics_engine, 'mothership_body', None) else 0.25,
+            },
+            'events': events,
+            'mothership': {
+                'active': getattr(self.physics_engine, 'mothership_active', False) if self.physics_engine else False,
+                'x': self.physics_engine.mothership_body.position.x / self.width if self.physics_engine and getattr(self.physics_engine, 'mothership_active', False) else 0.5,
+                'y': self.physics_engine.mothership_body.position.y / self.height if self.physics_engine and getattr(self.physics_engine, 'mothership_active', False) else 0.5,
+                'health': getattr(self.physics_engine, 'mothership_health', 0) if self.physics_engine else 0,
+                'max_health': getattr(self.physics_engine, 'mothership_max_health', 100) if self.physics_engine else 100
+            }
         }
     
     def _draw_flipper(self, frame, side, x1, y1, x2, y2, angle):
@@ -1645,3 +1735,15 @@ class SimulatedFrameCapture(FrameCapture):
 
         # Return all presets for frontend update
         return self.layout.camera_presets
+
+    def relaunch_ball(self):
+        """Manual trigger to launch next ball."""
+        if self.waiting_for_launch:
+            logger.info("Manual launch triggered!")
+            self.waiting_for_launch = False
+            self.launch_requested = True
+        elif not self.balls and not self.game_over:
+             # Force spawn if stuck
+             logger.info("Force spawn triggered.")
+             if self.physics_engine:
+                 self.physics_engine.add_ball(pos=(self.width * 0.94, self.height * 0.9))

@@ -43,6 +43,9 @@ class PhysicsConfig:
     base_combo_bonus: int = 50
     combo_multiplier_enabled: bool = True
     
+    # Auto-Play
+    auto_plunge_enabled: bool = True
+    
     # Rails / Guides (Visual/Physics alignment)
     rail_x_offset: float = 0.0
     rail_y_offset: float = 0.0

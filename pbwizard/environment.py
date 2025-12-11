@@ -49,6 +49,8 @@ class PinballEnv(gym.Env):
         self.holding_steps = 0
         self.last_combo_count = 0
         self.last_multiplier = 1.0
+        self.step_count = 0
+        self.max_episode_steps = 5000  # Prevent infinite episodes
 
     def step(self, action: int):
         """
@@ -66,6 +68,12 @@ class PinballEnv(gym.Env):
         # 3. Wait for Latency/Physics
         if not self.headless:
             time.sleep(0.033) # ~30Hz control loop
+        else:
+            # In headless mode, manually step the physics simulation
+            if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'manual_step'):
+                self.vision.capture.manual_step(dt=0.016, render=False)  # Step physics at ~60Hz (No render)
+            elif hasattr(self.vision, 'manual_step'):
+                self.vision.manual_step(dt=0.016)
 
         # 4. Get New State (Observation)
         frame = None
@@ -276,6 +284,12 @@ class PinballEnv(gym.Env):
         
         if self.steps_without_ball > self.max_steps_without_ball:
             truncated = True
+        
+        # Increment step counter and check max episode length
+        self.step_count += 1
+        if self.step_count >= self.max_episode_steps:
+            truncated = True
+            logger.info(f"Episode truncated: reached max steps ({self.max_episode_steps})")
 
 
         return obs, reward, terminated, truncated, info
@@ -294,6 +308,7 @@ class PinballEnv(gym.Env):
         # Reset counters
         self.last_combo_count = 0
         self.last_multiplier = 1.0
+        self.step_count = 0  # Reset episode step counter
         
         # Call reset_game on vision system to reset physics engine
         if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'reset_game_state'):

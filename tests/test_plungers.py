@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from pbwizard.physics import PymunkEngine
 from pbwizard.vision import SimulatedFrameCapture
 
-class TestEngine(PymunkEngine):
+class MockEngine(PymunkEngine):
     def _setup_collision_logging(self):
         # Simulate broken handler or manually disabled for isolation
         pass
@@ -28,7 +28,7 @@ class TestPlungers(unittest.TestCase):
         self.width = 100
         self.height = 200
         # Use subclass to disable collision logic
-        self.engine = TestEngine(self.layout, self.width, self.height)
+        self.engine = MockEngine(self.layout, self.width, self.height)
 
     def test_left_plunger_auto_fire(self):
         # Place ball in left plunger lane

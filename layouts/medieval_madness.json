@@ -1,0 +1,195 @@
+{
+    "name": "Medieval Madness",
+    "width": 0.6,
+    "height": 1.2,
+    "left_flipper_x_min": 0.25,
+    "left_flipper_x_max": 0.3,
+    "left_flipper_y_min": 0.85,
+    "left_flipper_y_max": 0.92,
+    "right_flipper_x_min": 0.7,
+    "right_flipper_x_max": 0.75,
+    "right_flipper_y_min": 0.85,
+    "right_flipper_y_max": 0.92,
+    "bumpers": [
+        {
+            "x": 0.15,
+            "y": 0.2,
+            "radius_ratio": 0.045,
+            "value": 2500
+        },
+        {
+            "x": 0.85,
+            "y": 0.2,
+            "radius_ratio": 0.045,
+            "value": 2500
+        },
+        {
+            "x": 0.25,
+            "y": 0.15,
+            "radius_ratio": 0.04,
+            "value": 1500
+        },
+        {
+            "x": 0.75,
+            "y": 0.15,
+            "radius_ratio": 0.04,
+            "value": 1500
+        }
+    ],
+    "drop_targets": [
+        {
+            "x": 0.45,
+            "y": 0.10,
+            "width": 0.04,
+            "height": 0.06,
+            "value": 8000
+        },
+        {
+            "x": 0.55,
+            "y": 0.10,
+            "width": 0.04,
+            "height": 0.06,
+            "value": 8000
+        },
+        {
+            "x": 0.5,
+            "y": 0.25,
+            "width": 0.1,
+            "height": 0.1,
+            "value": 500
+        }
+    ],
+    "captures": [
+        {
+            "x": 0.05,
+            "y": 0.4,
+            "radius": 0.05,
+            "hold_time": 2.0,
+            "score": 3000
+        },
+        {
+            "x": 0.95,
+            "y": 0.4,
+            "radius": 0.05,
+            "hold_time": 2.0,
+            "score": 3000
+        }
+    ],
+    "ramps": [],
+    "upper_flippers": [],
+    "rails": [
+        {
+            "p1": {
+                "x": 0.08,
+                "y": 0.6
+            },
+            "p2": {
+                "x": 0.0,
+                "y": 0.8
+            }
+        },
+        {
+            "p1": {
+                "x": 0.92,
+                "y": 0.6
+            },
+            "p2": {
+                "x": 1.0,
+                "y": 0.8
+            }
+        },
+        {
+            "p1": {
+                "x": 0.0,
+                "y": 0.0
+            },
+            "p2": {
+                "x": 0.0,
+                "y": 0.8
+            }
+        },
+        {
+            "p1": {
+                "x": 1.0,
+                "y": 0.0
+            },
+            "p2": {
+                "x": 1.0,
+                "y": 0.8
+            }
+        },
+        {
+            "p1": {
+                "x": 0.0,
+                "y": 0.0
+            },
+            "p2": {
+                "x": 1.0,
+                "y": 0.0
+            }
+        },
+        {
+            "p1": {
+                "x": 0.35,
+                "y": 0.0
+            },
+            "p2": {
+                "x": 0.35,
+                "y": 0.3
+            }
+        },
+        {
+            "p1": {
+                "x": 0.65,
+                "y": 0.0
+            },
+            "p2": {
+                "x": 0.65,
+                "y": 0.3
+            }
+        },
+        {
+            "p1": {
+                "x": 0.22,
+                "y": 0.75
+            },
+            "p2": {
+                "x": 0.28,
+                "y": 0.9
+            }
+        },
+        {
+            "p1": {
+                "x": 0.78,
+                "y": 0.75
+            },
+            "p2": {
+                "x": 0.72,
+                "y": 0.9
+            }
+        }
+    ],
+    "physics": {
+        "gravity": 2800.0,
+        "friction": 0.01,
+        "restitution": 0.6,
+        "flipper_speed": 45.0,
+        "flipper_resting_angle": -28.0,
+        "flipper_stroke_angle": 55.0,
+        "flipper_length": 0.20,
+        "plunger_release_speed": 1800.0,
+        "launch_angle": 0,
+        "tilt_threshold": 9.0,
+        "nudge_cost": 2.0,
+        "bumper_force": 1200.0
+    },
+    "camera_presets": {
+        "Default": {
+            "camera_x": 0.5,
+            "camera_y": 0.5,
+            "camera_z": 1.3,
+            "camera_pitch": 50,
+            "camera_zoom": 1.7
+        }
+    }
+}
