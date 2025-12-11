@@ -1,6 +1,6 @@
 <template>
   <transition name="toast-slide">
-    <div class="combo-toast" v-if="comboActive && comboCount >= 10">
+    <div class="combo-toast" :class="{ 'is-fullscreen': isFullscreen }" v-if="comboActive && comboCount >= 10">
       <div class="combo-content" :class="{ 'pulse-anim': triggerAnim }">
         <div class="count" :style="gradientStyle">{{ Math.floor(comboCount) }}x</div>
         <div class="label">COMBO</div>
@@ -39,6 +39,10 @@ const props = defineProps({
   scoreMultiplier: {
     type: Number,
     default: 1.0
+  },
+  isFullscreen: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -125,13 +129,6 @@ const gradientStyle = computed(() => {
   pointer-events: none;
   min-width: 120px;
   transition: transform 0.3s ease, top 0.3s ease, right 0.3s ease;
-}
-
-:global(:fullscreen) .combo-toast {
-  transform: scale(1.5);
-  transform-origin: top right;
-  top: 40px;
-  right: 120px; /* Moved further left from 30px */
 }
 
 .combo-content {
@@ -265,5 +262,42 @@ const gradientStyle = computed(() => {
   .toast-slide-leave-to {
     transform: translateY(-10px) scale(0.9);
   }
+  .toast-slide-enter-from,
+  .toast-slide-leave-to {
+    transform: translateY(-10px) scale(0.9);
+  }
 }
+
+/* Fullscreen Overrides */
+.combo-toast.is-fullscreen {
+  top: 150px; /* Lower down to avoid overlapping with high score/timer if present */
+  right: 60px; /* More margin from edge */
+  padding: 25px 50px; /* Much larger padding */
+  border-radius: 20px;
+  background: rgba(20, 20, 20, 0.7); /* Slightly more transparent background for better integration */
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  transform-origin: top right;
+  min-width: 200px;
+}
+
+.is-fullscreen .count {
+  font-size: 5rem; /* Massive count */
+  margin: 10px;
+}
+
+.is-fullscreen .label {
+  font-size: 1.5rem;
+  letter-spacing: 6px;
+}
+
+.is-fullscreen .multiplier {
+  font-size: 1.2rem;
+  margin-top: 5px;
+}
+
+.is-fullscreen .scale-indicator {
+  font-size: 1.2rem;
+  margin-top: 10px;
+}
+
 </style>

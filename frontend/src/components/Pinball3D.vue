@@ -31,7 +31,7 @@
     </div>
 
     <!-- Game Over Overlay -->
-    <div v-if="stats && stats.game_over" class="overlay-screen game-over-overlay">
+    <div v-if="stats && stats.game_over" class="overlay-screen game-over-overlay" :class="{ 'is-fullscreen': isFullscreen }">
         <div class="game-over-text">GAME OVER</div>
         <div v-if="stats.is_high_score" class="high-score-text">NEW HIGH SCORE!</div>
         <div class="final-score">SCORE: {{ formatNumber(stats.last_score) }}</div>
@@ -139,6 +139,7 @@ const props = defineProps({
     autoStartEnabled: { type: Boolean, default: false },
     showFlipperZones: { type: Boolean, default: false },
     connectionError: { type: Boolean, default: false },
+    isFullscreen: { type: Boolean, default: false },
 })
 
 const container = ref(null)
@@ -1218,10 +1219,21 @@ const updateBalls = (ballData) => {
     const ball = new THREE.Mesh(ballGeo, ballMat.clone()) 
     ball.castShadow = true
 
-    // Add point light for glow effect
-    const glowLight = new THREE.PointLight(0xffffff, 0, 0.2)
-    ball.add(glowLight)
-    ballGlows.push(glowLight)
+    // OPTIMIZATION: Use Sprite instead of PointLight for glow
+    // Real-time PointLights are extremely expensive in Forward Rendering (fills screen with light calculations)
+    // A Sprite (billboard) is basically free and looks 90% the same for "glow"
+    const spriteMat = new THREE.SpriteMaterial({ 
+        map: getGlowTexture(), 
+        color: 0xffffff, 
+        transparent: true, 
+        opacity: 0.0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    })
+    const glowSprite = new THREE.Sprite(spriteMat)
+    glowSprite.scale.set(0.15, 0.15, 1.0) // 2x ball size roughly
+    ball.add(glowSprite)
+    ballGlows.push(glowSprite)
 
     // Particle System Group (World Space)
     const pGroup = new THREE.Group()
@@ -1248,45 +1260,45 @@ const updateBalls = (ballData) => {
   
   // Fix for multiball alignment issue: When ball count changes, force renderer update
   // This prevents rails from going out of alignment during multiball
-  if (ballCountChanged && renderer && camera && container.value) {
-    console.log(`[Multiball] Ball count changed: ${previousBallCount} → ${newBallCount}`)
-
-    // Use clientWidth/clientHeight for consistency with initThree
-    const width = container.value.clientWidth
-    const height = container.value.clientHeight
-
-    console.log(`[Multiball] Container size: ${width}x${height}`)
-    console.log(`[Multiball] Current camera aspect: ${camera.aspect}`)
-    console.log(`[Multiball] Current renderer size:`, renderer.getSize(new THREE.Vector2()))
-
-    if (width > 0 && height > 0) {
-      const newAspect = width / height
-      camera.aspect = newAspect
-      camera.updateProjectionMatrix()
-      renderer.setSize(width, height, false) // false = don't update style
-
-      console.log(`[Multiball] Updated camera aspect to: ${newAspect}`)
-      console.log(`[Multiball] Updated renderer size to: ${width}x${height}`)
-    }
-
-    // Also do a delayed update to catch any async layout changes
-    setTimeout(() => {
-      if (renderer && camera && container.value) {
-        const width2 = container.value.clientWidth
-        const height2 = container.value.clientHeight
-
-        if (width2 > 0 && height2 > 0 && (width2 !== width || height2 !== height)) {
-          const newAspect2 = width2 / height2
-          camera.aspect = newAspect2
-          camera.updateProjectionMatrix()
-          renderer.setSize(width2, height2, false)
-          console.log(`[Multiball] Delayed update: size changed to ${width2}x${height2}, aspect: ${newAspect2}`)
-        } else {
-          console.log(`[Multiball] Delayed update: no size change needed`)
-        }
-      }
-    }, 100) // Increased to 100ms for more reliable async catch
-  }
+  // if (ballCountChanged && renderer && camera && container.value) {
+  //   console.log(`[Multiball] Ball count changed: ${previousBallCount} → ${newBallCount}`)
+  //
+  //   // Use clientWidth/clientHeight for consistency with initThree
+  //   const width = container.value.clientWidth
+  //   const height = container.value.clientHeight
+  //
+  //   console.log(`[Multiball] Container size: ${width}x${height}`)
+  //   console.log(`[Multiball] Current camera aspect: ${camera.aspect}`)
+  //   console.log(`[Multiball] Current renderer size:`, renderer.getSize(new THREE.Vector2()))
+  //
+  //   if (width > 0 && height > 0) {
+  //     const newAspect = width / height
+  //     camera.aspect = newAspect
+  //     camera.updateProjectionMatrix()
+  //     renderer.setSize(width, height, false) // false = don't update style
+  //
+  //     console.log(`[Multiball] Updated camera aspect to: ${newAspect}`)
+  //     console.log(`[Multiball] Updated renderer size to: ${width}x${height}`)
+  //   }
+  //
+  //   // Also do a delayed update to catch any async layout changes
+  //   setTimeout(() => {
+  //     if (renderer && camera && container.value) {
+  //       const width2 = container.value.clientWidth
+  //       const height2 = container.value.clientHeight
+  //
+  //       if (width2 > 0 && height2 > 0 && (width2 !== width || height2 !== height)) {
+  //         const newAspect2 = width2 / height2
+  //         camera.aspect = newAspect2
+  //         camera.updateProjectionMatrix()
+  //         renderer.setSize(width2, height2, false)
+  //         console.log(`[Multiball] Delayed update: size changed to ${width2}x${height2}, aspect: ${newAspect2}`)
+  //       } else {
+  //         console.log(`[Multiball] Delayed update: no size change needed`)
+  //       }
+  //     }
+  //   }, 100) // Increased to 100ms for more reliable async catch
+  // }
 
   // Update ball positions and stats
   ballData.forEach((data, i) => {
@@ -1340,7 +1352,7 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
       material.color.setHex(0xcccccc)
       material.emissive.setHex(0x000000)
       material.emissiveIntensity = 0
-      glow.intensity = 0
+      if (glow.material) glow.material.opacity = 0
       emitRate = 0
   } else {
       // Dynamic settings - SUBTLE SMOKE THAT GROWS WITH SCORE
@@ -1349,22 +1361,27 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
           material.color.setHex(0xffaa00) // Gold
           material.emissive.setHex(0xff4400) // Orange glow
           material.emissiveIntensity = 0.5 
-          glow.intensity = 0.5
+          if (glow.material) {
+               glow.material.opacity = 0.5
+               glow.material.color.setHex(0xffaa00)
+          }
           
-          emitRate = 0.3 // Very subtle emission
+          emitRate = 0.2 // Reduced from 0.3
           pColor = 0xaaaaaa
           pSize = 0.012
           pType = 'smoke'
-          pOpacity = 0.04 * (0.2 + scoreMultiplier * 0.8) // Reduced from 0.08
-          pLifeDecay = 0.008 // Fades faster for subtlety
+          pOpacity = 0.03 * (0.2 + scoreMultiplier * 0.8) // Reduced from 0.04
+          pLifeDecay = 0.02 // Fades faster (was 0.008)
           pGrowth = 1.015 // Slower growth
       } else if (combo < 30) {
           // Blue/Cyan Smoke
           material.color.setHex(0xccffff) 
           material.emissive.setHex(0x00ffff)
           material.emissiveIntensity = 0.6 
-          glow.color.setHex(0x00ffff)
-          glow.intensity = 0.6
+          if (glow.material) {
+               glow.material.opacity = 0.6
+               glow.material.color.setHex(0x00ffff)
+          }
           
           emitRate = 0.5
           pColor = 0x0088ff
@@ -1377,8 +1394,10 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
            material.color.setHex(0xffccff)
            material.emissive.setHex(0xff00ff)
            material.emissiveIntensity = 0.7
-           glow.color.setHex(0xff00ff)
-           glow.intensity = 0.7
+           if (glow.material) {
+                glow.material.opacity = 0.7
+                glow.material.color.setHex(0xff00ff)
+           }
            
            emitRate = 0.8
            pColor = 0xff00ff
@@ -1391,8 +1410,10 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
            material.color.setHex(0xbbddbb)
            material.emissive.setHex(0x00ff00)
            material.emissiveIntensity = 0.6
-           glow.color.setHex(0x00ff00)
-           glow.intensity = 0.6
+           if (glow.material) {
+                glow.material.opacity = 0.6
+                glow.material.color.setHex(0x00ff00)
+           }
            
            emitRate = 1.2
            pColor = 0x00ff00
@@ -1408,39 +1429,53 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
            material.color.setHex(0xffaa00)
            material.emissive.setHex(fireColor)
            material.emissiveIntensity = 0.8
-           glow.color.setHex(fireColor)
-           glow.intensity = 1.0
+           if (glow.material) {
+                glow.material.opacity = 0.8
+                glow.material.color.setHex(fireColor)
+           }
 
-           emitRate = 1.5
+           emitRate = 0.6 // Reduced from 1.5
            pColor = fireColor
-           pOpacity = 0.22 * (0.3 + scoreMultiplier * 0.7) // Starts at 0.066, grows to 0.22
+           pOpacity = 0.15 * (0.3 + scoreMultiplier * 0.7) 
            pSize = 0.022
            pGrowth = 1.04
            pLifeDecay = 0.016
       }
   }
+  
+  // Update Glow Sprite
+  // PointLight uses .intensity, Sprite uses material.opacity
+  if (glow.isSprite) {
+      // already set above via material.opacity
+  } else {
+       // Fallback if we revert to lights
+      glow.intensity = glow.intensity || 0
+  }
 
   // Apply Smoke Intensity Setting
-  if (smokeIntensity.value !== 1.0) {
-      if (smokeIntensity.value <= 0) {
-          emitRate = 0
-      } else {
-          emitRate = Math.round(emitRate * smokeIntensity.value * 10) / 10 // Preserve decimals
-          pOpacity = Math.min(1.0, pOpacity * Math.sqrt(smokeIntensity.value))
-      }
-  }
+  // If smoke is disabled (0), scale emitRate to 0
+  const smokeIntensity = physicsConfig.value?.smoke_intensity ?? 1.0
+  emitRate *= smokeIntensity
 
   // Emit Particles with Interpolation
-  if (pGroup) {
-      if (emitRate > 0) {
-          spawnParticles(pGroup, emitRate, ballPos, prevPos, pColor, pOpacity, pSize, pGrowth, pLifeDecay)
-      } else {
-          // Allow natural decay - Removing the forced rapid decay
-          // This lets the smoke "hang" in the air as requested
+  // PERF FIX: Throttle spawning to max 60fps to prevent "event storm" processing 
+  // if socket messages backlog (e.g. after a frame drop/freeze).
+  const now = Date.now()
+  const lastSpawn = pGroup.userData.lastSpawnTime || 0
+  if (now - lastSpawn > 16) { // Limit to ~60hz
+      pGroup.userData.lastSpawnTime = now
+      
+      if (pGroup) {
+          if (emitRate > 0) {
+              spawnParticles(pGroup, emitRate, ballPos, prevPos, pColor, pOpacity, pSize, pGrowth, pLifeDecay)
+          }
+          animateParticleSystem(pGroup)
       }
-      animateParticleSystem(pGroup)
   }
 }
+
+// Global particle geometry (reused)
+const particleGeo = new THREE.SphereGeometry(1, 6, 6)
 
 const spawnParticles = (pGroup, count, currentPos, prevPos, color, opacity, size, growth, decay) => {
     const pool = pGroup.userData.pool
@@ -1453,11 +1488,11 @@ const spawnParticles = (pGroup, count, currentPos, prevPos, color, opacity, size
     for (let i = 0; i < totalToSpawn; i++) {
         let p = pool.find(p => !p.visible)
         
-        // If no dead particle found, try to create new if under limit
-        if (!p && pool.length < 300) { 
-            const geo = new THREE.SphereGeometry(1, 6, 6)
+        // REDUCED LIMIT: 50 (was 300) to fix fill-rate issues
+        if (!p && pool.length < 50) { 
+            // Reuse global geometry!
             const mat = new THREE.MeshBasicMaterial({ transparent: true })
-            p = new THREE.Mesh(geo, mat)
+            p = new THREE.Mesh(particleGeo, mat)
             pGroup.add(p)
             pool.push(p)
         }
@@ -1477,6 +1512,30 @@ const spawnParticles = (pGroup, count, currentPos, prevPos, color, opacity, size
             resetParticle(p, pos, color, opacity, size, growth, decay)
         }
     }
+}
+
+
+
+// Cached glow texture to prevent recreation
+let _glowTexture = null
+const getGlowTexture = () => {
+    if (_glowTexture) return _glowTexture
+    
+    const canvas = document.createElement('canvas')
+    canvas.width = 32
+    canvas.height = 32
+    const ctx = canvas.getContext('2d')
+    
+    const grd = ctx.createRadialGradient(16, 16, 0, 16, 16, 16)
+    grd.addColorStop(0, 'rgba(255, 255, 255, 1.0)')
+    grd.addColorStop(0.4, 'rgba(255, 255, 255, 0.5)')
+    grd.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)')
+    
+    ctx.fillStyle = grd
+    ctx.fillRect(0, 0, 32, 32)
+    
+    _glowTexture = new THREE.CanvasTexture(canvas)
+    return _glowTexture
 }
 
 const resetParticle = (p, pos, color, opacity, size, growth, decay) => {
@@ -1739,10 +1798,14 @@ const initThree = () => {
   camera.position.set(0, -1.5, 0.9) 
   camera.lookAt(0, 0, 0)
 
-  renderer = new THREE.WebGLRenderer({ antialias: true })
+  renderer = new THREE.WebGLRenderer({ 
+      antialias: true,
+      powerPreference: "high-performance",
+      precision: "highp"
+  })
   renderer.setSize(width, height)
-  renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap // Softer shadows
+  renderer.shadowMap.enabled = false // DISABLED: Performance bottleneck on high-res/zoom
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap 
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.4 // Increased from 1.2 for brighter scene
   container.value.appendChild(renderer.domElement)
@@ -1755,8 +1818,9 @@ const initThree = () => {
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.5) // Increased from 1.2
   dirLight.position.set(1, -2, 3)
   dirLight.castShadow = true
-  dirLight.shadow.mapSize.width = 2048
-  dirLight.shadow.mapSize.height = 2048
+  // OPTIMIZATION: 1024 shadow map is plenty for this view distance. 2048 is overkill/heavy.
+  dirLight.shadow.mapSize.width = 1024 
+  dirLight.shadow.mapSize.height = 1024
   dirLight.shadow.camera.near = 0.5
   dirLight.shadow.camera.far = 10
   scene.add(dirLight)
@@ -1824,15 +1888,34 @@ const initThree = () => {
   resizeObserver = new ResizeObserver(entries => {
     for (let entry of entries) {
       const { width, height } = entry.contentRect
-      console.warn(`📐 RESIZE DETECTED: ${width}x${height}, balls: ${balls.length}`)
-      if (camera && renderer) {
+      // console.warn(`📐 RESIZE DETECTED: ${width}x${height}, balls: ${balls.length}`)
+      if (camera && renderer && width > 0 && height > 0) {
         const oldAspect = camera.aspect
         camera.aspect = width / height
         camera.updateProjectionMatrix()
-        renderer.setSize(width, height)
-        if (Math.abs(oldAspect - camera.aspect) > 0.01) {
-          console.error(`⚠️ ASPECT RATIO CHANGED: ${oldAspect.toFixed(3)} → ${camera.aspect.toFixed(3)}`)
-        }
+        
+        // PERFORMANCE FIX: Fixed internal resolution scaling (User requested "enlarged regular view")
+        // Calculate target resolution (upscale from a lower resolution if fullscreen)
+        const targetHeight = Math.min(height, 1080) // Cap internal render height at 1080p
+        const targetWidth = targetHeight * camera.aspect
+        
+        renderer.setSize(targetWidth, targetHeight, false) // false = don't update CSS size (let it stretch)
+        
+
+        
+        // Ensure CSS style matches container (stretch to fill)
+        // Use setProperty to be explicit and potentially override inline styles
+        renderer.domElement.style.setProperty('width', '100%', 'important')
+        renderer.domElement.style.setProperty('height', '100%', 'important')
+        renderer.domElement.style.setProperty('display', 'block', 'important')
+        renderer.domElement.style.setProperty('object-fit', 'contain') // Ensure aspect ratio is preserved if needed
+        
+        // Reset pixel ratio to 1.0 since we are handling scaling scaling manually
+        renderer.setPixelRatio(1.0)
+        
+        // if (Math.abs(oldAspect - camera.aspect) > 0.01) {
+        //   console.error(`⚠️ ASPECT RATIO CHANGED: ${oldAspect.toFixed(3)} → ${camera.aspect.toFixed(3)}`)
+        // }
       }
     }
   })
@@ -3137,6 +3220,25 @@ const handleKeydown = (e) => {
   font-family: 'Courier New', monospace;
   text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
 }
+
+/* Fullscreen Optimizations */
+.game-over-overlay.is-fullscreen .game-over-text {
+  font-size: 8rem;
+  margin-bottom: 40px;
+  text-shadow: 0 0 40px rgba(255, 0, 0, 0.8);
+}
+
+.game-over-overlay.is-fullscreen .high-score-text {
+  font-size: 6rem;
+  margin-bottom: 40px;
+  text-shadow: 0 0 40px rgba(255, 215, 0, 1), 0 0 80px rgba(255, 100, 0, 0.8);
+}
+
+.game-over-overlay.is-fullscreen .final-score {
+  font-size: 5rem;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+}
+
 
 @keyframes fadeIn {
   from { opacity: 0; }

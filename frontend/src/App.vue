@@ -17,6 +17,7 @@
                             :comboCount="stats.combo_count || 0"
                             :scoreMultiplier="stats.score_multiplier || 1.0"
                             :comboActive="stats.combo_active || false"
+                            :isFullscreen="isFullscreen"
                         />
                     </div>
 
@@ -49,6 +50,7 @@
                         :autoStartEnabled="toggles.autoStart"
                         :showFlipperZones="showFlipperZones"
                         :connectionError="connectionError"
+                        :isFullscreen="isFullscreen"
                         @toggle-view="toggleViewMode"
                         @toggle-fullscreen="toggleFullscreen"
                     />
@@ -58,6 +60,7 @@
                         :comboActive="stats.combo_active || false"
                         :maxTimer="physics.combo_window || 3.0"
                         :scoreMultiplier="stats.score_multiplier || 1.0"
+                        :isFullscreen="isFullscreen"
                     />
 
                     <HighScoreBar
@@ -67,8 +70,12 @@
                     />
                 </div>
 
-                <Controls :buttonStates="buttonStates" :toggles="toggles" @input="handleInput" @toggle-ai="toggleAI"
-                          @toggle-auto-start="toggleAutoStart" :disabled="stats.is_training"/>
+                <Controls :buttonStates="buttonStates"
+                          :toggles="toggles"
+                          @input="handleInput"
+                          @toggle-ai="toggleAI"
+                          @toggle-auto-start="toggleAutoStart"
+                          :disabled="stats.is_training"/>
 
 
             </div>
@@ -195,6 +202,9 @@ const hasUnsavedChanges = ref(false)
 const isSyncingPhysics = ref(false)
 let physicsSyncReleaseTimer = null
 
+// UI State
+const isFullscreen = ref(false)
+
 // Track button pressed states for visual feedback
 const buttonStates = reactive({
     left: false,
@@ -316,9 +326,9 @@ const autoStartTimeoutId = ref(null)
 
 const cameraPresets = ref({})
 const selectedPreset = ref('')
-const isFullscreen = ref(false)
 
 const handleFullscreenChange = () => {
+    console.log('Fullscreen changed:', document.fullscreenElement)
     isFullscreen.value = !!document.fullscreenElement
 }
 
@@ -956,6 +966,8 @@ onMounted(() => {
         sockets.control.emit('input_event', {key: 'ShiftRight', type: 'up'})
     })
 
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+
     // Expose stats for Cypress testing
     if (window.Cypress || import.meta.env.DEV) {
         window.__APP_STATS__ = stats
@@ -976,6 +988,7 @@ onUnmounted(() => {
 
     window.removeEventListener('keydown', handleKeydown)
     window.removeEventListener('keyup', handleKeyup)
+    document.removeEventListener('fullscreenchange', handleFullscreenChange)
     Object.values(sockets).forEach(s => s.disconnect())
 })
 </script>

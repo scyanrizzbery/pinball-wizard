@@ -1,5 +1,5 @@
 <template>
-  <div class="scoreboard-container">
+  <div class="scoreboard-container" :class="{ 'double-scale': isFullscreen }">
     <!-- Main Score -->
     <div class="stat-box main-score">
       <span class="label">SCORE</span>
@@ -66,6 +66,7 @@ const props = defineProps({
   comboCount: { type: Number, default: 0 },
   scoreMultiplier: { type: Number, default: 1.0 },
   comboActive: { type: Boolean, default: false },
+  isFullscreen: { type: Boolean, default: false },
 })
 
 const getReelItems = (num, minDigits) => {
@@ -131,11 +132,10 @@ const highScoreReels = computed(() => getReelItems(props.highScore, 7))
   }
 }
 
-/* Use :global to match the fullscreen ancestor from scoped styles */
-:global(:fullscreen) .scoreboard-container {
-  transform: scale(1.5);
+.scoreboard-container.double-scale {
+  transform: scale(2.5) !important;
   transform-origin: top center;
-  margin-top: 20px;
+  margin-top: 30px; /* Increased margin for larger scale */
 }
 
 .stat-box {
