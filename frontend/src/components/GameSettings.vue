@@ -33,6 +33,16 @@
       <h4 class="section-title">Visuals</h4>
 
       <div class="control-group">
+        <label>Graphics Preset</label>
+        <select v-model="selectedPreset" @change="applyPreset" style="width: 100%; padding: 5px; background: #333; color: white; border: 1px solid #555; border-radius: 4px;">
+          <option value="low">Low (Fastest)</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="ultra">Ultra (Max FX)</option>
+        </select>
+      </div>
+
+      <div class="control-group">
         <label>Smoke Intensity: {{ Math.round(localSmokeIntensity * 100) }}%</label>
         <input
           type="range"
@@ -61,6 +71,14 @@ const emit = defineEmits(['close', 'update-smoke-intensity'])
 const volume = ref(0.5)
 const muted = ref(false)
 const localSmokeIntensity = ref(0.5)
+const selectedPreset = ref('medium')
+
+const presets = {
+  low: { smoke: 0.0 },
+  medium: { smoke: 0.5 },
+  high: { smoke: 1.0 },
+  ultra: { smoke: 2.0 }
+}
 
 onMounted(() => {
     // Initialize from SoundManager defaults
@@ -84,6 +102,15 @@ const updateMute = () => {
 
 const updateSmokeIntensity = () => {
     emit('update-smoke-intensity', localSmokeIntensity.value)
+    // If manual adjustment doesn't match a preset, strictly speaking we are "custom", but for now keep last preset or ignore.
+}
+
+const applyPreset = () => {
+  const settings = presets[selectedPreset.value]
+  if (settings) {
+    localSmokeIntensity.value = settings.smoke
+    updateSmokeIntensity()
+  }
 }
 
 const testSound = () => {

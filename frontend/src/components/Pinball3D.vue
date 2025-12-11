@@ -1354,93 +1354,82 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
       material.emissiveIntensity = 0
       if (glow.material) glow.material.opacity = 0
       emitRate = 0
-  } else {
-      // Dynamic settings - SUBTLE SMOKE THAT GROWS WITH SCORE
-      if (combo < 20) {
-          // Grey Smoke - Ball Gold/Orange
-          material.color.setHex(0xffaa00) // Gold
-          material.emissive.setHex(0xff4400) // Orange glow
-          material.emissiveIntensity = 0.5 
-          if (glow.material) {
-               glow.material.opacity = 0.5
-               glow.material.color.setHex(0xffaa00)
-          }
-          
-          emitRate = 0.2 // Reduced from 0.3
-          pColor = 0xaaaaaa
-          pSize = 0.012
-          pType = 'smoke'
-          pOpacity = 0.03 * (0.2 + scoreMultiplier * 0.8) // Reduced from 0.04
-          pLifeDecay = 0.02 // Fades faster (was 0.008)
-          pGrowth = 1.015 // Slower growth
-      } else if (combo < 30) {
-          // Blue/Cyan Smoke
-          material.color.setHex(0xccffff) 
-          material.emissive.setHex(0x00ffff)
-          material.emissiveIntensity = 0.6 
-          if (glow.material) {
-               glow.material.opacity = 0.6
-               glow.material.color.setHex(0x00ffff)
-          }
-          
-          emitRate = 0.5
-          pColor = 0x0088ff
-          pOpacity = 0.06 * (0.2 + scoreMultiplier * 0.8) // Reduced from 0.12
-          pSize = 0.015
-          pLifeDecay = 0.01
-          pGrowth = 1.02
-      } else if (combo < 40) {
-           // Purple Magic
-           material.color.setHex(0xffccff)
-           material.emissive.setHex(0xff00ff)
-           material.emissiveIntensity = 0.7
-           if (glow.material) {
-                glow.material.opacity = 0.7
-                glow.material.color.setHex(0xff00ff)
-           }
-           
-           emitRate = 0.8
-           pColor = 0xff00ff
-           pOpacity = 0.075 * (0.2 + scoreMultiplier * 0.8) // Reduced from 0.15
-           pSize = 0.018
-           pLifeDecay = 0.012
-           pGrowth = 1.025
-      } else if (combo < 50) {
-           // Green Toxic
-           material.color.setHex(0xbbddbb)
-           material.emissive.setHex(0x00ff00)
-           material.emissiveIntensity = 0.6
-           if (glow.material) {
-                glow.material.opacity = 0.6
-                glow.material.color.setHex(0x00ff00)
-           }
-           
-           emitRate = 1.2
-           pColor = 0x00ff00
-           pOpacity = 0.09 * (0.2 + scoreMultiplier * 0.8) // Reduced from 0.18
-           pSize = 0.02
-           pGrowth = 1.03
-           pLifeDecay = 0.014
-      } else {
-           // FIRE!!!
-           const firePhase = (Date.now() % 500) / 500
-           const fireColor = firePhase < 0.5 ? 0xff6600 : 0xffaa00
-           
-           material.color.setHex(0xffaa00)
-           material.emissive.setHex(fireColor)
-           material.emissiveIntensity = 0.8
-           if (glow.material) {
-                glow.material.opacity = 0.8
-                glow.material.color.setHex(fireColor)
-           }
-
-           emitRate = 0.6 // Reduced from 1.5
-           pColor = fireColor
-           pOpacity = 0.15 * (0.3 + scoreMultiplier * 0.7) 
-           pSize = 0.022
-           pGrowth = 1.04
-           pLifeDecay = 0.016
+  } else if (combo < 20) {
+      // Level 1: Gold / Orange
+      material.color.setHex(0xffaa00) // Gold
+      material.emissive.setHex(0xff4400) // Orange glow
+      material.emissiveIntensity = 0.5 
+      if (glow.material) {
+           glow.material.opacity = 0.5
+           glow.material.color.setHex(0xffaa00)
       }
+      
+      emitRate = 0.2
+      pColor = 0xaaaaaa
+      pSize = 0.012
+      pType = 'smoke'
+      pOpacity = 0.03 * (0.2 + scoreMultiplier * 0.8)
+      pLifeDecay = 0.02
+      pGrowth = 1.015
+  } else if (combo < 40) {
+      // Level 2: TikTok Tech (Technicolor Glitch)
+      // Cycle between Cyan and Magenta rapidly
+      const time = Date.now()
+      const phase = (time % 1000) / 1000 // 1 second cycle
+      
+      let targetColor
+      let emitColor
+      
+      if (phase < 0.45) {
+          targetColor = 0x00ffff // Cyan
+          emitColor = 0x00ffff
+      } else if (phase < 0.9) {
+          targetColor = 0xff00ff // Magenta
+          emitColor = 0xff00ff
+      } else {
+          targetColor = 0xffffff // White flash
+          emitColor = 0xffffff
+      }
+      
+      material.color.setHex(targetColor)
+      material.emissive.setHex(targetColor)
+      material.emissiveIntensity = 0.8
+      
+      if (glow.material) {
+           glow.material.opacity = 0.7
+           glow.material.color.setHex(targetColor)
+      }
+      
+      emitRate = 0.6
+      pColor = emitColor
+      pOpacity = 0.08
+      pSize = 0.018
+      pGrowth = 1.02
+      pLifeDecay = 0.015
+      
+  } else {
+      // Level 3: ACID TRIP (High scale rainbow cycle)
+      const time = Date.now() * 0.002 // Speed
+      const hue = time % 1.0
+      const color = new THREE.Color().setHSL(hue, 1.0, 0.5)
+      
+      material.color.copy(color)
+      material.emissive.copy(color)
+      material.emissiveIntensity = 1.0 // Maximum glow
+      
+      if (glow.material) {
+           glow.material.opacity = 0.9
+           glow.material.color.copy(color)
+      }
+      
+      // Psychadelic trails
+      emitRate = 1.5
+      const trailHue = (hue + 0.5) % 1.0 // Complementary color smoke
+      pColor = new THREE.Color().setHSL(trailHue, 1.0, 0.5).getHex()
+      pOpacity = 0.15
+      pSize = 0.025
+      pGrowth = 1.04
+      pLifeDecay = 0.01
   }
   
   // Update Glow Sprite
@@ -1678,10 +1667,105 @@ const animate = () => {
 
     if (controls) controls.update()
 
+    if (ballParticles[0]) {
+        animateParticleSystem(ballParticles[0])
+    }
+    // Wait, updateBallAppearance calls animateParticleSystem for its own group.
+    
+    // Animate Sparks
+    animateSparks()
+
+    // Render scene
+    // Render scene
     renderer.render(scene, camera)
     
     camera.position.x = originalX // Restore
   }
+}
+
+// Spark System
+const triggerSparks = (pos) => {
+    // Ensure spark group exists
+    if (!window.sparkGroup) {
+         const g = new THREE.Group()
+         g.userData = { pool: [] }
+         // Create pool of spark lines/points
+         for(let i=0; i<50; i++) {
+             // Elongated sparks (BufferGeometry line or scaled mesh)
+             const geometry = new THREE.PlaneGeometry(0.02, 0.08)
+             const material = new THREE.MeshBasicMaterial({ 
+                 color: 0xffffaa, 
+                 side: THREE.DoubleSide, 
+                 transparent: true,
+                 blending: THREE.AdditiveBlending
+             })
+             const p = new THREE.Mesh(geometry, material)
+             p.visible = false
+             g.add(p)
+             g.userData.pool.push(p)
+         }
+         scene.add(g)
+         window.sparkGroup = g
+    }
+    
+    const pool = window.sparkGroup.userData.pool
+    const count = 8 + Math.floor(Math.random() * 8)
+    
+    for(let i=0; i<count; i++) {
+        const p = pool.find(p => !p.visible)
+        if (!p) break
+        
+        p.visible = true
+        p.position.copy(pos)
+        // Raise slightly above bumper
+        p.position.z += 0.05
+        
+        // Random explosion direction
+        const theta = Math.random() * Math.PI * 2
+        const phi = Math.random() * Math.PI * 0.5 // Upward hemisphere
+        const speed = 0.05 + Math.random() * 0.08
+        
+        p.userData = {
+            velocity: new THREE.Vector3(
+                Math.sin(phi) * Math.cos(theta) * speed,
+                Math.sin(phi) * Math.sin(theta) * speed,
+                Math.cos(phi) * speed
+            ),
+            gravity: 0.003,
+            life: 1.0,
+            decay: 0.04 + Math.random() * 0.04
+        }
+        
+        // Orient spark to velocity direction
+        p.lookAt(p.position.clone().add(p.userData.velocity))
+        p.scale.set(1, 1, 1)
+        p.material.opacity = 1.0
+        p.material.color.setHex(0xffffaa) // Reset color
+    }
+}
+
+// Animation loop addition for sparks
+const animateSparks = () => {
+    if (window.sparkGroup) {
+        window.sparkGroup.userData.pool.forEach(p => {
+            if (!p.visible) return
+            
+            p.userData.life -= p.userData.decay
+            if (p.userData.life <= 0) {
+                p.visible = false
+                return
+            }
+            
+            // Move
+            p.position.add(p.userData.velocity)
+            // Gravity
+            p.userData.velocity.z -= p.userData.gravity
+            // Fade
+            p.material.opacity = p.userData.life
+            // Shrink length?
+            p.scale.y = p.userData.life 
+        })
+    }
 }
 
 // Continuous UFO light animation - Slow blinking when idle, fast when hit
@@ -1700,6 +1784,18 @@ const animateUFOLights = () => {
     // Animate bumper scale when hit
     if (lastHitTime) {
       const timeSinceHit = (now - lastHitTime) / 1000 // seconds
+      
+      // TRIGGER SPARKS if just hit (within first 50ms) and not yet sparked
+      if (timeSinceHit < 0.05 && !bumperGroup.userData.hasSparked) {
+          triggerSparks(bumperGroup.position)
+          bumperGroup.userData.hasSparked = true
+      }
+      
+      // Reset spark flag if enough time passed (debounce)
+      if (timeSinceHit > 0.2) {
+          bumperGroup.userData.hasSparked = false
+      }
+
       const scaleDuration = 0.2 // 200ms animation
 
       if (timeSinceHit < scaleDuration) {
