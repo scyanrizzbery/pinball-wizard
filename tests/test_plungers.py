@@ -36,7 +36,10 @@ class TestPlungers(unittest.TestCase):
         # Height > 0.5 * height (> 100)
         
         # Add ball at (10, 180) - clearly in zone
-        ball = self.engine.add_ball((10, 180))
+        # Add ball at (10, 180) - clearly in zone
+        self.engine.add_ball((10, 180))
+        self.engine.space.step(0.016)
+        ball = self.engine.balls[-1]
         # Zero velocity to simulate stationary
         ball.velocity = (0, 0)
         
@@ -55,7 +58,9 @@ class TestPlungers(unittest.TestCase):
 
     def test_left_plunger_no_fire_when_moving(self):
         # Ball moving fast in lane
-        ball = self.engine.add_ball((10, 180))
+        self.engine.add_ball((10, 180))
+        self.engine.space.step(0.016)
+        ball = self.engine.balls[-1]
         ball.velocity = (0, 200) # Moving fast down
         print(f"DEBUG TEST: Ball Velocity set to {ball.velocity}, Length: {ball.velocity.length}")
         
@@ -67,7 +72,9 @@ class TestPlungers(unittest.TestCase):
 
     def test_left_plunger_no_fire_outside_zone(self):
         # Ball stationary but outside zone
-        ball = self.engine.add_ball((50, 180)) # Center
+        self.engine.add_ball((50, 180)) # Center
+        self.engine.space.step(0.016)
+        ball = self.engine.balls[-1]
         ball.velocity = (0, 0)
         
         self.engine.left_plunger_state = 'resting'

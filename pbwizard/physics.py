@@ -254,14 +254,18 @@ class PymunkEngine(Physics):
                     self.last_hit_time = current_time
                     
                     # Calculate multiplier based on combo
+                    sim_multiplier = 1.0
                     if self.config.combo_multiplier_enabled and self.combo_count > 1:
-                        # Multiplier increases with combo: 2x, 3x, 4x, up to max
-                        self.score_multiplier = min(
-                            float(self.combo_count), 
-                            self.config.multiplier_max
-                        )
-                    else:
-                        self.score_multiplier = 1.0
+                        sim_multiplier = float(self.combo_count)
+                    
+                    # Multiball Bonus: 2x Multiplier if more than 1 ball is in play
+                    if len(self.balls) > 1:
+                        sim_multiplier *= 2.0
+                        
+                    self.score_multiplier = min(
+                        sim_multiplier, 
+                        self.config.multiplier_max
+                    )
                     
                     # Apply multiplier to score
                     final_score = int(score_value * self.score_multiplier)
@@ -1001,8 +1005,17 @@ class PymunkEngine(Physics):
             return None
 
     def _add_ball_safe(self, space, pos):
+        """Internal method to add ball, safe to call from callback."""
+        # Check if we're in the middle of a reset (ignore old callbacks)
+        if getattr(self, '_resetting', False):
+            logger.debug("Ignoring add_ball callback during reset")
+            return
+
+        pos = tuple(pos) # Ensure tuple
+        
+        # Check max balls limit
         if len(self.balls) >= 5:
-            logger.warning("Max balls (5) reached, ignoring add_ball request.")
+            logger.warning(f"Max balls (5) reached, ignoring add_ball request.")
             return None
             
         mass = self.config.ball_mass
@@ -1137,37 +1150,55 @@ class PymunkEngine(Physics):
         logger.info(f"Updated physics bumpers: {len(bumpers_data)} bumpers active")
 
     def reset(self):
-        """Reset the physics simulation to initial state."""
-        with self.lock:
-            # Always use callback for safety
-            self.space.add_post_step_callback(lambda s, k: self._reset_safe(), None)
-
-    def _reset_safe(self):
-        """Internal reset logic, safe to call when not stepping."""
+        # To truly clear pending callbacks and state, it's safer to recreate the space
+        # IF we can re-setup everything quickly.
+        # But we already remove all shapes/bodies.
+        # Pymunk doesn't have a public API to clear callbacks.
+        # However, _add_ball_safe checks max limit.
+        
+        # Clear existing objects
+        logger.info(f"Reset: Clearing space. Balls before: {len(self.balls)}")
+        for shape in self.space.shapes:
+            self.space.remove(shape)
+        for body in self.space.bodies:
+            self.space.remove(body)
+        for constraint in self.space.constraints:
+            self.space.remove(constraint)
+            
+        # Pymunk does not expose a way to clear post_step_callbacks directly
+        # But we can try to clear them if possible, or just rely on robust callback logic.
+        # Best way: Recreate space? No, expensive.
+        # We will add a 'resetting' flag that callbacks can check.
+        self._resetting = True
+        
+        # Re-initialize static geometry
+        self._setup_static_geometry()
+        self._setup_flippers()
+        self._setup_plungers()
+        self._setup_kickbacks()
+        self._setup_bumpers()
+        self._setup_drop_targets()
+        self._setup_walls()
+        self._setup_collision_logging()
+        
+        # Reset game state variables
+        self.balls = []
+        self.active_balls = [] # Clear active ball references
         self.score = 0
-        self.combo_count = 0
+        self.tilt_value = 0.0
+        self.is_tilted = False
+        self.bumper_states = [0.0] * len(self.layout.bumpers)
+        self.drop_target_states = [True] * len(self.layout.drop_targets)
+        self.combo_count = 0 
         self.combo_timer = 0.0
-        self.last_hit_time = 0.0
         self.score_multiplier = 1.0
         
-        # Remove all balls
-        for ball in self.balls:
-            self.space.remove(ball, *ball.shapes)
-        self.balls = []
+        self._resetting = False
         
-        # Reset bumper states
-        self.bumper_states = [0.0] * len(self.bumper_states)
+        # Add the initial ball *after* reset, using the same callback mechanism
+        self.space.add_post_step_callback(self._add_ball_safe, (self.width * 0.93, self.height * 0.8)) # Plunger lane
         
-        # Reset drop targets - restore all to "up" position
-        if hasattr(self, 'drop_target_states'):
-            self.drop_target_states = [True] * len(self.drop_target_states)
-            # Re-add drop target shapes to physics space
-            for i, shape in enumerate(self.drop_target_shapes):
-                if shape not in self.space.shapes:
-                    self.space.add(shape)
-            logger.info(f"Reset drop targets: {len(self.drop_target_states)} targets restored")
-
-        logger.info("Physics engine reset.")
+        logger.info("Physics engine reset and initial ball added via callback.")
 
     def update(self, dt):
         with self.lock:

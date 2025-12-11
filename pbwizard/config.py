@@ -17,8 +17,8 @@ class PhysicsConfig:
     
     # Flippers
     flipper_speed: float = 30.0
-    flipper_resting_angle: float = 0.0 # degrees check default
-    flipper_stroke_angle: float = 0.0 # degrees check default
+    flipper_resting_angle: float = 30.0 # Rest angle (down)
+    flipper_stroke_angle: float = -30.0 # Stroke angle (up)
     flipper_length: float = 0.12 # Ratio of simplified width? Or layout unit? previously flipper_length_ratio
     flipper_width: float = 0.05
     flipper_tip_width: float = 0.025

@@ -16,6 +16,7 @@ class TestMultiballLimits(unittest.TestCase):
         engine.balls = [] # Clear
         for _ in range(5):
              engine.add_ball((100, 100))
+             engine.space.step(0.016) # Process callbacks
         
         self.assertEqual(len(engine.balls), 5)
         
@@ -45,8 +46,9 @@ class TestMultiballLimits(unittest.TestCase):
         
         # Reset engine with 4 balls
         engine.balls = []
-        for _ in range(4):
-             engine.add_ball((50, 50)) # Safe spot
+        for i in range(4):
+             engine.add_ball((50 + i * 30, 50)) # Spread out to prevent explosion
+             engine.space.step(0.016)
              
         # Target at 0.5, 0.5 (200, 400)
         # Drop target logic only triggers if it was the last one.

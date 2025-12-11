@@ -824,15 +824,32 @@ watch(() => props.stats, (newStats) => {
     trainingChartData.policy_loss.push([timestamp, newStats.policy_gradient_loss || 0])
     trainingChartData.entropy_loss.push([timestamp, newStats.entropy_loss || 0])
     
-    // Limit data points
-    const maxDataPoints = 100
+    // Limit data points with Compaction (Average pairs) to keep history
+    // Increase limit to allow more detail
+    const maxDataPoints = 500 
+    
     if (trainingChartData.mean_reward.length > maxDataPoints) {
-        trainingChartData.mean_reward.shift()
-        trainingChartData.explained_variance.shift()
-        trainingChartData.loss.shift()
-        trainingChartData.value_loss.shift()
-        trainingChartData.policy_loss.shift()
-        trainingChartData.entropy_loss.shift()
+        const compactArray = (arr) => {
+            const newArr = []
+            for (let i = 0; i < arr.length - 1; i += 2) {
+                // arr[i] is [timestamp, value]
+                const t = arr[i+1][0] // Keep later timestamp
+                const v = (arr[i][1] + arr[i+1][1]) / 2 // Average value
+                newArr.push([t, v])
+            }
+            // If odd number, keep last
+            if (arr.length % 2 !== 0) {
+                newArr.push(arr[arr.length - 1])
+            }
+            return newArr
+        }
+
+        trainingChartData.mean_reward = compactArray(trainingChartData.mean_reward)
+        trainingChartData.explained_variance = compactArray(trainingChartData.explained_variance)
+        trainingChartData.loss = compactArray(trainingChartData.loss)
+        trainingChartData.value_loss = compactArray(trainingChartData.value_loss)
+        trainingChartData.policy_loss = compactArray(trainingChartData.policy_loss)
+        trainingChartData.entropy_loss = compactArray(trainingChartData.entropy_loss)
     }
   }
 }, { deep: true })

@@ -161,18 +161,24 @@ class LayoutFileHandler(FileSystemEventHandler):
 
 
 class FrameCapture:
-    def __init__(self, camera_index=0):
+    def __init__(self, camera_index=0, headless=False):
         self.cap = cv2.VideoCapture(int(camera_index))
         self.frame = None
         self.running = False
         self.lock = threading.Lock()
         self.thread = None
+        self.headless = headless
 
     def start(self):
         self.running = True
-        self.thread = threading.Thread(target=self._capture_loop)
-        self.thread.start()
-        logger.info(f"Camera started on index {int(self.cap.get(cv2.CAP_PROP_POS_MSEC)) if self.cap.isOpened() else 'Unknown'}")
+        # If headless, we DO NOT start the thread.
+        # The environment will drive the simulation via manual_step()
+        if not self.headless:
+            self.thread = threading.Thread(target=self._capture_loop)
+            self.thread.start()
+            logger.info(f"Camera started on index {int(self.cap.get(cv2.CAP_PROP_POS_MSEC)) if self.cap.isOpened() else 'Unknown'}")
+        else:
+            logger.info("FrameCapture started in Headless Mode (No capture thread)")
 
     def _capture_loop(self):
         while self.running:
@@ -644,6 +650,9 @@ class SimulatedFrameCapture(FrameCapture):
         self.ball_lost = False # Reset ball lost flag
         if self.physics_engine:
             self.physics_engine.reset()
+            # Step physics once to process async add_ball callback
+            # This ensures ball exists before first observation
+            self.physics_engine.update(0.016)
 
     def update_rails(self, rails_data):
         """Update rails from frontend editor."""
@@ -1261,9 +1270,15 @@ class SimulatedFrameCapture(FrameCapture):
 
     def start(self):
         self.running = True
-        self.thread = threading.Thread(target=self._capture_loop)
-        self.thread.start()
-        logger.info("Simulation started")
+        
+        # If headless, we DO NOT start the thread.
+        # The environment will drive the simulation via manual_step()
+        if not self.headless:
+            self.thread = threading.Thread(target=self._capture_loop)
+            self.thread.start()
+            logger.info("Simulation started")
+        else:
+            logger.info("Simulation started in Headless Mode (Manual Stepping)")
 
     def manual_step(self, dt=0.016):
         """Perform a single step of simulation (physics + logic + render)."""

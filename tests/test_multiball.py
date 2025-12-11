@@ -22,7 +22,9 @@ class TestMultiball(unittest.TestCase):
 
         # Add a ball manually
         if self.sim.physics_engine:
-             self.sim.add_ball()
+             self.sim.physics_engine.add_ball((225, 600)) # Center-ish
+             # Step to process add_ball callback
+             self.sim.physics_engine.space.step(0.016)
         
         # No need to wait for auto-start if we added manual ball
         # Just insure list is populated

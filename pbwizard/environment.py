@@ -162,8 +162,8 @@ class PinballEnv(gym.Env):
         # Flipper Penalty (Discourage spamming)
         # 0: No-op, 1: Left, 2: Right, 3: Both
         if action in [constants.ACTION_FLIP_LEFT, constants.ACTION_FLIP_RIGHT, constants.ACTION_FLIP_BOTH]:
-             reward -= 0.01
-             # logger.debug("Penalty: Flipper Usage (-0.01)")
+             reward -= 0.0001 # Drastically reduced from 0.01 to encourage using flippers
+             # logger.debug("Penalty: Flipper Usage (-0.0001)")
 
         # Event-based Reward (Explicit feedback for hitting targets)
         events = []
@@ -228,6 +228,11 @@ class PinballEnv(gym.Env):
         truncated = False
         info = {}
 
+        # DEBUG: Trace termination cause
+        if self.steps_without_ball > 0 or ball_pos is None or (ball_pos and ball_pos[1] > height * 0.9):
+             logger.debug(f"Step Debug: BallPos={ball_pos}, StepsNoBall={self.steps_without_ball}, Headless={self.headless}")
+
+
         # Episode termination conditions
         if ball_pos is None:
             self.steps_without_ball += 1
@@ -264,6 +269,9 @@ class PinballEnv(gym.Env):
              ball_lost = True
 
         if ball_lost and not is_spawning:
+            if ball_lost:
+                reward -= 5.0 # Strong penalty for losing the ball
+                logger.warning(f"TERMINATION: ball_lost flag was True. Spawning={is_spawning}. Pos={ball_pos}. Reward Penalty: -5.0")
             terminated = True
         
         if self.steps_without_ball > self.max_steps_without_ball:
@@ -273,29 +281,48 @@ class PinballEnv(gym.Env):
         return obs, reward, terminated, truncated, info
 
     def reset(self, *, seed=None, options=None):
-        if seed is not None:
-            super().reset(seed=seed)
-
-        # Reset counters and state
-        self.last_score = 0
+        super().reset(seed=seed)
+        
         self.current_score = 0
-        self.last_ball_pos = None
+        self.last_score = 0
         self.steps_without_ball = 0
-        self.holding_steps = 0
-        self.last_time = time.time()
+        self.start_time = time.time()
+        self.last_time = self.start_time
+        self.last_ball_pos = None # Added this back from original
+        self.holding_steps = 0 # Added this back from original
+        
+        # Reset counters
         self.last_combo_count = 0
         self.last_multiplier = 1.0
-
+        
         # Call reset_game on vision system to reset physics engine
         if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'reset_game_state'):
             self.vision.capture.reset_game_state()
             logger.debug("Reset game state via vision.capture.reset_game_state()")
+        elif hasattr(self.vision, 'reset_game_state'):
+             self.vision.reset_game_state()
         elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'physics_engine'):
             # Manually reset physics engine if reset_game_state doesn't exist
             if hasattr(self.vision.capture.physics_engine, 'balls'):
-                self.vision.capture.physics_engine.balls.clear()
-            logger.info("Cleared balls from physics engine")
-
+                self.vision.capture.physics_engine.balls = [] # Force clear
+                # self.vision.capture.physics_engine.reset() # Prefer full reset if available
+                logger.info("Cleared balls from physics engine (manual)")
+        
+        if not self.headless:
+             time.sleep(0.1) # Wait for reset to propogate
+        else:
+             # In headless mode, we must ensure the "add_ball" callback (queued in reset) 
+             # is actually processed before we look for the ball.
+             # This requires stepping the physics engine at least once.
+             if hasattr(self.vision, 'manual_step'):
+                 self.vision.manual_step(0.016)
+                 self.vision.manual_step(0.016) # Do two steps to be safe (add + settle)
+                 logger.debug("Forced manual_step in reset (headless)")
+             elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'manual_step'):
+                 self.vision.capture.manual_step(0.016)
+                 self.vision.capture.manual_step(0.016)
+                 logger.debug("Forced capture.manual_step in reset (headless)")
+        
         # Random layouts if enabled
         if self.random_layouts and hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'layout'):
             if hasattr(self.vision.capture.layout, 'randomize'):
@@ -304,12 +331,13 @@ class PinballEnv(gym.Env):
                 logger.info("Randomized layout for new episode")
 
         # Add a ball to start the episode
-        if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'add_ball'):
-            self.vision.capture.add_ball()
-            logger.debug("Ball added during environment reset")
-        elif hasattr(self.vision, 'add_ball'):
-            self.vision.add_ball()
-            logger.debug("Ball added during environment reset")
+        # REMOVED: physics.reset() now handles initial ball spawning
+        # if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'add_ball'):
+        #     self.vision.capture.add_ball()
+        #     logger.debug("Ball added during environment reset")
+        # elif hasattr(self.vision, 'add_ball'):
+        #     self.vision.add_ball()
+        #     logger.debug("Ball added during environment reset")
 
         # Initial observation
         observation = np.zeros(self.observation_space.shape, dtype=np.float32)
@@ -379,7 +407,7 @@ class PinballEnv(gym.Env):
                 'holding_penalty': 0.001  # Lower penalty
             },
             'medium': {
-                'survival_reward': 0.001,  # Increased 10x (from 0.0001) - Life must have value
+                'survival_reward': 0.005,  # Increased from 0.001 to value life more
                 'holding_threshold': 90,  # 3 seconds
                 'holding_penalty': 0.002
             },

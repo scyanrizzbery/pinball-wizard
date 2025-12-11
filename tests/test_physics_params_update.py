@@ -9,6 +9,7 @@ class TestPhysicsParamsUpdate(unittest.TestCase):
         
         # Add a ball manually to test updates
         sim.physics_engine.add_ball((100, 100))
+        sim.physics_engine.space.step(0.016)
         ball = sim.physics_engine.balls[0]
         ball_shape = list(ball.shapes)[0]
         

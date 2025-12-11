@@ -225,6 +225,10 @@ def train_worker(config, state_queue, command_queue, status_queue):
             def get_stats(self):
                 return {}
 
+            def manual_step(self, dt=None):
+                if hasattr(self.capture, 'manual_step'):
+                    self.capture.manual_step(dt)
+
         vision_wrapper = TrainingVisionWrapper(cap)
         
         # Score Reader (Mock)
@@ -234,7 +238,9 @@ def train_worker(config, state_queue, command_queue, status_queue):
         score_reader = MockScoreReader()
         
         # Environment
+        from stable_baselines3.common.monitor import Monitor
         env = PinballEnv(vision_wrapper, hw, score_reader, headless=True, random_layouts=config.get('random_layouts', False))
+        env = Monitor(env)
         
         # 2. Setup Agent
         model_name = config.get('model_name', 'ppo_pinball')
