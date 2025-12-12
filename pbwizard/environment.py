@@ -184,14 +184,14 @@ class PinballEnv(gym.Env):
             if event['type'] == 'collision':
                 # Base rewards for hitting features (independent of score/combo)
                 if 'bumper' in event['label']:
-                    reward += 0.01 # Reduced from 0.02
-                    logger.debug("Reward: Bumper Hit (+0.01)")
+                    reward += 0.5 # Significant reward for action (was 0.01)
+                    logger.debug("Reward: Bumper Hit (+0.5)")
                 elif 'drop_target' in event['label']:
-                    reward += 0.05 # Reduced from 0.15
-                    logger.debug("Reward: Drop Target Hit (+0.05)")
+                    reward += 1.0 # Significant reward for targets (was 0.05)
+                    logger.debug("Reward: Drop Target Hit (+1.0)")
                 elif 'rail' in event['label']:
-                    reward += 0.01 # Encouragement for loop shots (was 1.0)
-                    logger.debug("Reward: Rail Hit (+0.01)")
+                    reward += 0.5 # Encouragement for loop shots (was 0.01)
+                    logger.debug("Reward: Rail Hit (+0.5)")
 
         # Debug logging for start of episode
         # Debug logging for start of episode (only first step)
@@ -215,7 +215,11 @@ class PinballEnv(gym.Env):
              # Calculate velocity magnitude
              velocity_mag = np.sqrt(vx**2 + vy**2)
              if velocity_mag < 20.0: # Threshold for "holding" (pixels/sec approx)
-                 self.holding_steps += 1
+                 # Ignore if in plunger lane (Right 20% of screen)
+                 if ball_pos[0] < width * 0.8:
+                    self.holding_steps += 1
+                 else:
+                    self.holding_steps = 0
              else:
                  self.holding_steps = 0
                  
@@ -278,8 +282,8 @@ class PinballEnv(gym.Env):
 
         if ball_lost and not is_spawning:
             if ball_lost:
-                reward -= 5.0 # Strong penalty for losing the ball
-                logger.warning(f"TERMINATION: ball_lost flag was True. Spawning={is_spawning}. Pos={ball_pos}. Reward Penalty: -5.0")
+                reward -= 1.0 # Reduced penalty (was -5.0) to allow positive runs
+                logger.warning(f"TERMINATION: ball_lost flag was True. Spawning={is_spawning}. Pos={ball_pos}. Reward Penalty: -1.0")
             terminated = True
         
         if self.steps_without_ball > self.max_steps_without_ball:

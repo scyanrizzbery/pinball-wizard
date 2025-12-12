@@ -320,17 +320,29 @@ def handle_get_game_hash():
         }, namespace='/game')
 
 
+@socketio.on('update_physics', namespace='/config')
+def handle_physics_update_legacy(data):
+    """Legacy handler for update_physics (v1) - proxies to v2."""
+    logger.info(f"🔵 LEGACY handle_physics_update (v1) CALLED with data: {data}")
+    handle_physics_update(data)
+
+
+@socketio.on('set_physics_param', namespace='/config')
+def handle_set_physics_param(data):
+    """Handle single parameter update (used by App.vue)."""
+    # data is {key: 'param_name', value: val}
+    key = data.get('key')
+    value = data.get('value')
+    if key:
+        handle_physics_update({key: value})
+
+
 @socketio.on('update_physics_v2', namespace='/config')
 def handle_physics_update(data):
-    logger.info(f"🔵 handle_physics_update CALLED with data: {data}")
     if not vision_system:
-        logger.error("🔴 vision_system is None!")
         return
 
     capture = vision_system.capture if hasattr(vision_system, 'capture') else vision_system
-    logger.info(f"🟡 capture type: {type(capture).__name__}")
-    logger.info(f"🟡 capture has update_physics_params: {hasattr(capture, 'update_physics_params')}")
-    logger.info(f"🟡 Available methods: {[m for m in dir(capture) if not m.startswith('_') and 'update' in m.lower()]}")
     
     if hasattr(capture, 'update_physics_params'):
         # Check if only camera parameters are being updated

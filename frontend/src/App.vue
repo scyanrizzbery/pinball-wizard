@@ -9,7 +9,7 @@
 
 
                 <div class="game-view-wrapper" id="playfield-container">
-                    <div class="scoreboard-overlay">
+                    <div class="scoreboard-overlay" :class="{ 'fullscreen-overlay': isFullscreen }">
                         <ScoreBoard
                             :score="stats.score"
                             :highScore="stats.high_score"
@@ -54,6 +54,11 @@
                         @toggle-view="toggleViewMode"
                         @toggle-fullscreen="toggleFullscreen"
                         @ship-destroyed="handleShipDestroyed"
+                        @restart-game="startNewGame"
+                        @update-rail="handleRailUpdate"
+                        @update-bumper="handleBumperUpdate"
+                        @update-zone="handleZoneUpdate"
+                        @save-layout="saveChanges"
                     />
                     <ComboDisplay
                         :comboCount="stats.combo_count || 0"
@@ -195,7 +200,10 @@ const videoSrc = ref('')
 const logs = ref([])
 const activeKeys = reactive(new Set())
 const models = ref([])
-const selectedModel = ref('')
+const selectedModel = ref(localStorage.getItem('pinball_selected_model') || '')
+watch(selectedModel, (newVal) => {
+    if (newVal) localStorage.setItem('pinball_selected_model', newVal)
+})
 const debounceTimers = {}
 const nudgeEvent = ref(null)
 const viewMode = ref('3d')
@@ -206,6 +214,9 @@ const isLoadingLayout = ref(false)
 const hasUnsavedChanges = ref(false)
 const isSyncingPhysics = ref(false)
 let physicsSyncReleaseTimer = null
+
+// Race condition prevention for auto-start toggle
+const lastAutoStartToggleTime = ref(0)
 
 // UI State
 const isFullscreen = ref(false)
@@ -357,7 +368,11 @@ const autoStartEnabled = ref(true)
 const autoStartTimeoutId = ref(null)
 
 const cameraPresets = ref({})
-const selectedPreset = ref('')
+const selectedPreset = ref(localStorage.getItem('pinball_selected_preset') || '')
+watch(selectedPreset, (newVal) => {
+    if (newVal) localStorage.setItem('pinball_selected_preset', newVal)
+    else localStorage.removeItem('pinball_selected_preset')
+})
 
 const handleFullscreenChange = () => {
     console.log('Fullscreen changed:', document.fullscreenElement)
@@ -372,7 +387,10 @@ const deletePreset = (name) => {
 }
 
 const layouts = ref([])
-const selectedLayout = ref('default')
+const selectedLayout = ref(localStorage.getItem('pinball_selected_layout') || 'default')
+watch(selectedLayout, (newVal) => {
+    if (newVal) localStorage.setItem('pinball_selected_layout', newVal)
+})
 const selectedDifficulty = ref('medium')
 const showFlipperZones = ref(false)
 
@@ -425,6 +443,9 @@ const toggleAI = () => {
 
 const toggleAutoStart = () => {
     toggles.autoStart = !toggles.autoStart
+    // Record time to prevent race condition where stale config overwrites user input
+    lastAutoStartToggleTime.value = Date.now()
+    
     addLog(`Auto-start ${toggles.autoStart ? 'Enabled' : 'Disabled'}`)
     
     // Sync to backend so vision.py knows about it!
@@ -623,9 +644,32 @@ const handleResetConfig = () => {
 
 const handleResetZones = () => {
     console.log("Reset zones")
-    physics.zones = []
+    // Default zones defined in VideoFeed logic (Left/Right)
+    const defaultZones = [
+        {
+            id: 'zone_left_default',
+            type: 'left',
+             points: [
+              {x: 0.1, y: 0.6},
+              {x: 0.3, y: 0.6},
+              {x: 0.3, y: 0.8},
+              {x: 0.1, y: 0.8}
+            ]
+        },
+        {
+            id: 'zone_right_default',
+            type: 'right',
+            points: [
+              {x: 0.7, y: 0.6},
+              {x: 0.9, y: 0.6},
+              {x: 0.9, y: 0.8},
+              {x: 0.7, y: 0.8}
+            ]
+        }
+    ]
+    physics.zones = JSON.parse(JSON.stringify(defaultZones))
     hasUnsavedChanges.value = true
-    sockets.config.emit('update_zones', [])
+    sockets.config.emit('update_zones', physics.zones)
 }
 
 const saveChanges = () => {
@@ -703,15 +747,8 @@ watch(() => stats.ball_count, (newCount, oldCount) => {
             }
             // stats.game_over is also set by backend, but we can set it here for immediate UI
             stats.game_over = true 
-
-            // Auto-start new game after game over
-            // DISABLED Auto-Start to allow user to see Game Over screen
-            setTimeout(() => {
-               if (toggles.autoStart) {
-                   // console.log('[Ball Count Watch] Starting new game after game over...')
-                   startNewGame()
-               }
-            }, 5000) 
+            
+            // Auto-start is now handled by Pinball3D.vue with a visible timer
         }
     }
 })
@@ -752,9 +789,15 @@ onMounted(() => {
                 })
 
                 // Sync Auto-Start toggle from backend config
+                // Ignore if user recently toggled it manually (race condition fix)
                 if (config.auto_plunge_enabled !== undefined) {
-                    toggles.autoStart = config.auto_plunge_enabled
-                    addLog(`Auto-Start synced from config: ${config.auto_plunge_enabled}`)
+                    const timeSinceToggle = Date.now() - lastAutoStartToggleTime.value
+                    if (timeSinceToggle > 2000) {
+                        toggles.autoStart = config.auto_plunge_enabled
+                        addLog(`Auto-Start synced from config: ${config.auto_plunge_enabled}`)
+                    } else {
+                        console.log(`[Auto-Start] Ignoring config sync (user toggled ${timeSinceToggle}ms ago)`)
+                    }
                 }
 
                 // Register global callback for Alien Shake effect
@@ -799,6 +842,7 @@ onMounted(() => {
                     addLog(`Restored last camera preset: ${config.last_preset}`)
                 }
                 if (config.current_layout_id) {
+                    console.log(`[Config Loaded] Updating selectedLayout from config: ${config.current_layout_id} (was: ${selectedLayout.value})`)
                     selectedLayout.value = config.current_layout_id
                     addLog(`Restored last layout: ${config.current_layout_id}`)
                 }
@@ -844,6 +888,7 @@ onMounted(() => {
         // Expose sockets for E2E testing
         if (window) {
             window.sockets = sockets
+            window.__APP_STATS__ = stats
         }
 
         // Start initial game after a short delay (let physics engine initialize)
@@ -957,18 +1002,25 @@ onMounted(() => {
     })
 
     sockets.config.on('layouts_list', (data) => {
+        console.log('[Layouts List] Received:', data.map(l => l.id))
         layouts.value = data
         // Check if selectedLayout exists in list
         const exists = layouts.value.some(l => l.id === selectedLayout.value)
         if (!exists) {
+            console.warn(`[Layouts List] Selected layout '${selectedLayout.value}' not found in list.`)
+            // Start of auto-reset logic
+            /*
             // Try 'default' (lowercase)
             const defaultExists = layouts.value.some(l => l.id === 'default')
             if (defaultExists) {
+                console.warn(`[Layouts List] Reverting to 'default'`)
                 selectedLayout.value = 'default'
             } else if (layouts.value.length > 0) {
                 // Fallback to first
+                console.warn(`[Layouts List] Reverting to first available: ${layouts.value[0].id}`)
                 selectedLayout.value = layouts.value[0].id
             }
+            */
         }
     })
 
@@ -1317,6 +1369,15 @@ body {
     justify-content: center;
     /* overflow: hidden; REMOVED to allow combo badge to show */
     padding: 0 10px; /* Add some safety padding */
+}
+
+.scoreboard-overlay.fullscreen-overlay {
+    top: 40px;
+    left: 40px;
+    transform: none;
+    width: auto;
+    justify-content: flex-start;
+    align-items: flex-start;
 }
 
 @media (max-width: 600px) {

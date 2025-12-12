@@ -136,9 +136,14 @@ const formattedScore = computed(() => props.score.toString())
 }
 
 .scoreboard-container.double-scale {
-  transform: scale(2.5) !important;
-  transform-origin: top center;
-  margin-top: 30px; /* Increased margin for larger scale */
+  transform: scale(2.0); /* Slightly reduced from 2.5 to fit vertical */
+  transform-origin: top left; /* Changed from top center */
+  margin-top: 0;
+  flex-direction: column;
+  gap: 15px;
+  background: rgba(0, 0, 0, 0.6); /* Slightly darker for better contrast */
+  padding: 15px;
+  align-items: flex-start; /* Left align items */
 }
 
 .stat-box {
@@ -254,6 +259,13 @@ const formattedScore = computed(() => props.score.toString())
   transform: translateX(-50%);
   width: max-content;
   z-index: 10;
+}
+
+.scoreboard-container.double-scale .combo-anchor {
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%) translateX(10px);
+  width: max-content;
 }
 
 .combo-container {

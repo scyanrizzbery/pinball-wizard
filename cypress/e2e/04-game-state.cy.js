@@ -5,6 +5,8 @@ describe('Pinball Wizard - Game State', () => {
     beforeEach(() => {
         cy.visit('/')
         cy.waitForConnection()
+        // Switch to 2D view if in 3D mode (default)
+        cy.contains('button', 'Switch to 2D').click()
         cy.waitForVideo()
     })
 

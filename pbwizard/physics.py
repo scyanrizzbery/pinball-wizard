@@ -233,9 +233,30 @@ class PymunkEngine(Physics):
 
         # Add specific handler for Ball <-> Plunger to fix "swimming" physics
         try:
-             h_plunger = self.space.add_collision_handler(COLLISION_TYPE_BALL, COLLISION_TYPE_PLUNGER)
-             h_plunger.begin = self._handle_plunger_hit
-             logger.info("Added specific plunger collision handler")
+             h = self.space.add_collision_handler(COLLISION_TYPE_BALL, COLLISION_TYPE_PLUNGER)
+             def plunger_handler(arbiter, space, data):
+                 # Only apply impulse if plunger is FIRING
+                 if self.plunger_state in ['firing', 'releasing']:
+                     ball_body = arbiter.shapes[0].body
+                     
+                     # Calculate impulse vector based on launch_angle
+                     angle_deg = getattr(self.config, 'launch_angle', 0.0)
+                     angle_rad = np.radians(angle_deg)
+                     speed = self.config.plunger_release_speed
+                     
+                     vel_x = speed * np.sin(angle_rad) # Right is +X
+                     vel_y = -speed * np.cos(angle_rad) # Up is -Y
+                     
+                     # Apply direct velocity setting for cleaner launch (avoids physics jitter)
+                     ball_body.velocity = (vel_x, vel_y)
+                     ball_body.angular_velocity = 0 # Stop spin for clean launch
+                     
+                     return False # Ignore physical collision to prevent "pushing" conflict
+                     
+                 return True
+             # Use pre_solve instead of begin, because ball is often ALREADY touching plunger when it fires
+             h.pre_solve = plunger_handler
+             logger.info("Added specific plunger collision handler (pre_solve)")
         except Exception as e:
              logger.error(f"Failed to add plunger handler: {e}")
 
@@ -695,8 +716,9 @@ class PymunkEngine(Physics):
         # Plunger Lane
         # Vertical wall separating plunger from playfield - high elasticity for bounce
         lane_x = self.width * 0.85
-        self._add_static_segment((lane_x, self.height * 0.3), (lane_x, self.height), thickness=5.0, elasticity=0.9, friction=0.0)
-        logger.info(f"Plunger Wall: x={lane_x}")
+        # SHORTENED WALL: REMOVED entirely per user request to allow full launch freedom
+        # self._add_static_segment((lane_x, self.height * 0.6), (lane_x, self.height), thickness=5.0, elasticity=0.9, friction=0.0)
+        logger.info(f"Plunger Wall: REMOVED")
 
         # Plunger (Kinematic Body)
         # It starts at a resting position (holding the ball)
@@ -867,42 +889,63 @@ class PymunkEngine(Physics):
         current_y = self.plunger_body.position.y
         target_pos_y = self.plunger_target_y + self.plunger_height/2
         
-        if self.plunger_state == 'firing':
-            # Move FAST upward - instant fire like left plunger
-            speed = self.plunger_release_speed # Use configurable speed
+        # Update Plunger Angle to match config
+        angle_deg = getattr(self.config, 'launch_angle', 0.0)
+        angle_rad = np.radians(angle_deg)
+        # Note: Pymunk body angle is rotation. 0 = upright.
+        # If we want the CUP to rotate, we set body.angle
+        # Positive angle = Tilted Right.
+        self.plunger_body.angle = -angle_rad # Invert for Pymunk coord system if needed?
+        # Test: If angle=30 (Right), we want plunger to point right.
+        # vector (sin(30), -cos(30)).
+        # body.angle should rotate the shape.
+        self.plunger_body.angle = angle_rad
 
-            if current_y > target_pos_y:
-                new_y = current_y - speed * dt
-                if new_y < target_pos_y:
-                    new_y = target_pos_y
-                    self.plunger_state = 'resting'
-
-                self.plunger_body.position = (self.plunger_body.position.x, new_y)
-                self.plunger_body.velocity = (0, -speed)
-            else:
-                self.plunger_state = 'resting'
-                self.plunger_body.velocity = (0, 0)
-                self.plunger_body.position = (self.plunger_body.position.x, target_pos_y)
-
-        elif self.plunger_state == 'releasing':
-            # Move FAST upward (Negative Y direction)
-            speed = self.plunger_release_speed # Pixels/sec - Configurable
+        if self.plunger_state == 'firing' or self.plunger_state == 'releasing':
+            # Move FAST upward (or along angle)
+            speed = self.plunger_release_speed # Configurable speed
             
-            # We want to move from current_y (high value) to target_pos_y (low value)
+            # Calculate velocity vector
+            vel_x = speed * np.sin(angle_rad)
+            vel_y = -speed * np.cos(angle_rad) # UP is negative Y
+
+            # Check limit based on Y position (simplification, assuming vertical travel dominates)
+            # Ideally we should check distance from rest.
+            # But 'target_pos_y' logic assumes vertical movement.
+            # Let's keep Y-check for limit but apply angled velocity.
+            
             if current_y > target_pos_y:
-                new_y = current_y - speed * dt
-                if new_y < target_pos_y:
-                    new_y = target_pos_y
-                    self.plunger_state = 'resting'
+                # Move towards target
+                # Note: We are manually setting position for Y, but X needs to move too?
+                # KINEMATIC bodies move by velocity if step() is called.
+                # But here we are manually lerping 'new_y'.
+                # We should probably trust velocity for the impulse, but manually position for limits.
                 
-                self.plunger_body.position = (self.plunger_body.position.x, new_y)
-                # Set velocity for collision transfer - UP is NEGATIVE Y
-                self.plunger_body.velocity = (0, -speed)
+                new_y = current_y + vel_y * dt
+                # Adjust X as well?
+                current_x = self.plunger_body.position.x
+                new_x = current_x + vel_x * dt
+                
+                if new_y < target_pos_y: # Overshot top
+                    new_y = target_pos_y
+                    # Resync X to center? X should be handled by limit logic.
+                    # Just stop.
+                    self.plunger_state = 'resting'
+                    self.plunger_body.velocity = (0, 0)
+                    # Force position to rest?
+                    # self.plunger_body.position = (current_x, target_pos_y) 
+                    # This might drift X. Ideally reset X to center of lane.
+                    center_x = self.width * 0.955 # Center of lane
+                    self.plunger_body.position = (center_x, target_pos_y)
+                else:
+                    self.plunger_body.position = (new_x, new_y)
+                    self.plunger_body.velocity = (vel_x, vel_y)
             else:
                 self.plunger_state = 'resting'
                 self.plunger_body.velocity = (0, 0)
-                self.plunger_body.position = (self.plunger_body.position.x, target_pos_y)
-                
+                center_x = self.width * 0.955
+                self.plunger_body.position = (center_x, target_pos_y)
+                    
         elif self.plunger_state == 'pulling':
             # Move down (Positive Y)
             speed = 300.0
@@ -1189,6 +1232,13 @@ class PymunkEngine(Physics):
             logger.debug("Ignoring add_ball callback during reset")
             return
 
+        # User Request Fix: A tilt should only cost a ball, not the game.
+        # Reset tilt state when a new ball is spawned so the new ball is playable.
+        if self.is_tilted:
+            self.is_tilted = False
+            self.tilt_value = 0.0
+            logger.info("Tilt Reset for new ball.")
+
         pos = tuple(pos) # Ensure tuple
         
         # Check max balls limit
@@ -1237,7 +1287,10 @@ class PymunkEngine(Physics):
             # So let's just apply impulse in the direction of dx, dy.
             # Scale up for physics engine (vision used small pixels)
             scale = 400.0  # Increased from 50.0 to 400.0 for effectiveness
-            impulse = (dx * scale, dy * scale)
+            
+            # User Request: "nudge left moves ... opposite direction"
+            # Inverting sign of impulse to match requested direction.
+            impulse = (-dx * scale, -dy * scale)
             
             # Accumulate Tilt
             if check_tilt and hasattr(self.config, 'nudge_cost'):
@@ -1264,7 +1317,7 @@ class PymunkEngine(Physics):
         self.is_tilted = tilted
         if tilted:
             # Disable flippers immediately
-            for side in ['left', 'right']:
+            for side in ['left', 'right', 'upper']:
                 self.actuate_flipper(side, False) # Pass False to deactivate
 
     def _add_static_triangle(self, p1, p2, p3, elasticity=0.5, collision_type=COLLISION_TYPE_WALL):
@@ -1493,21 +1546,10 @@ class PymunkEngine(Physics):
                     if current_time - self.last_auto_plunger_time > 1.0:  # 1 second cooldown
                         logger.info(f"Auto-firing plunger: Ball detected at {ball.position}")
 
-                        # Calculate launch velocity based on angle
-                        base_speed = self.config.plunger_release_speed
-                        angle_rad = np.radians(self.config.launch_angle)
-
-                        # 0 degrees = Straight Up (0, -1)
-                        # Positive angle = Right (sin > 0)  
-                        # Negative angle = Left (sin < 0)
-                        vel_x = base_speed * np.sin(angle_rad)
-                        vel_y = -base_speed * np.cos(angle_rad)
-
-                        # Launch from current position - let ball travel naturally
-                        ball.activate()
-                        ball.velocity = (vel_x, vel_y)
-                        
-                        logger.info(f"Auto-fire plunger: angle={self.config.launch_angle}°, velocity=({vel_x:.1f}, {vel_y:.1f})")
+                        # Use standard plunger mechanic for consistency
+                        # This ensures launch_angle and wall collision logic is respected
+                        self.fire_plunger()
+                        logger.info(f"Auto-triggered plunger fire.")
 
                         self.last_auto_plunger_time = current_time
 
@@ -1664,7 +1706,7 @@ class PymunkEngine(Physics):
             # BUT, let's be paranoid if it ever does more.
             # For now, just the flag update is safe.
             if self.is_tilted:
-                return # Flippers disabled during tilt
+                active = False # Flippers disabled (forced down) during tilt
                 
             if side in self.flippers:
                 self.flippers[side]['active'] = active

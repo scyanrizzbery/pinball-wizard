@@ -408,11 +408,109 @@ const getMousePos = (e) => {
   }
 }
 
-// Drag functionality removed per user request
-const startDrag = () => {}
-const stopDrag = () => {}
-const onDrag = () => {}
+const startDrag = (type, index, pointIndex, event) => {
+  if (!props.showZones && !['zone', 'rail', 'bumper', 'target'].includes(type)) return
+  
+  // Prevent default to stop scrolling/selection
+  if (event.cancelable) event.preventDefault()
+  
+  dragging.value = {
+    type,
+    index,
+    pointIndex,
+    startMouse: getMousePos(event)
+  }
+  
+  window.addEventListener('mousemove', handleDragMove)
+  window.addEventListener('mouseup', handleDragEnd)
+  window.addEventListener('touchmove', handleDragMove, { passive: false })
+  window.addEventListener('touchend', handleDragEnd)
+}
 
+const handleDragMove = (event) => {
+  if (!dragging.value) return
+  
+  if (event.cancelable) event.preventDefault()
+  
+  const mousePos = getMousePos(event)
+  const d = dragging.value
+  
+  if (d.type === 'zone') {
+    const newZones = JSON.parse(JSON.stringify(props.physics.zones || []))
+    if (!newZones[d.index]) return
+    const zone = newZones[d.index]
+    
+    // Simple 1-to-1 mapping for now (since video feed uses 0-1 coords)
+    const targetX = mousePos.x
+    const targetY = mousePos.y
+    
+    if (d.pointIndex === 'body') {
+        const dx = targetX - d.startMouse.x
+        const dy = targetY - d.startMouse.y
+        
+        zone.points.forEach(p => {
+            p.x += dx
+            p.y += dy
+        })
+        d.startMouse = mousePos
+    } else {
+        zone.points[d.pointIndex].x = targetX
+        zone.points[d.pointIndex].y = targetY
+    }
+    emit('update-zone', newZones)
+    
+  } else if (d.type === 'rail') {
+    const newRails = JSON.parse(JSON.stringify(props.physics.rails || []))
+    if (!newRails[d.index]) return
+    const rail = newRails[d.index]
+    
+    const normOffsetX = parseFloat(props.physics.rail_x_offset || 0)
+    const normOffsetY = parseFloat(props.physics.rail_y_offset || 0)
+    
+    // Calculate new position in physics space (undoing the visual offset)
+    const targetX = mousePos.x - normOffsetX
+    const targetY = mousePos.y - normOffsetY
+    
+    if (d.pointIndex === 'p1') {
+        rail.p1.x = targetX
+        rail.p1.y = targetY
+    } else if (d.pointIndex === 'p2') {
+        rail.p2.x = targetX
+        rail.p2.y = targetY
+    } else if (d.pointIndex === 'body') {
+         const dx = mousePos.x - d.startMouse.x
+         const dy = mousePos.y - d.startMouse.y
+         rail.p1.x += dx
+         rail.p1.y += dy
+         rail.p2.x += dx
+         rail.p2.y += dy
+         d.startMouse = mousePos
+    }
+    emit('update-rail', newRails)
+  } else if (d.type === 'bumper') {
+      const newBumpers = JSON.parse(JSON.stringify(props.physics.bumpers || []))
+      if (!newBumpers[d.index]) return
+      const bumper = newBumpers[d.index]
+      
+      if (d.pointIndex === 'body') {
+          bumper.x = mousePos.x
+          bumper.y = mousePos.y
+      }
+      emit('update-bumper', newBumpers)
+  }
+}
+
+const handleDragEnd = () => {
+    dragging.value = null
+    window.removeEventListener('mousemove', handleDragMove)
+    window.removeEventListener('mouseup', handleDragEnd)
+    window.removeEventListener('touchmove', handleDragMove)
+    window.removeEventListener('touchend', handleDragEnd)
+}
+
+// Deprecated handlers kept for compatibility if needed
+const onDrag = () => {}
+const stopDrag = () => {}
 const addZone = (type) => {
   const newZones = JSON.parse(JSON.stringify(props.physics.zones || []))
   const newZone = {

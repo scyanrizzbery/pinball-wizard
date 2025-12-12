@@ -201,9 +201,19 @@ def train_worker(config, state_queue, command_queue, status_queue):
         cap = vision.SimulatedFrameCapture(layout_config=layout_config, width=width, height=height)
         
         # Apply Physics Config if provided
-        physics_config = config.get('physics')
-        if physics_config and hasattr(cap, 'update_physics_params'):
-            logger.info("Applying custom physics config for training")
+        physics_config = config.get('physics') or {}
+        
+        # Merge top-level config keys into physics_config for backward compatibility
+        # (Since config.json often has flat structure)
+        overrides = ['launch_angle', 'flipper_speed', 'auto_plunge_enabled', 'plunger_release_speed']
+        for key in overrides:
+            if key in config:
+                physics_config[key] = config[key]
+        # Force auto-plunge for training to prevent negative reward loops
+        physics_config['auto_plunge_enabled'] = True
+        
+        if hasattr(cap, 'update_physics_params'):
+            logger.info("Applying custom physics config for training (Auto-Plunge Forced)")
             cap.update_physics_params(physics_config)
             
         cap.start()

@@ -94,12 +94,36 @@ def create_env(trial=None, socketio=None):
     width = 450
     height = 800
     
+    # Load global config.json if available
+    global_config = {}
+    config_path = 'config.json'
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                global_config = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load config.json: {e}")
+
     # Use default layout
     layout_config = None
     layout_path = os.path.join(os.getcwd(), 'layouts', 'default.json')
     if os.path.exists(layout_path):
         with open(layout_path, 'r') as f:
             layout_config = json.load(f)
+            
+    # Merge config.json overrides into layout_config
+    if layout_config and global_config:
+        overrides = ['launch_angle', 'flipper_speed', 'auto_plunge_enabled', 'plunger_release_speed']
+        for key in overrides:
+            if key in global_config:
+                layout_config[key] = global_config[key]
+        
+        # Merge 'physics' dict if present
+        if 'physics' in global_config:
+             if 'physics' not in layout_config: layout_config['physics'] = {}
+             layout_config['physics'].update(global_config['physics'])
+
+    # Sim Capture
 
     # Simulated Capture
     cap = vision.SimulatedFrameCapture(layout_config=layout_config, width=width, height=height, socketio=socketio)

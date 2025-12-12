@@ -1,6 +1,6 @@
 <template>
   <transition name="toast-slide">
-    <div class="combo-toast" :class="{ 'is-fullscreen': isFullscreen }" v-if="comboActive && comboCount >= 10">
+    <div class="combo-toast" :class="{ 'is-fullscreen': isFullscreen }" v-if="comboActive && comboCount >= 5">
       <div class="combo-content" :class="{ 'pulse-anim': triggerAnim }">
         <div class="count" :style="gradientStyle">{{ Math.floor(comboCount) }}x</div>
         <div class="label">COMBO</div>

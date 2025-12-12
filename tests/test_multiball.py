@@ -36,7 +36,7 @@ class TestMultiball(unittest.TestCase):
             self.sim.balls = self.sim.balls[:1]
             
         # Ensure drop targets exist for test
-        self.sim.layout.drop_targets = [{'x': 0.5, 'y': 0.5}] # dummy target
+        self.sim.layout.drop_targets = [{'x': 0.5, 'y': 0.5, 'width': 0.05, 'height': 0.05}] # dummy target
         self.sim.reset_game_state() # Resets drop_target_states based on layout (sets True)
 
     def tearDown(self):

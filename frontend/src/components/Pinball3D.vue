@@ -43,6 +43,13 @@
         <div class="game-over-text">GAME OVER</div>
         <div v-if="stats.is_high_score" class="high-score-text">NEW HIGH SCORE!</div>
         <div class="final-score">SCORE: {{ formatNumber(stats.last_score) }}</div>
+        
+        <div v-if="autoStartEnabled" class="auto-restart-text">
+            Restarting in {{ Math.ceil(autoRestartTimer) }}...
+        </div>
+        <div v-else class="press-start-text">
+            PRESS LAUNCH TO START
+        </div>
     </div>
 
     <div v-if="!config || !config.rails || connectionError" class="loading-placeholder">
@@ -73,6 +80,7 @@
     </div>
 
     <!-- Rail Editor Controls -->
+    <!-- Rail Editor Controls -->
     <div class="editor-controls" v-if="cameraMode === 'perspective'">
         <div class="controls-row">
             <button @click="$emit('toggle-fullscreen')" class="fullscreen-btn" title="Playfield Full">
@@ -81,7 +89,7 @@
                 </svg>
             </button>
             <button @click="toggleEditMode" :class="{ active: isEditMode }">
-                {{ isEditMode ? 'Done Editing' : 'Edit' }}
+                {{ isEditMode ? 'Done Editing' : 'Edit Rails' }}
             </button>
             <button @click="$emit('toggle-view')" class="switch-view-btn">
                 {{ cameraMode === 'perspective' ? 'Switch to 2D' : 'Switch to 3D' }}
@@ -137,6 +145,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import SoundManager from '../utils/SoundManager'
 import GameSettings from './GameSettings.vue'
 
+onMounted(() => {
+    console.log(`[Pinball3D] MOUNTED. Camera Mode: ${props.cameraMode}, Is Fullscreen: ${props.isFullscreen}`)
+})
+
 const props = defineProps({
     socket: Object,
     configSocket: Object,
@@ -150,7 +162,7 @@ const props = defineProps({
     isFullscreen: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['toggle-fullscreen', 'toggle-view', 'ship-destroyed'])
+const emit = defineEmits(['toggle-fullscreen', 'toggle-view', 'ship-destroyed', 'restart-game', 'update-rail', 'update-bumper', 'reset-zones'])
 
 const container = ref(null)
 let scene, camera, renderer, controls
@@ -180,6 +192,53 @@ const showDebug = ref(false)
 const showSettings = ref(false)
 const smokeIntensity = ref(0.5)
 let debugTimeout = null
+
+// Auto-Restart Timer State
+const autoRestartTimer = ref(3)
+let autoRestartInterval = null
+
+// Watch for Game Over state
+watch(() => props.stats?.game_over, (isGameOver) => {
+    if (isGameOver) {
+        // Game Over Triggered
+        if (props.autoStartEnabled) {
+            startRestartCountdown()
+        }
+    } else {
+        // Game Started / Reset
+        stopRestartCountdown()
+    }
+})
+
+// Also watch autoStartEnabled in case it's toggled ON during Game Over
+watch(() => props.autoStartEnabled, (enabled) => {
+    if (enabled && props.stats?.game_over) {
+        startRestartCountdown()
+    } else {
+        stopRestartCountdown()
+    }
+})
+
+const startRestartCountdown = () => {
+    if (autoRestartInterval) clearInterval(autoRestartInterval)
+    autoRestartTimer.value = 3
+    
+    autoRestartInterval = setInterval(() => {
+        autoRestartTimer.value -= 1
+        if (autoRestartTimer.value <= 0) {
+            stopRestartCountdown()
+            emit('restart-game')
+        }
+    }, 1000)
+}
+
+const stopRestartCountdown = () => {
+    if (autoRestartInterval) {
+        clearInterval(autoRestartInterval)
+        autoRestartInterval = null
+    }
+    autoRestartTimer.value = 3 // Reset for next time
+}
 
 // Computed properties for permanent debug panel
 const rendererSize = computed(() => {
@@ -254,7 +313,10 @@ const addRail = () => {
         p1: { x: 0.4, y: 0.4 },
         p2: { x: 0.6, y: 0.6 }
     }
-    props.configSocket.emit('create_rail', newRail)
+    // props.configSocket.emit('create_rail', newRail)
+    const newRails = [...(props.config.rails || [])]
+    newRails.push(newRail)
+    emit('update-rail', newRails)
 }
 
 const addBumper = () => {
@@ -264,16 +326,27 @@ const addBumper = () => {
         radius_ratio: 0.04,
         value: 100
     }
-    props.configSocket.emit('create_bumper', newBumper)
+    // props.configSocket.emit('create_bumper', newBumper)
+    const newBumpers = [...(props.config.bumpers || [])]
+    newBumpers.push(newBumper)
+    emit('update-bumper', newBumpers)
 }
 
 const deleteSelectedObject = () => {
     if (selectedType.value === 'rail' && selectedRailIndex.value !== -1) {
-        props.configSocket.emit('delete_rail', { index: selectedRailIndex.value })
+        // props.configSocket.emit('delete_rail', { index: selectedRailIndex.value })
+        const newRails = [...(props.config.rails || [])]
+        newRails.splice(selectedRailIndex.value, 1)
+        emit('update-rail', newRails)
+        
         selectedRailIndex.value = -1
         clearRailHandles()
     } else if (selectedType.value === 'bumper' && selectedBumperIndex.value !== -1) {
-        props.configSocket.emit('delete_bumper', { index: selectedBumperIndex.value })
+        // props.configSocket.emit('delete_bumper', { index: selectedBumperIndex.value })
+        const newBumpers = [...(props.config.bumpers || [])]
+        newBumpers.splice(selectedBumperIndex.value, 1)
+        emit('update-bumper', newBumpers)
+        
         selectedBumperIndex.value = -1
     }
 }
@@ -529,6 +602,110 @@ const onMouseMove = (event) => {
                 }
                 
                 updateRailHandles()
+                
+                // Update 3D Rail Mesh Visualization
+                // const railMesh = railMeshes[selectedRailIndex.value] // This might be unreliable if indices shifted? 
+                // Better to use the stored reference if possible, but rail object in props.config is just data.
+                // We stored user data in railMesh.userData.railIndex?
+                // railMeshes should correspond to config.rails index IF no filtering happened.
+                
+                const railMesh = railMeshes[selectedRailIndex.value]
+                if (railMesh) {
+                     // Recalculate position/rotation similar to createTable
+                     const nOffsetX = parseFloat(props.config.rail_x_offset || 0)
+                     const nOffsetY = parseFloat(props.config.rail_y_offset || 0)
+                     const lengthScale = parseFloat(props.config.guide_length_scale || 1.0)
+                     
+                     // Use the UPDATED rail data directly
+                     const r1x = rail.p1.x + nOffsetX
+                     const r1y = rail.p1.y + nOffsetY
+                     const r2x = rail.p2.x + nOffsetX
+                     const r2y = rail.p2.y + nOffsetY
+
+                     // Map 3D
+                     let x1 = mapX(r1x), y1 = mapY(r1y)
+                     const x2 = mapX(r2x), y2 = mapY(r2y)
+                     
+                     let dx = x2 - x1
+                     let dy = y2 - y1
+                     const length = Math.sqrt(dx * dx + dy * dy)
+                     
+                     if (length > 0 && Math.abs(lengthScale - 1.0) > 0.001) {
+                         const scaledLen = length * lengthScale
+                         const ux = dx / length, uy = dy / length
+                         x1 = x2 - ux * scaledLen
+                         y1 = y2 - uy * scaledLen
+                     }
+                     
+                     // Update Mesh Position
+                     railMesh.position.set((x1 + x2) / 2, (y1 + y2) / 2, railMesh.position.z)
+                     railMesh.rotation.z = Math.atan2(y2 - y1, x2 - x1)
+                     
+                     // Update Geometry Length? 
+                     // Cylinder height (length) is immutable without rebuilding geometry or scaling.
+                     // Scaling Y axis matches length (Cylinder is Y-up by default, but we rotated it? 
+                     // Wait, in createTable we did railGeo.rotateZ(Math.PI/2), so length is along X axis now?
+                     // No, original cylinder is Y-up. rotateZ(90) makes it X-axis aligned.
+                     // But we rotate the MESH by `angle`.
+                     // Actually, usually we scale the mesh in the length axis.
+                     
+                     // Let's assume we need to scale Y (original length axis) or check implementation.
+                     // In createTable: new CylinderGeometry(r, r, length). rotateZ(PI/2).
+                     // So length is along X.
+                     
+                     // We can just Scale X to match new length / old length?
+                     // But initial length is baked into geometry.
+                     // Safer to just Update Scale?
+                     // Initial length was passed to constructor.
+                     // If we want to change length, we scaling the mesh on the axis of length.
+                     // Since we rotated geometry Z 90deg, the "height" of cylinder (Y) is now aligned with X local.
+                     
+                     // BUT, scaling cylinder scales radius too if we are not careful? 
+                     // No, scaling the Mesh scales the local axes.
+                     // If Cylinder was created with length L_init.
+                     // We rotated geometry so L is along X.
+                     // We want new length L_new.
+                     // scale.x = L_new / L_init.
+                     
+                     // Problem: We don't know L_init easily without storing it.
+                     // BUT, we can just dispose and recreate geometry? Expensive for drag?
+                     // Maybe just scale?
+                     // Let's just update position/rotation for now. The length change might be noticeable looking distorted if we scale.
+                     // But scaling X only affects length if aligned.
+                     // Radius is Y and Z (after rotation).
+                     
+                     // Let's rely on Rebuild on MouseUp for perfect geometry.
+                     // For dragging, just positioning the center/rotation is 90% of visual feedback.
+                     // Scaling is bonus.
+                     
+                     // Actually, if we just move P1/P2, length changes.
+                     // If we don't scale, the rail will look detached from points.
+                     // Let's try to set scale.
+                     // We need L_init. Geometry.parameters.height?
+                     if (railMesh.geometry.parameters) {
+                         const initLen = railMesh.geometry.parameters.height // Cylinder height is the length
+                         railMesh.scale.x = length / initLen
+                         // Note: rotateZ(PI/2) makes Y become X?
+                         // Cylinder is created along Y. rotateZ(PI/2) moves Y to negative X?
+                         // verify: Y (up) -> rotate Z 90 -> X (left).
+                         // So X scale should control length.
+                     }
+                     
+                     // Update 2D Rail
+                     const rail2D = railMesh.userData.rail2D
+                     if (rail2D) {
+                        rail2D.position.set((x1 + x2) / 2, (y1 + y2) / 2, rail2D.position.z)
+                        rail2D.rotation.z = Math.atan2(y2 - y1, x2 - x1)
+                        // rail2D is PlaneGeometry(length, width). Created X-aligned I think?
+                        // PlaneGeometry(width, height).
+                        // In createTable: PlaneGeometry(length, rail2DWidth). Defaults to XY plane. 
+                        // So X is length.
+                        if (rail2D.geometry.parameters) {
+                             const initLen2D = rail2D.geometry.parameters.width
+                             rail2D.scale.x = length / initLen2D
+                        }
+                     }
+                }
             }
         } else if (selectedType.value === 'bumper') {
             const bumper = props.config.bumpers[selectedBumperIndex.value]
@@ -563,9 +740,13 @@ const onMouseUp = () => {
         // Emit update
         if (props.config) {
             if (selectedType.value === 'rail' && props.config.rails) {
-                props.configSocket.emit('update_rails', props.config.rails)
+                // props.configSocket.emit('update_rails', props.config.rails)
+                const newRails = [...props.config.rails]
+                emit('update-rail', newRails)
             } else if (selectedType.value === 'bumper' && props.config.bumpers) {
-                props.configSocket.emit('update_bumpers', props.config.bumpers)
+                // props.configSocket.emit('update_bumpers', props.config.bumpers)
+                const newBumpers = [...props.config.bumpers]
+                emit('update-bumper', newBumpers)
             }
         }
     }
@@ -2958,6 +3139,9 @@ watch(() => props.config, (newConfig) => {
     
     const tableConfigStr = JSON.stringify(tableConfig)
     
+    console.log(`[Config Watch] New Hash Len: ${tableConfigStr.length}, Old Hash Len: ${lastTableConfigStr.value.length}`)
+    // console.log(`[Config Watch] New Hash: ${tableConfigStr.substring(0, 50)}...`)
+    
     if (tableConfigStr !== lastTableConfigStr.value) {
         // SAFETY: Don't rebuild table during multiball transitions
         // If ball count just changed, defer the table rebuild
@@ -3549,8 +3733,9 @@ const handleKeydown = (e) => {
 .editor-controls {
     position: absolute;
     bottom: 20px;
-    left: 20px;
-    z-index: 100;
+    right: 20px;
+    left: auto;
+    z-index: 4000;
     display: flex;
     justify-content: space-between;
     gap: 10px;

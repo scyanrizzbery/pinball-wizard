@@ -16,7 +16,7 @@
     
     <button class="control-btn launch-btn input-btn desktop-only" :class="{ pressed: buttonStates.launch }"
       @mousedown="handleInput('Space', 'down')" @mouseup="handleInput('Space', 'up')" :disabled="disabled">
-      <span>LAUNCH</span>
+      <span>Launch</span>
       <span class="key-hint">Space</span>
     </button>
     
