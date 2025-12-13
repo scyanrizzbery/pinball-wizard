@@ -626,7 +626,12 @@ class SimulatedFrameCapture(FrameCapture):
         
         # Flipper Angles (Degrees)
         self.flipper_angles = {'left': 0.0, 'right': 0.0}
-        self.flipper_resting_angle = self.layout.flipper_resting_angle if hasattr(self.layout, 'flipper_resting_angle') else -30.0
+        
+        # Get resting angle from layout physics params or default
+        val = -30.0
+        if self.layout and hasattr(self.layout, 'physics_params'):
+            val = self.layout.physics_params.get('flipper_resting_angle', -30.0)
+        self.flipper_resting_angle = val
         
         # Camera / View Parameters
         # Default to Top-Down 2D-ish view or whatever matches typical 2D
@@ -637,7 +642,7 @@ class SimulatedFrameCapture(FrameCapture):
         self.pitch = 0.0 # Top down
         self.roll = 0.0
         self.focal_length = width * 1.2 # Standard FOV estimate
-        self.flipper_resting_angle = 30.0
+
         self.flipper_stroke_angle = 40.0
         self.flipper_speed = 1500.0 # deg/s
         
@@ -1393,7 +1398,7 @@ class SimulatedFrameCapture(FrameCapture):
     def get_stats(self):
         """Return complete game statistics for frontend."""
         # Debug Log
-        # logger.debug(f"get_stats called. Replay Playing: {self.replay_manager.is_playing}")
+
         
         # Base stats from game state
         stats = {

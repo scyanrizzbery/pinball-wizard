@@ -116,7 +116,7 @@ class PymunkEngine(Physics):
         # To avoid breaking extensive external access immediately, we might want properties or just update usages.
         # Given the task is to "remove hasattr stuff in vision.py to a solid interface", using self.config explicit is better.
         
-        print(f"DEBUG: Init static_body pos: {self.space.static_body.position}")
+
         
         self.balls = []
         self.flippers = {}
@@ -160,11 +160,9 @@ class PymunkEngine(Physics):
         self._is_stepping = False
         
         self._setup_static_geometry()
-        print(f"DEBUG: After setup_static_geometry static_body pos: {self.space.static_body.position}")
         self._setup_flippers()
-        print(f"DEBUG: After setup_flippers static_body pos: {self.space.static_body.position}")
         self._setup_collision_logging()
-        print(f"DEBUG: After setup_collision_logging static_body pos: {self.space.static_body.position}")
+
 
     @property
     def auto_plunge_enabled(self):
@@ -216,8 +214,7 @@ class PymunkEngine(Physics):
         SCORE_VALUES = {
             COLLISION_TYPE_BUMPER: 10,
             COLLISION_TYPE_DROP_TARGET: 500,
-            COLLISION_TYPE_BUMPER: 10,
-            COLLISION_TYPE_DROP_TARGET: 500,
+
             COLLISION_TYPE_MOTHERSHIP: 50
         }
         
@@ -529,7 +526,7 @@ class PymunkEngine(Physics):
         handler.begin = begin_collision
 
     def _setup_static_geometry(self):
-        print("DEBUG: Entering _setup_static_geometry")
+
         # Walls - Use high elasticity (0.9) so ball bounces off instead of sliding
         thickness = 10.0
         wall_elasticity = 0.9
@@ -611,7 +608,7 @@ class PymunkEngine(Physics):
 
 
         # Setup Slingshots (Triangular bumpers above flippers)
-        print("DEBUG: Calling _setup_slingshots")
+
         self._setup_slingshots()
 
         # Setup Rails (as Polygons for robust collision)

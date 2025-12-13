@@ -5,13 +5,13 @@ import os
 import threading
 import multiprocessing
 try:
-    multiprocessing.set_start_method('spawn', force=True) # Force restart v2
+    multiprocessing.set_start_method('spawn', force=True)
 except RuntimeError:
     pass
 
 import time
 import logging
-# Force restart v2
+
 import numpy as np
 from dotenv import load_dotenv
 
@@ -205,7 +205,7 @@ def main():
                     self.current_ball_count = 1 if ball_pos is not None else 0
 
                 if processed_frame is not None:
-                    # processed_frame = self.zones.draw_zones(processed_frame) # Removed to avoid 2D overlay on 3D sim
+
                     with self.lock:
                         self.latest_processed_frame = processed_frame
                 return ball_pos
@@ -368,7 +368,7 @@ def main():
         pass # Already handled by assignment above
     
     # 5. Bot Controller (Manages Play/Train modes)
-    # 5. Bot Controller (Manages Play/Train modes)
+
     class BotController:
         def __init__(self):
             self.mode = 'PLAY' # 'PLAY' or 'TRAIN'
@@ -467,7 +467,7 @@ def main():
                     while not controller.status_queue.empty():
                         msg_type, msg_data = controller.status_queue.get_nowait()
                         if msg_type == 'stats':
-                            # logger.info(f"Main received stats: {msg_data}") # Verbose
+
                             vision_wrapper.update_training_stats(msg_data)
                         elif msg_type == 'status':
                             # Handle both string and dict status for backward compatibility
@@ -632,10 +632,7 @@ def main():
                         # Right Flipper
                         should_flip_right = (action == constants.ACTION_FLIP_RIGHT or action == constants.ACTION_FLIP_BOTH)
                         
-                        # # Safety Override: If ball is in right zone and moving down, force flip
-                        # if vision_wrapper.ai_enabled and zones['right'] and vy > 100: # Pixel/sec threshold
-                        #     should_flip_right = True
-                        
+
                         if should_flip_right and zones['right']:
                             hw.hold_right()
                         else:
@@ -643,7 +640,7 @@ def main():
                     else:
                         # Reflex Agent
                         if vision_wrapper.ai_enabled:
-                            # logger.debug(f"Reflex Agent Act: Pos={ball_pos}, Vel=({vx:.1f}, {vy:.1f})")
+
                             agnt.act(ball_pos, width, height, velocity=(vx, vy))
                     
                     # last_ball_pos updated above

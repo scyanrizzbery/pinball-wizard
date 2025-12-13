@@ -1,16 +1,15 @@
 # Pinball Wizard 🧙‍♂️
 
-A reinforcement learning agent for playing pinball.
+A reinforcement learning agent for playing pinball, featuring a deterministic replay system, live 3D visualization, and a web-based layout editor.
 
-- **Web Visualization**: Live web interface to watch the agent "think" and play in real-time.
-- **3D Simulator**: Fully interactive 3D view with realistic physics, including tapered flippers and rubber bounce.
-- **Zone Visualization**: Visual feedback of the AI's flipper activation zones.
-- **Manual Play Mode**: Test the physics and controls yourself via the web interface.
+- **Deterministic Replay System**: Automatically record and replay games with standard cryptographic hashing to verify high scores and shared replays.
+- **Layout Editor**: Built-in 3D editor to drag & drop rails, bumpers, and zones directly in the browser.
+- **Mothership Boss Battle**: Dynamic boss fights with destructible environments and multi-stage mechanics.
+- **3D Simulator**: Fully interactive 3D view with realistic physics (Pymunk), including tapered flippers and rubber bounce.
+- **Mobile & Foldable Support**: Responsive UI optimized for desktop and Galaxy Z Fold devices.
+- **Web Visualization**: Live web interface (Vue 3 + Three.js) to watch the agent "think" and play in real-time.
+- **High Score System**: Track your best games with visual celebrations, fireworks, and persistent history.
 - **Dynamic Physics Config**: Adjust gravity, friction, ball mass, and flipper mechanics on the fly.
-- **Rail Editor**: Built-in 3D editor to add/move rails and bumpers directly in the browser.
-- **High Score System**: Track your best games with visual celebrations and fireworks.
-- **Layout Persistence**: Physics settings are automatically saved and loaded for each specific table layout.
-- **Fullscreen Mode**: Playfield-only fullscreen mode for an immersive experience.
 
 ## Desktop
 ![Desktop View](assets/screenshot_desktop.png)
@@ -42,25 +41,7 @@ A reinforcement learning agent for playing pinball.
 
 ## 🚀 Usage
 
-### 1. Train the Agent (Simulation)
-Train the bot in the simulated environment. This runs the physics engine, vision system, and PPO agent loop.
-```bash
-docker compose run --rm -p 5000:5000 pinball-bot python train.py
-```
-- Open `http://localhost:5000` to watch the training live.
-- Metrics are logged to the console.
-
-### 2. Hyperparameter Optimization (Optuna)
-Auto-tune the RL agent's learning parameters (learning rate, entropy, etc.) for better performance.
-```bash
-# Run optimization trial (uses GPU if available)
-docker compose run --rm -p 5000:5000 -p 8080:8080 pinball-bot python optimize.py
-```
-- **Real-time Progress**: The web UI (`http://localhost:5000`) visualizes the optimization trials in real-time.
-- **Optuna Dashboard**: View detailed trial statistics and parameter importance at `http://localhost:8080`.
-- **Apply Results**: The best hyperparameters are automatically saved to `frontend/public/hyperparams.json` and loaded by the UI for future training sessions.
-
-### 3. Manual Play Mode
+### 1. Manual Play Mode
 Test the physics and controls yourself without the AI.
 ```bash
 docker compose run --rm -p 5000:5000 pinball-bot python main.py
@@ -74,19 +55,37 @@ docker compose run --rm -p 5000:5000 pinball-bot python main.py
     - `Left Shift`: Nudge Left
     - `Right Shift`: Nudge Right
 
-### 3. Real Hardware Mode
-To run on a Raspberry Pi connected to a pinball machine:
-1.  Connect the webcam and GPIO pins to the flipper solenoids.
-2.  Update `.env` with your hardware config.
+### 2. Train the Agent (Simulation)
+Train the bot in the simulated environment. This runs the physics engine, vision system, and PPO agent loop.
+```bash
+docker compose run --rm -p 5000:5000 pinball-bot python train.py
+```
+- Open `http://localhost:5000` to watch the training live.
+- Metrics are logged to the console.
+
+### 3. Hyperparameter Optimization (Optuna)
+Auto-tune the RL agent's learning parameters (learning rate, entropy, etc.) for better performance.
+```bash
+# Run optimization trial (uses GPU if available)
+docker compose run --rm -p 5000:5000 -p 8080:8080 pinball-bot python optimize.py
+```
+- **Real-time Progress**: The web UI (`http://localhost:5000`) visualizes the optimization trials in real-time.
+- **Optuna Dashboard**: View detailed trial statistics and parameter importance at `http://localhost:8080`.
+- **Apply Results**: The best hyperparameters are automatically saved to `frontend/public/hyperparams.json` and loaded by the UI for future training sessions.
+
 
 ## 📂 Project Structure
 
 - **`pbwizard/`**: Core package
     - **`agent.py`**: RL agent implementation (PPO/Reflex).
     - **`environment.py`**: Gymnasium environment wrapper.
-    - **`vision.py`**: Vision system (Real & Simulated).
-    - **`hardware.py`**: GPIO control for flippers.
-    - **`web_server.py`**: Flask/SocketIO server for visualization.
+    - **`vision.py`**: Vision system (Real & Simulated), Physics Engine integration.
+    - **`physics.py`**: Pymunk physics engine wrapper and collision logic.
+    - **`hardware.py`**: GPIO control for real flippers.
+    - **`web_server.py`**: Flask/SocketIO server for visualization and control.
+- **`frontend/`**: Vue 3 + Vite frontend application.
+    - **`src/components/Pinball3D.vue`**: Main 3D game view (Three.js).
+    - **`src/components/ReplayIndicator.vue`**: Replay status and hash display.
 - **`train.py`**: Script for training the agent.
 - **`main.py`**: Entry point for play/inference mode.
 - **`tests/`**: Python unit tests.
@@ -94,48 +93,39 @@ To run on a Raspberry Pi connected to a pinball machine:
 
 ## 🧠 Technical Architecture
 
-### Communication Channels
+### Deterministic Replay System
+To ensure fair competition and verifiable high scores, the game uses a deterministic replay system:
+- **Game Hash**: A SHA-256 hash is generated from the initial random seed, layout configuration, and physics parameters.
+- **Input Logging**: All user inputs (flippers, nudges, launch) are recorded with their exact frame timestamp.
+- **Playback**: During replay, the physics engine is re-seeded with the original seed, and inputs are injected at the exact same frames, guaranteeing an identical outcome.
 
-The system uses a hybrid communication architecture to ensure low-latency control while providing a rich user interface.
+### Communication Channels
+The system uses a hybrid communication architecture:
 
 1.  **Frontend <-> Backend (Socket.IO)**:
-    -   **Video Stream**: The backend streams JPEG-encoded frames via the `video_frame` event (~30 FPS).
-    -   **Telemetry**: Game stats (score, ball count, physics params) are broadcast via the `stats` event.
-    -   **Control**: User inputs (flippers, nudges) and configuration changes (gravity, AI toggle) are sent to the backend via `input_event` and `update_physics_v2`.
+    -   **Video Stream**: JPEG-encoded frames via `video_frame` event (~30 FPS).
+    -   **Telemetry**: Game stats (score, ball count, physics params, replay hash) via `stats_update`.
+    -   **Control**: User inputs and config changes via `input_event` and `update_physics_v2`.
+    -   **Replay**: Replay loading and status updates via `load_replay` and `replay_status`.
 
 2.  **Internal Process Communication (Multiprocessing)**:
-    -   When in **Training Mode**, the training loop runs in a separate process to avoid blocking the web server.
-    -   **State Queue**: The training worker pushes the current simulation state (ball position, flipper angles) to the main process for visualization.
-    -   **Command Queue**: The main process sends control commands (e.g., `STOP`) to the worker.
-    -   **Status Queue**: The worker reports training progress and statistics back to the main process.
+    -   **Training Mode**: The training loop runs in a separate process to avoid blocking the web server.
 
 ### Decision Space (RL Environment)
 
-The Reinforcement Learning agent interacts with the `PinballEnv` (Gymnasium wrapper).
-
 **Observation Space (Continuous)**:
-A normalized vector of 4 floating-point values:
--   `ball_x`: Horizontal position (0.0 - 1.0)
--   `ball_y`: Vertical position (0.0 - 1.0)
--   `ball_vx`: Horizontal velocity (normalized)
--   `ball_vy`: Vertical velocity (normalized)
+Normalized vector (8 values):
+-   `ball_x`, `ball_y`, `ball_vx`, `ball_vy` (Ball state)
+-   `target_1`, `target_2`, `target_3`, `target_4` (Drop target states)
 
 **Action Space (Discrete)**:
-The agent chooses one of 6 possible actions at every step (~30Hz):
-0.  **No-op**: Release all flippers.
-1.  **Flip Left**: Hold left flipper.
-2.  **Flip Right**: Hold right flipper.
-3.  **Flip Both**: Hold both flippers.
-4.  **Nudge Left**: Shake table left.
-5.  **Nudge Right**: Shake table right.
+6 possible actions at every step (~30Hz):
+-   `NOOP`, `FLIP_LEFT`, `FLIP_RIGHT`, `FLIP_BOTH`, `NUDGE_LEFT`, `NUDGE_RIGHT`
 
 **Reward Function**:
--   **Score**: +1.0 for every 100 points scored.
--   **Survival**: +0.2 per step the ball is alive.
--   **Height Bonus**: Small reward for keeping the ball high on the playfield.
--   **Penalties**:
-    -   -5.0 for losing a ball.
-    -   -0.5 for holding the ball (trapping) for >3 seconds.
+-   **Score**: +1.0 per 100 points.
+-   **Survival**: +0.2 per step.
+-   **Penalties**: -5.0 for ball loss, -0.5 for trapping >3s.
 
 ## 🧪 Testing
 
@@ -150,13 +140,9 @@ docker-compose --profile test up
 docker compose --profile e2e up cypress
 ```
 
-For detailed testing instructions, see:
-- **E2E Docker Guide**: `E2E_DOCKER_GUIDE.md`
-- **Cypress Documentation**: `cypress/README.md`
-
 ## ⚙️ Configuration
 
-Environment variables can be set in `.env`:
+Environment variables in `.env`:
 - `SIMULATION_MODE`: `True` for sim, `False` for real camera.
 - `DEBUG_MODE`: `True` to use mock hardware.
 - `GPIO_PIN_LEFT_FLIPPER`: GPIO pin for left flipper.

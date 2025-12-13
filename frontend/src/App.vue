@@ -1,7 +1,7 @@
 <template>
     <div id="app-container">
         <Header :connected="connected">
-            <!-- Stats removed from header -->
+
         </Header>
 
         <div id="main-layout">
@@ -510,7 +510,7 @@ const startNewGame = () => {
     addLog('Starting new game...')
 
     // Play Close Encounters motif if we just had a good game (score > 5000)
-    // Play Close Encounters motif if we just had a good game (score > 5000)
+
     if (stats.score > 5000) {
         console.log('🛸 Playing Close Encounters welcome for new game!')
         setTimeout(() => {
@@ -627,7 +627,6 @@ const savePreset = (name: string, config: any) => {
 }
 
 const handleZoneUpdate = (newZones: Zone[]) => {
-    // console.log("Zone update:", newZones)
     physics.zones = newZones
     if (layoutConfig.value) layoutConfig.value.zones = newZones
     hasUnsavedChanges.value = true
@@ -639,7 +638,6 @@ const handleZoneUpdate = (newZones: Zone[]) => {
 }
 
 const handleRailUpdate = (newRails: any[]) => {
-    // console.log("Rail update:", newRails)
     physics.rails = newRails
     if (layoutConfig.value) layoutConfig.value.rails = newRails
     hasUnsavedChanges.value = true
@@ -651,7 +649,6 @@ const handleRailUpdate = (newRails: any[]) => {
 }
 
 const handleBumperUpdate = (newBumpers: any[]) => {
-    // console.log("Bumper update:", newBumpers)
     physics.bumpers = newBumpers
     if (layoutConfig.value) layoutConfig.value.bumpers = newBumpers
     hasUnsavedChanges.value = true
@@ -663,7 +660,6 @@ const handleBumperUpdate = (newBumpers: any[]) => {
 }
 
 const handleUpdatePhysics = (key: string, value: any) => {
-    // console.log(`Updating physics: ${key} = ${value}`)
     // Update local state is handled by v-model in Settings usually, but if this event passes key/value:
     physics[key] = value
     hasUnsavedChanges.value = true
@@ -754,19 +750,14 @@ watch(() => stats.combo_count, (newCombo: number, oldCombo: number) => {
 })
 
 // Watch for ball count changes to detect game over and auto-restart
-// Watch for ball count changes to detect game over and auto-restart
-watch(() => stats.ball_count, (newCount: number, oldCount: number) => {
-    // console.log(`[Ball Count Watch] ${oldCount} → ${newCount}, balls remaining: ${stats.balls_remaining}`)
 
+watch(() => stats.ball_count, (newCount: number, oldCount: number) => {
     // If all balls drained (ball_count went to 0) and we have balls remaining
     if (oldCount > 0 && newCount === 0) {
-        // console.log('[Ball Count Watch] All balls drained!')
-
         // If we still have balls remaining (checked from updated stats)
         // Note: stats.balls_remaining comes from backend "lives" logic (3, 2, 1)
         // If > 0, we expect backend to respawn
         if (stats.balls_remaining > 0) {
-             // console.log(`[Ball Count Watch] ${stats.balls_remaining} balls remaining, waiting for respawn...`)
              // Do NOTHING here. Backend handles respawn.
              // We only implemented startNewGame helper if we needed to trigger it
              // But usually physics engine adds ball automatically?
