@@ -60,7 +60,7 @@ class PinballEnv(gym.Env):
 
         # Default rewards
         self.rewards_config = {
-            "score_log_scale": 0.1,
+            "score_log_scale": 0.106,
             "combo_increase_factor": 0.1,
             "multiplier_increase_factor": 0.5,
             "flipper_penalty": 0.0001,

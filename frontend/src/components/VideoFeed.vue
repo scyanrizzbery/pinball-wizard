@@ -191,7 +191,7 @@ const emit = defineEmits<{
   (e: 'toggle-fullscreen'): void
 }>()
 
-const handleKeydown = (e) => {
+const handleKeydown = (e: KeyboardEvent) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.code)) {
     e.preventDefault()
     if (props.configSocket) {
@@ -208,12 +208,19 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
 
-const videoElement = ref(null)
-const containerElement = ref(null)
+interface DragState {
+  type: string
+  index: number
+  pointIndex: number | string
+  startMouse: { x: number; y: number }
+}
+
+const videoElement = ref<HTMLImageElement | null>(null)
+const containerElement = ref<HTMLDivElement | null>(null)
 const lastNudgeTime = ref(props.nudgeEvent?.time || 0)
 const showZones = ref(false)
 const isShaking = ref(false)
-const dragging = ref(null) // Drag functionality removed per user request
+const dragging = ref<DragState | null>(null)
 
 // Computed properties for debug display
 const ballCount = computed(() => {
@@ -231,11 +238,11 @@ const containerSize = computed(() => {
 
 // Watch for ball count changes and log them
 const lastBallCount = ref(0)
-watch(ballCount, (newCount, oldCount) => {
+watch(ballCount, (newCount) => {
   lastBallCount.value = newCount
 })
 
-const formatNumber = (num) => {
+const formatNumber = (num: number | undefined | null) => {
   if (num === undefined || num === null) return '0'
   return num.toLocaleString()
 }
@@ -244,6 +251,8 @@ const formatNumber = (num) => {
 watch(() => props.nudgeEvent, (newVal) => {
   if (newVal && newVal.time > lastNudgeTime.value) {
     lastNudgeTime.value = newVal.time
+    isShaking.value = true
+    setTimeout(() => isShaking.value = false, 200)
     const element = videoElement.value
     if (element) {
       element.classList.remove('shake-left', 'shake-right')
@@ -281,8 +290,8 @@ const rails = computed(() => {
   
   // Apply Rail Translation Offsets
   // Offsets are already normalized (relative to width/height)
-  const normOffsetX = parseFloat(props.physics.rail_x_offset || 0)
-  const normOffsetY = parseFloat(props.physics.rail_y_offset || 0)
+  const normOffsetX = parseFloat(String(props.physics.rail_x_offset || 0))
+  const normOffsetY = parseFloat(String(props.physics.rail_y_offset || 0))
   const lengthScale = parseFloat(props.physics.guide_length_scale || 1.0)
   
   // console.log(`VideoFeed rails computed. Rails: ${props.physics.rails.length}, Offsets: ${normOffsetX}, ${normOffsetY}`)
@@ -393,34 +402,29 @@ const zoomStyle = computed(() => {
 // Projection Constants (Must match backend)
 const TABLE_WIDTH = 450
 const TABLE_HEIGHT = 800
-const ASPECT = TABLE_WIDTH / TABLE_HEIGHT
 
-const project3D = (tx, ty) => {
+const project3D = (tx: number, ty: number) => {
   // Video Feed matches the 2D Physics Table Logic directly.
   return { x: tx, y: ty }
 }
 
-const unproject2D = (sx, sy) => {
-  return { x: sx, y: sy }
-}
-
-const getPolygonPoints = (points) => {
+const getPolygonPoints = (points: { x: number; y: number }[]) => {
   return points.map(p => `${p.x},${p.y}`).join(' ')
 }
 
-const getMousePos = (e) => {
+const getMousePos = (e: MouseEvent | TouchEvent) => {
   if (!containerElement.value) return { x: 0, y: 0 }
   const rect = containerElement.value.getBoundingClientRect()
-  const clientX = e.touches ? e.touches[0].clientX : e.clientX
-  const clientY = e.touches ? e.touches[0].clientY : e.clientY
+  const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+  const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
   return {
     x: (clientX - rect.left) / rect.width,
     y: (clientY - rect.top) / rect.height
   }
 }
 
-const startDrag = (type, index, pointIndex, event) => {
-  if (!props.showZones && !['zone', 'rail', 'bumper', 'target'].includes(type)) return
+const startDrag = (type: string, index: number, pointIndex: number | string, event: MouseEvent | TouchEvent) => {
+  if (!showZones.value && !['zone', 'rail', 'bumper', 'target'].includes(type)) return
   
   // Prevent default to stop scrolling/selection
   if (event.cancelable) event.preventDefault()
@@ -438,7 +442,7 @@ const startDrag = (type, index, pointIndex, event) => {
   window.addEventListener('touchend', handleDragEnd)
 }
 
-const handleDragMove = (event) => {
+const handleDragMove = (event: MouseEvent | TouchEvent) => {
   if (!dragging.value) return
   
   if (event.cancelable) event.preventDefault()
@@ -475,8 +479,8 @@ const handleDragMove = (event) => {
     if (!newRails[d.index]) return
     const rail = newRails[d.index]
     
-    const normOffsetX = parseFloat(props.physics.rail_x_offset || 0)
-    const normOffsetY = parseFloat(props.physics.rail_y_offset || 0)
+    const normOffsetX = parseFloat(String(props.physics.rail_x_offset || 0))
+    const normOffsetY = parseFloat(String(props.physics.rail_y_offset || 0))
     
     // Calculate new position in physics space (undoing the visual offset)
     const targetX = mousePos.x - normOffsetX
@@ -519,10 +523,7 @@ const handleDragEnd = () => {
     window.removeEventListener('touchend', handleDragEnd)
 }
 
-// Deprecated handlers kept for compatibility if needed
-const onDrag = () => {}
-const stopDrag = () => {}
-const addZone = (type) => {
+const addZone = (type: 'left' | 'right') => {
   const newZones = JSON.parse(JSON.stringify(props.physics.zones || []))
   const newZone = {
     id: 'zone_' + Date.now(),
@@ -557,13 +558,13 @@ const addBumper = () => {
 }
 
 
-const removeZone = (index) => {
+const removeZone = (index: number) => {
   const newZones = JSON.parse(JSON.stringify(props.physics.zones))
   newZones.splice(index, 1)
   emit('update-zone', newZones)
 }
 
-const removeRail = (index) => {
+const removeRail = (index: number) => {
   const newRails = JSON.parse(JSON.stringify(props.physics.rails))
   newRails.splice(index, 1)
   emit('update-rail', newRails)

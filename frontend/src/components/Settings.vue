@@ -598,21 +598,21 @@
                 </div>
             </div>
 
-            <div v-if="stats.is_training" style="margin-top: 15px;">
+            <div v-if="stats?.is_training" style="margin-top: 15px;">
                 <div
                     style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9em; color: #ccc;">
-                    <span>Progress <span v-if="stats.model_name" style="color: #4caf50;">({{ stats.model_name }})</span></span>
-                    <span>{{ Math.round(stats.training_progress * 100) }}%</span>
+                    <span>Progress <span v-if="stats?.model_name" style="color: #4caf50;">({{ stats.model_name }})</span></span>
+                    <span>{{ Math.round((stats?.training_progress || 0) * 100) }}%</span>
                 </div>
                 <div style="width: 100%; height: 10px; background: #333; border-radius: 5px; overflow: hidden;">
                     <div
-                        :style="{ width: (stats.training_progress * 100) + '%', height: '100%', background: '#4caf50', transition: 'width 0.3s' }">
+                        :style="{ width: ((stats?.training_progress || 0) * 100) + '%', height: '100%', background: '#4caf50', transition: 'width 0.3s' }">
                     </div>
                 </div>
                 <div
                     style="margin-top: 5px; font-size: 0.8em; color: #aaa; display: flex; justify-content: space-between;">
-                    <span>Steps: {{ formatNumber(stats.current_step) }} / {{ formatNumber(stats.total_steps) }}</span>
-                    <span v-if="stats.eta_seconds">ETA: {{ formatTime(stats.eta_seconds) }}</span>
+                    <span>Steps: {{ formatNumber(stats?.current_step) }} / {{ formatNumber(stats?.total_steps) }}</span>
+                    <span v-if="stats?.eta_seconds">ETA: {{ formatTime(stats.eta_seconds) }}</span>
                 </div>
 
                 <!-- PPO Metrics Grid -->
@@ -620,40 +620,40 @@
                     style="margin-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.8em;">
                     <div class="metric-box">
                         <span class="metric-label">Mean Length</span>
-                        <span class="metric-value">{{ formatNumber(stats.ep_len_mean || 0, 1) }}</span>
+                        <span class="metric-value">{{ formatNumber(stats?.ep_len_mean || 0, 1) }}</span>
                     </div>
                     <div class="metric-box">
                         <span class="metric-label">Mean Reward</span>
-                        <span class="metric-value">{{ formatNumber(stats.ep_rew_mean || 0, 2) }}</span>
+                        <span class="metric-value">{{ formatNumber(stats?.ep_rew_mean || 0, 2) }}</span>
                     </div>
                     <div class="metric-box">
                         <span class="metric-label">FPS</span>
-                        <span class="metric-value">{{ stats.fps || 0 }}</span>
+                        <span class="metric-value">{{ stats?.fps || 0 }}</span>
                     </div>
                     <div class="metric-box">
                         <span class="metric-label">Expl. Var</span>
-                        <span class="metric-value">{{ formatNumber(stats.explained_variance || 0, 3) }}</span>
+                        <span class="metric-value">{{ formatNumber(stats?.explained_variance || 0, 3) }}</span>
                     </div>
                     <div class="metric-box">
                         <span class="metric-label">Loss</span>
-                        <span class="metric-value">{{ formatNumber(stats.loss || 0, 3) }}</span>
+                        <span class="metric-value">{{ formatNumber(stats?.loss || 0, 3) }}</span>
                     </div>
                     <div class="metric-box">
                         <span class="metric-label">Entropy</span>
-                        <span class="metric-value">{{ formatNumber(stats.entropy_loss || 0, 3) }}</span>
+                        <span class="metric-value">{{ formatNumber(stats?.entropy_loss || 0, 3) }}</span>
                     </div>
                     <div class="metric-box">
                         <span class="metric-label">Value Loss</span>
-                        <span class="metric-value">{{ formatNumber(stats.value_loss || 0, 3) }}</span>
+                        <span class="metric-value">{{ formatNumber(stats?.value_loss || 0, 3) }}</span>
                     </div>
                     <div class="metric-box">
                         <span class="metric-label">Policy Loss</span>
-                        <span class="metric-value">{{ formatNumber(stats.policy_gradient_loss || 0, 4) }}</span>
+                        <span class="metric-value">{{ formatNumber(stats?.policy_gradient_loss || 0, 4) }}</span>
                     </div>
                 </div>
             </div>
 
-            <div v-if="stats.is_training"
+            <div v-if="stats?.is_training"
                  style="margin-top: 20px; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
                 <h4 style="margin: 0 0 10px 0; color: #4caf50; font-size: 0.9em;">Performance</h4>
                 <highcharts :options="performanceChartOptions" style="width:100%; height:200px;"></highcharts>
@@ -664,10 +664,10 @@
 
             <div style="margin-top: auto; padding-top: 20px; display: flex; gap: 10px;">
                 <button class="control-btn" style="flex: 1; background-color: #4caf50;" @click="startTraining"
-                        :disabled="stats.is_training">Start Training
+                        :disabled="stats?.is_training">Start Training
                 </button>
                 <button class="control-btn" style="flex: 1; background-color: #e74c3c;" @click="stopTraining"
-                        :disabled="!stats.is_training">Stop
+                        :disabled="!stats?.is_training">Stop
                 </button>
             </div>
         </div>
@@ -825,13 +825,27 @@ const updatePhysics = (param: string, value?: any) => {
     emit('update-physics', param, val)
 }
 
+// Type-safe event handler helpers
+const handleInputChange = (param: string, event: Event) => {
+    const target = event.target as HTMLInputElement
+    updatePhysics(param, parseFloat(target.value))
+}
+
+const handleCheckboxChange = (param: string, event: Event) => {
+    const target = event.target as HTMLInputElement
+    updatePhysics(param, target.checked)
+}
+
+const handleSelectChange = (param: string, event: Event) => {
+    const target = event.target as HTMLSelectElement
+    updatePhysics(param, target.value)
+}
+
 const updateRewards = (param: string, value: number) => {
     emit('update-rewards', {[param]: value})
 }
 
-const applyPreset = () => {
-    emit('apply-preset', props.selectedPreset)
-}
+
 
 
 const deletePreset = () => {

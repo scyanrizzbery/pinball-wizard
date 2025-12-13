@@ -62,7 +62,7 @@ class TestRewardsConfig(unittest.TestCase):
         env = PinballEnv(vision_mock, hw_mock, score_mock, headless=True)
 
         # Check default values
-        self.assertEqual(env.rewards_config['score_log_scale'], 0.1)
+        self.assertEqual(env.rewards_config['score_log_scale'], 0.106)
         self.assertEqual(env.rewards_config['bumper_hit'], 0.5)
 
 if __name__ == '__main__':

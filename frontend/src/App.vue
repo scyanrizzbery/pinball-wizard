@@ -118,9 +118,9 @@
                       @update-rewards="handleUpdateRewards"
                       @reset-config="handleResetConfig"
                       @apply-preset="applyPreset"
-                      @save-preset="savePreset"
+                      @save-preset="(savePreset as any)"
                       @delete-preset="deletePreset"
-                      @load-model="loadModel"
+                      @load-model="(loadModel as any)"
                       @change-layout="changeLayout"
                       @start-training="startTraining"
                       @stop-training="stopTraining"
@@ -332,7 +332,7 @@ const toggleFullscreen = () => {
 
 const isTilted = computed(() => stats.is_tilted || false)
 
-const physics = reactive<PhysicsConfig>({
+const physics = reactive<any>({
     gravity: 1200.0,
     friction: 0.01,
     restitution: 0.5,
@@ -918,7 +918,6 @@ onMounted(() => {
     sockets.game.on('connect', () => {
         connected.value = true
         addLog('Connected to game server')
-        
         // Expose sockets for E2E testing
         if (window) {
             (window as any).sockets = sockets;

@@ -73,7 +73,7 @@
     <!-- PERMANENT DEBUG PANEL (bottom-right) -->
     <div class="permanent-debug-panel">
       <div>Balls: {{ activeBallCount }}</div>
-      <div v-if="camera">Aspect: {{ camera.aspect?.toFixed(3) }}</div>
+      <div v-if="camera && 'aspect' in camera">Aspect: {{ camera.aspect?.toFixed(3) }}</div>
       <div v-if="renderer">Canvas: {{ rendererSize }}</div>
       <div v-if="container">Container: {{ containerSize }}</div>
     </div>
@@ -178,8 +178,8 @@ let resizeObserver: ResizeObserver
 // let socket // Use props.socket
 // Interactive objects container type
 interface InteractiveObjects {
-    left: THREE.Mesh | null;
-    right: THREE.Mesh | null;
+    left: THREE.Group | null;
+    right: THREE.Group | null;
     upper: any[];
     dropTargets: THREE.Mesh[];
     bumpers: THREE.Group[];
@@ -698,8 +698,8 @@ const onMouseMove = (event: MouseEvent) => {
                      // If we don't scale, the rail will look detached from points.
                      // Let's try to set scale.
                      // We need L_init. Geometry.parameters.height?
-                     if (railMesh.geometry.parameters) {
-                         const initLen = railMesh.geometry.parameters.height // Cylinder height is the length
+                     if ((railMesh.geometry as any).parameters) {
+                         const initLen = (railMesh.geometry as any).parameters.height // Cylinder height is the length
                          railMesh.scale.x = length / initLen
                          // Note: rotateZ(PI/2) makes Y become X?
                          // Cylinder is created along Y. rotateZ(PI/2) moves Y to negative X?
@@ -864,12 +864,12 @@ const createTable = (config: PhysicsConfig | null = null) => {
     scene.remove(tableGroup)
     // Dispose of geometries and materials to free memory
     tableGroup.traverse((obj) => {
-      if (obj.geometry) obj.geometry.dispose()
-      if (obj.material) {
+      if ('geometry' in obj && obj.geometry) (obj.geometry as THREE.BufferGeometry).dispose()
+      if ('material' in obj && obj.material) {
         if (Array.isArray(obj.material)) {
-          obj.material.forEach(mat => mat.dispose())
+          obj.material.forEach(mat => (mat as THREE.Material).dispose())
         } else {
-          obj.material.dispose()
+          (obj.material as THREE.Material).dispose()
         }
       }
     })
@@ -2513,7 +2513,7 @@ const initThree = () => {
 
   // Mobile Gestures Configuration
   controls.touches = {
-      ONE: THREE.TOUCH.NONE, // Disable 1-finger interaction 
+      ONE: (THREE as any).TOUCH.NONE, // Disable 1-finger interaction 
       TWO: THREE.TOUCH.DOLLY_PAN // 2-finger zoom/pan
   }
   scene.add(accentLight2)
@@ -2557,7 +2557,7 @@ const initThree = () => {
     for (let entry of entries) {
       const { width, height } = entry.contentRect
       // console.warn(`📐 RESIZE DETECTED: ${width}x${height}, balls: ${balls.length}`)
-      if (camera && renderer && width > 0 && height > 0) {
+      if (camera && renderer && width > 0 && height > 0 && 'aspect' in camera) {
         const oldAspect = camera.aspect
         camera.aspect = width / height
         camera.updateProjectionMatrix()
@@ -2594,7 +2594,7 @@ const initThree = () => {
   // Force initial resize/update after mount to ensure proper alignment
   // This fixes the issue where rails don't align until layout is changed
   setTimeout(() => {
-    if (container.value && renderer && camera) {
+    if (container.value && renderer && camera && 'aspect' in camera) {
       const rect = container.value.getBoundingClientRect()
       camera.aspect = rect.width / rect.height
       camera.updateProjectionMatrix()
@@ -2732,7 +2732,7 @@ const initThree = () => {
       }
 
       if (i < bumperStates.length) {
-        const active = bumperStates[i] > 0
+        const active = Number(bumperStates[i]) > 0
         const domeMesh = bumperGroup.userData.domeMesh
         const ringMesh = bumperGroup.userData.ringMesh
         const lights = bumperGroup.userData.lights
@@ -2979,23 +2979,39 @@ const initThree = () => {
     }
   }
 
- // If already connected
-  if (socket.connected) {
-      onConnect()
+  // Socket setup with validation
+  console.log('[Pinball3D onMounted] Socket:', socket, 'Type:', typeof socket)
+  
+  if (!socket) {
+    console.warn('[Pinball3D] No socket provided, skipping event listeners')
+  } else if (typeof socket.on !== 'function') {
+    console.error('[Pinball3D] Socket.on is not a function. Socket value:', socket)
+  } else {
+    try {
+      // If already connected
+      if (socket.connected) {
+        onConnect()
+      }
+
+      // Setup socket event listeners  
+      socket.on('connect', onConnect)
+      socket.on('game_state', onGameState)
+      socket.on('stuck_ball', onStuckBall)
+      console.log('[Pinball3D] Socket event listeners registered')
+      
+      // Store cleanup function
+      (container.value as any)._cleanupSocket = () => {
+        if (socket && typeof socket.off === 'function') {
+          socket.off('connect', onConnect)
+          socket.off('game_state', onGameState)
+          socket.off('stuck_ball', onStuckBall)
+        }
+      }
+    } catch (error) {
+      console.error('[Pinball3D] Failed to setup socket listeners:', error)
+    }
   }
 
-  socket.on('connect', onConnect)
-  socket.on('game_state', onGameState)
-  socket.on('stuck_ball', onStuckBall)
-  // socket.on('physics_config_loaded', onConfigLoaded) // Removed
-  
-  // Store cleanup function
-  container.value._cleanupSocket = () => {
-      socket.off('connect', onConnect)
-      socket.off('game_state', onGameState)
-      socket.off('stuck_ball', onStuckBall)
-      // socket.off('physics_config_loaded', onConfigLoaded) // Removed
-  }
   
   window.addEventListener('keydown', handleKeydown)
 })
@@ -3061,7 +3077,7 @@ watch(() => props.cameraMode, (newMode) => {
         camera.updateProjectionMatrix()
 
         // Trigger a resize to recalculate dimensions
-        if (container.value) {
+        if (renderer && camera && container.value && 'aspect' in camera) {
             const rect = container.value.getBoundingClientRect()
             renderer.setSize(rect.width, rect.height)
             camera.aspect = rect.width / rect.height
@@ -3075,7 +3091,7 @@ watch(() => props.cameraMode, (newMode) => {
 watch(() => [props.stats?.combo_count, props.stats?.score_multiplier], () => {
     // Defer the update to after DOM has updated
     setTimeout(() => {
-        if (renderer && camera && container.value) {
+        if (renderer && camera && container.value && 'aspect' in camera) {
             const rect = container.value.getBoundingClientRect()
             if (rect.width > 0 && rect.height > 0) {
                 camera.aspect = rect.width / rect.height
@@ -3154,7 +3170,7 @@ const activateControls = () => {
 
 // Cache last table config string to detect changes
 const lastTableConfigStr = ref("")
-const lastCameraConfig = ref({})
+const lastCameraConfig = ref<{x?: number, y?: number, z?: number, pitch?: number, zoom?: number}>({})
 const lastActiveBallCount = ref(0) // Track ball count to prevent rebuild during multiball
 
 // Watch for config changes from parent (must be after createTable is defined)
@@ -3546,8 +3562,8 @@ watch(() => props.stats.game_over, (val) => {
 })
 
 onUnmounted(() => {
-  if (container.value && container.value._cleanupSocket) {
-      container.value._cleanupSocket()
+  if (container.value && (container.value as any)._cleanupSocket) {
+      (container.value as any)._cleanupSocket()
   }
   window.removeEventListener('keydown', handleKeydown)
   // Cleanup Three.js
@@ -3557,19 +3573,19 @@ onUnmounted(() => {
   
   if (fireworksInterval) clearInterval(fireworksInterval)
   if ((window as any).fireworksGroup && scene) {
-      scene.remove((window as any).fireworksGroup)
+      ;(scene as any).remove((window as any).fireworksGroup)
       (window as any).fireworksGroup = null
   }
 
   if (tableGroup) {
     // Dispose table resources
     tableGroup.traverse((obj) => {
-      if (obj.geometry) obj.geometry.dispose()
-      if (obj.material) {
+      if ('geometry' in obj && obj.geometry) (obj.geometry as THREE.BufferGeometry).dispose()
+      if ('material' in obj && obj.material) {
         if (Array.isArray(obj.material)) {
-          obj.material.forEach(mat => mat.dispose())
+          obj.material.forEach(mat => (mat as THREE.Material).dispose())
         } else {
-          obj.material.dispose()
+          (obj.material as THREE.Material).dispose()
         }
       }
     })
