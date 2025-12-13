@@ -27,11 +27,11 @@ jobs:
     - name: Run Smoke Tests
       run: |
         # Run only the smoke tests to fail fast
-        PYTHONPATH=$PYTHONPATH:$(pwd) pytest tests/test_smoke.py
+        PYTHONPATH=. pytest tests/test_smoke.py
 
     - name: Run Full Test Suite
       if: success()
       run: |
         # Run the full suite if smoke tests pass
         # Excluding slow tests if necessary, currently running all
-        PYTHONPATH=$PYTHONPATH:$(pwd) pytest tests/
+        PYTHONPATH=. pytest tests/

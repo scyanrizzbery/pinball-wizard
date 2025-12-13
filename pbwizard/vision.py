@@ -608,7 +608,14 @@ class SimulatedFrameCapture(FrameCapture):
         if layout_config is None:
             self.refresh_layouts()
 
-        # Physics Engine (Full Init)
+        # IMPORTANT: Initialize flipper_resting_angle BEFORE _init_physics
+        # because _init_physics uses this value for upper flippers (line 862)
+        val = -30.0
+        if self.layout and hasattr(self.layout, 'physics_params'):
+            val = self.layout.physics_params.get('flipper_resting_angle', -30.0)
+        self.flipper_resting_angle = val
+
+        # Physics Engine (Full Init) - NOW uses flipper_resting_angle
         self._init_physics()
 
         self.balls = [] # list of dicts: {'pos': [x,y], 'vel': [vx,vy], 'radius': r, 'lost': False}
@@ -626,12 +633,6 @@ class SimulatedFrameCapture(FrameCapture):
         
         # Flipper Angles (Degrees)
         self.flipper_angles = {'left': 0.0, 'right': 0.0}
-        
-        # Get resting angle from layout physics params or default
-        val = -30.0
-        if self.layout and hasattr(self.layout, 'physics_params'):
-            val = self.layout.physics_params.get('flipper_resting_angle', -30.0)
-        self.flipper_resting_angle = val
         
         # Camera / View Parameters
         # Default to Top-Down 2D-ish view or whatever matches typical 2D
