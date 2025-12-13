@@ -8,7 +8,8 @@ describe('Pinball Wizard - 3D Rail Editor', () => {
 
         // Switch to 3D mode
         cy.get('.switch-view-btn').then($btn => {
-            if ($btn.text().includes('Simulator')) {
+            if ($btn.text().includes('Switch to 3D')) {
+                // Already in 2D, switch to 3D
                 cy.wrap($btn).click()
             }
         })
@@ -64,14 +65,14 @@ describe('Pinball Wizard - 3D Rail Editor', () => {
         // Switch to 2D
         cy.contains('button', 'Switch to 2D').click()
 
-        // Should now show Simulator button
-        cy.contains('button', 'Simulator').should('be.visible')
+        // Should now show Switch to 3D button
+        cy.contains('button', 'Switch to 3D').should('be.visible')
 
         // Canvas should not exist in 2D mode
         cy.get('canvas').should('not.exist')
 
         // Switch back to 3D
-        cy.contains('button', 'Simulator').click()
+        cy.contains('button', 'Switch to 3D').click()
 
         // Should show Switch to 2D again
         cy.contains('button', 'Switch to 2D').should('be.visible')

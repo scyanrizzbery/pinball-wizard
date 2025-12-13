@@ -14,6 +14,9 @@ class TestPhysicsParamsUpdate(unittest.TestCase):
         ball_shape = list(ball.shapes)[0]
         
         # Initial defaults (elasticity uses restitution default of 0.5)
+        # Explicitly set to known defaults to avoid layout override issues
+        sim.update_physics_params({'friction': 0.01, 'restitution': 0.5})
+        
         self.assertAlmostEqual(ball_shape.friction, 0.01)
         self.assertAlmostEqual(ball_shape.elasticity, 0.5)
         

@@ -14,6 +14,15 @@ describe('Pinball Wizard - Accessibility', () => {
         })
 
         it('should have alt text for images', () => {
+            // Switch to 2D View to ensure video feed image is present
+            cy.get('.switch-view-btn').then($btn => {
+                if ($btn.text().includes('Switch to 2D')) {
+                    cy.wrap($btn).click()
+                }
+            })
+            // Wait for video element
+            cy.get('#video-stream', { timeout: 10000 }).should('exist')
+
             cy.get('img').each($img => {
                 cy.wrap($img).should('have.attr', 'alt')
             })

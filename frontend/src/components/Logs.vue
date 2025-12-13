@@ -6,14 +6,14 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 
-const props = defineProps({
-  logs: Array
-})
+const props = defineProps<{
+  logs: string[]
+}>()
 
-const logContainer = ref(null)
+const logContainer = ref<HTMLElement | null>(null)
 
 watch(() => props.logs.length, () => {
   nextTick(() => {

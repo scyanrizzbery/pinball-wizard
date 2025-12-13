@@ -15,13 +15,10 @@
   </div>
 </template>
 
-<script setup>
-defineProps({
-  connected: {
-    type: Boolean,
-    required: true
-  }
-})
+<script setup lang="ts">
+defineProps<{
+  connected: boolean
+}>()
 </script>
 
 <style scoped>

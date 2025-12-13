@@ -12,40 +12,30 @@
   </transition>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, watch } from 'vue'
 
-const props = defineProps({
-  title: {
-    type: String,
-    required: true
-  },
-  message: {
-    type: String,
-    default: ''
-  },
-  icon: {
-    type: String,
-    default: '🛸'
-  },
-  duration: {
-    type: Number,
-    default: 3000
-  },
-  isFullscreen: {
-    type: Boolean,
-    default: false
-  },
-  show: {
-    type: Boolean,
-    default: false
-  }
+const props = withDefaults(defineProps<{
+  title: string
+  message?: string
+  icon?: string
+  duration?: number
+  isFullscreen?: boolean
+  show?: boolean
+}>(), {
+  message: '',
+  icon: '🛸',
+  duration: 3000,
+  isFullscreen: false,
+  show: false
 })
 
-const emit = defineEmits(['hide'])
+const emit = defineEmits<{
+  (e: 'hide'): void
+}>()
 
 const visible = ref(false)
-let hideTimer = null
+let hideTimer: ReturnType<typeof setTimeout> | null = null
 
 // Watch for show prop changes
 watch(() => props.show, (newVal) => {
@@ -113,6 +103,15 @@ watch(() => props.show, (newVal) => {
   gap: 2px;
 }
 
+.is-fullscreen .toast-text {
+  align-items: center;
+}
+
+.is-fullscreen .toast-content {
+  flex-direction: column;
+  gap: 15px;
+}
+
 .toast-title {
   font-size: 0.75rem;
   font-weight: 700;
@@ -176,13 +175,22 @@ watch(() => props.show, (newVal) => {
 
 /* Fullscreen Overrides */
 .toast-notification.is-fullscreen {
-  top: 220px;
-  right: 60px;
-  padding: 30px 40px;
-  border-radius: 16px;
-  border-width: 3px;
-  min-width: 300px;
-  max-width: 500px;
+  position: fixed;
+  top: 10%;
+  left: 0;
+  right: 0;
+  margin-inline: auto; /* Robust horizontal centering */
+  width: fit-content;
+  
+  padding: 30px 50px;
+  border-radius: 20px;
+  border-width: 4px;
+  min-width: 400px;
+  max-width: 600px;
+  z-index: 2000;
+  transform: scale(1.2); /* Just scaling, no translation */
+  transform-origin: top center;
+  text-align: center;
 }
 
 .is-fullscreen .toast-icon {

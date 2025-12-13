@@ -13,22 +13,17 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps({
-  score: {
-    type: Number,
-    default: 0
-  },
-  highScore: {
-    type: Number,
-    default: 10000
-  },
-  isFullscreen: {
-    type: Boolean,
-    default: false
-  }
+const props = withDefaults(defineProps<{
+  score?: number
+  highScore?: number
+  isFullscreen?: boolean
+}>(), {
+  score: 0,
+  highScore: 10000,
+  isFullscreen: false
 })
 
 const isRecordBroken = computed(() => {
@@ -58,7 +53,7 @@ const fillPercentage = computed(() => {
 }
 
 .highscore-bar-container.fullscreen {
-  right: 10px; /* Inside in fullscreen? Or still outside? Keep inside for fullscreen usually */
+  right: 32%; /* Inside in fullscreen? Or still outside? Keep inside for fullscreen usually */
   width: 20px;
 }
 

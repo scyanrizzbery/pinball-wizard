@@ -16,6 +16,9 @@ class TestGravity(unittest.TestCase):
         base_mag = 9000.0
         expected_y = base_mag * np.sin(np.radians(base_tilt))
         
+        # Explicitly set params to ensure known state (overriding any layout defaults)
+        sim.update_physics_params({'gravity_magnitude': 9000.0, 'table_tilt': 8.5})
+        
         gx, gy = sim.physics_engine.space.gravity
         print(f"Initial Gravity: ({gx}, {gy})")
         

@@ -325,7 +325,8 @@ def main():
                 'game_history': self.game_history,
                 'hash': game_hash,
                 'seed': seed,
-                'game_over': self.capture.game_over if hasattr(self.capture, 'game_over') else False
+                'game_over': self.capture.game_over if hasattr(self.capture, 'game_over') else False,
+                'is_replay': self.capture.replay_manager.is_playing if hasattr(self.capture, 'replay_manager') else False
             }
             
             # Fetch Hash/Seed from Physics Engine
@@ -411,6 +412,12 @@ def main():
                 self.stop_training_flag = True
                 logger.info("Stop training requested...")
                 self.command_queue.put('STOP')
+
+        def update_rewards(self, rewards):
+            with self.lock:
+                if self.mode == 'TRAIN' and self.training_process and self.training_process.is_alive():
+                    logger.info(f"Sending reward update to training process: {rewards}")
+                    self.command_queue.put({'type': 'UPDATE_REWARDS', 'rewards': rewards})
 
         def switch_to_play(self):
             with self.lock:

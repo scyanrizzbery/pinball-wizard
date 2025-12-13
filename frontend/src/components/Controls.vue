@@ -46,16 +46,33 @@
   </div>
 </template>
 
-<script setup>
-defineProps({
-  buttonStates: Object,
-  toggles: Object,
-  disabled: Boolean
-})
+<script setup lang="ts">
+interface ButtonStates {
+  left: boolean
+  right: boolean
+  launch: boolean
+  nudgeLeft: boolean
+  nudgeRight: boolean
+}
 
-const emit = defineEmits(['input', 'toggle-ai', 'toggle-auto-start'])
+interface Toggles {
+  ai: boolean
+  autoStart: boolean
+}
 
-const handleInput = (key, type) => {
+defineProps<{
+  buttonStates: ButtonStates
+  toggles: Toggles
+  disabled: boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'input', key: string, type: 'down' | 'up'): void
+  (e: 'toggle-ai'): void
+  (e: 'toggle-auto-start'): void
+}>()
+
+const handleInput = (key: string, type: 'down' | 'up') => {
   emit('input', key, type)
 }
 </script>

@@ -96,10 +96,12 @@ class PymunkEngine(Physics):
         self.rng = random.Random(seed_int)
         np.random.seed(seed_int)
         
-        # Generate Game Hash (Seed + Layout Name)
+        # Generate Game Hash (Seed + Layout Name + Config Hash)
         # This is what ensures the "Game" is unique
-        self.game_hash = hashlib.sha256((f"{self.seed}_{layout.name if hasattr(layout, 'name') else 'custom'}").encode('utf-8')).hexdigest()[:16]
-        logger.info(f"Physics Initialized. Seed: {self.seed}, Game Hash: {self.game_hash}")
+        config_hash = self.config.get_hash()
+        layout_name = layout.name if hasattr(layout, 'name') else 'custom'
+        self.game_hash = hashlib.sha256((f"{self.seed}_{layout_name}_{config_hash}").encode('utf-8')).hexdigest()[:16]
+        logger.info(f"Physics Initialized. Seed: {self.seed}, Game Hash: {self.game_hash}, Config Hash: {config_hash}")
 
         self.width = width
         self.height = height
@@ -141,6 +143,11 @@ class PymunkEngine(Physics):
         
         # Event tracking for RL
         self.events = []
+        
+        # Simulation Time (Deterministic Replacement for time.time())
+        self.simulation_time = 0.0
+        
+        # Mothership State
         
         # Mothership State
         self.mothership_active = False
@@ -221,10 +228,11 @@ class PymunkEngine(Physics):
             handler = self.space.add_default_collision_handler()
             logger.info("Using pymunk 6.x collision handler API")
         except AttributeError:
-            # Pymunk 7.x API - use add_collision_handler with wildcard
+            # Pymunk 7.x API or fallback - use wildcard handler for BALLS
+            # Since all scoring events involve a ball, this covers our needs.
             try:
-                handler = self.space.add_collision_handler(0, 0)
-                logger.info("Using pymunk 7.x collision handler API")
+                handler = self.space.add_wildcard_collision_handler(COLLISION_TYPE_BALL)
+                logger.info("Using pymunk wildcard collision handler for BALL")
             except Exception as e:
                 import pymunk
                 logger.error(f"Pymunk version {pymunk.version}: Could not set up collision handler: {e}")
@@ -288,7 +296,7 @@ class PymunkEngine(Physics):
 
                 if score_value > 0:
                     # Combo detection - check if this is a scoring hit
-                    current_time = time.time()
+                    current_time = self.simulation_time
                     time_since_last_hit = current_time - self.last_hit_time
                     
                     # Combo logic: consecutive hits within combo_window
@@ -354,17 +362,17 @@ class PymunkEngine(Physics):
                                 
                                 if self.bumper_health[idx] <= 0:
                                     # Destroy Bumper
-                                    self.bumper_respawn_timers[idx] = 999999.0 # Do not respawn automatically
+                                    # Set respawn timer from config
+                                    respawn_time = getattr(self.config, 'bumper_respawn_time', 10.0)
+                                    self.bumper_respawn_timers[idx] = respawn_time
                                     self.space.remove(bumper_shape)
-                                    logger.info(f"Bumper {idx} destroyed!")
+                                    logger.info(f"Bumper {idx} destroyed! Respawning in {respawn_time}s")
                                     
                                     # Check if all bumpers are destroyed
-                                    active_bumpers = [h for h in self.bumper_health if h > 0]
-                                    logger.debug(f"Active bumpers count: {len(active_bumpers)}, Mothership active: {self.mothership_active}")
-                                    if not active_bumpers and not self.mothership_active:
-                                        if hasattr(self, 'spawn_mothership'):
-                                            logger.info("All bumpers destroyed! Triggering spawn_mothership() form collisions...")
-                                            self.spawn_mothership()
+                                    # Logic: If all bumpers have health <= 0, then we might summon mothership.
+                                    # BUT: Mothership only spawns if they are ALL down at the same time.
+                                    # This check is better done in the update loop where we manage timers.
+                                    pass
 
                             # Apply active deflection force (like a real pinball bumper)
                             ball_body = ball_shape.body
@@ -414,7 +422,7 @@ class PymunkEngine(Physics):
                              
                              # Start Multiball (add 2 balls)
                              for _ in range(2):
-                                 lane_x = self.width * (0.9 + random.uniform(-0.02, 0.02))
+                                 lane_x = self.width * (0.9 + self.rng.uniform(-0.02, 0.02))
                                  lane_y = self.height * 0.5
                                  self.add_ball((lane_x, lane_y))
                                  
@@ -428,7 +436,7 @@ class PymunkEngine(Physics):
                              self.events.append({
                                  'type': 'nudge',
                                  'direction': {'x': 0, 'y': 0}, # Omni-directional shake
-                                 'time': time.time(),
+                                 'time': self.simulation_time,
                                  'intensity': 2.0 # Strong shake
                              })
 
@@ -438,13 +446,13 @@ class PymunkEngine(Physics):
                              self.events.append({
                                  'type': 'nudge', # Reuse nudge/shake logic
                                  'direction': {'x': 0, 'y': 0},
-                                 'time': time.time(),
+                                 'time': self.simulation_time,
                                  'intensity': 0.5 # Small shake
                              })
                     # Handle Drop Target if hit
                     if other == COLLISION_TYPE_DROP_TARGET:
                         # Check global bank cooldown (prevents instant re-trigger if ball trapped)
-                        if getattr(self, 'drop_target_cooldown', 0) > 0:
+                        if getattr(self, 'drop_target_timer', 0) > 0:
                             return True
 
                         drop_target_shape = shapes[0] if type_a == COLLISION_TYPE_DROP_TARGET else shapes[1]
@@ -474,7 +482,7 @@ class PymunkEngine(Physics):
                                     if len(self.balls) < 5:
                                         lane_x = self.width * 0.94
                                         # Random spacing to prevent overlap/explosion
-                                        offset_y = random.uniform(-40, 40)
+                                        offset_y = self.rng.uniform(-40, 40)
                                         lane_y = (self.height * 0.9) + offset_y
                                         self.add_ball((lane_x, lane_y))
                                         logger.info(f"🎱 Multiball: Added ball #{len(self.balls)} to plunger lane at Y={lane_y:.1f}")
@@ -657,7 +665,7 @@ class PymunkEngine(Physics):
                 logger.error(f"Drop target {i} NOT in physics space after creation!")
             
         # Set Cooldown to prevent immediate re-trigger by trapped balls
-        self.drop_target_cooldown = 2.0
+        self.drop_target_timer = getattr(self.config, 'drop_target_cooldown', 2.0)
             
         logger.info(f"Reset {len(self.drop_target_shapes)} drop targets. Total shapes in space: {len(self.space.shapes)}")
 
@@ -1333,7 +1341,7 @@ class PymunkEngine(Physics):
 
     def launch_plunger(self):
         # Cooldown check (0.5s)
-        current_time = time.time()
+        current_time = self.simulation_time
         if hasattr(self, 'last_launch_time') and current_time - self.last_launch_time < 0.5:
             return False
             
@@ -1426,7 +1434,10 @@ class PymunkEngine(Physics):
         self._setup_flippers()
         self._setup_collision_logging()
         
+        self._setup_collision_logging()
+        
         # Reset game state variables
+        self.simulation_time = 0.0 # Reset simulation time
         self.balls = []
         self.active_balls = [] # Clear active ball references
         self.score = 0
@@ -1434,6 +1445,7 @@ class PymunkEngine(Physics):
         self.is_tilted = False
         self.bumper_states = [0.0] * len(self.layout.bumpers)
         self.drop_target_states = [True] * len(self.layout.drop_targets)
+        self.drop_target_timer = 0.0
         self.combo_count = 0 
         self.combo_timer = 0.0
         self.score_multiplier = 1.0
@@ -1452,6 +1464,9 @@ class PymunkEngine(Physics):
 
     def update(self, dt):
         with self.lock:
+            # Update Simulation Time
+            self.simulation_time += dt
+
             # Update bumper flash timers
             for i in range(len(self.bumper_states)):
                 if self.bumper_states[i] > 0:
@@ -1461,10 +1476,15 @@ class PymunkEngine(Physics):
                         
             # Update bumper respawn timers
         if self.bumper_respawn_timers:
-            all_bumpers_dead = True
+            active_bumpers_count = 0
+            
             for i in range(len(self.bumper_respawn_timers)):
                 if self.bumper_respawn_timers[i] > 0:
-                    self.bumper_respawn_timers[i] -= dt
+                    # Bumper is dead/respawning
+                    # Only decrement timer if Mothership is NOT active
+                    if not self.mothership_active:
+                        self.bumper_respawn_timers[i] -= dt
+                    
                     if self.bumper_respawn_timers[i] <= 0:
                         # Respawn Bumper
                         self.bumper_respawn_timers[i] = 0.0
@@ -1478,12 +1498,15 @@ class PymunkEngine(Physics):
                                     logger.info(f"Bumper {i} respawned!")
                                 break
                         
-                        all_bumpers_dead = False
+                        # It is now active
+                        active_bumpers_count += 1
                 else:
-                    all_bumpers_dead = False
+                    # Bumper is active (timer <= 0)
+                    active_bumpers_count += 1
             
             # Check for Mothership Spawn Condition
-            if all_bumpers_dead and len(self.bumper_respawn_timers) > 0 and not self.mothership_active:
+            # Mothership spawns if NO bumpers are active (count == 0) AND we have bumpers at all
+            if active_bumpers_count == 0 and len(self.bumper_respawn_timers) > 0 and not self.mothership_active:
                 if hasattr(self, 'spawn_mothership'):
                      self.spawn_mothership()
         # Tilt Decay
@@ -1539,7 +1562,7 @@ class PymunkEngine(Physics):
                 auto_plunge = getattr(self, 'auto_plunge_enabled', True)
                 if self.plunger_state == 'resting' and auto_plunge:
                     # Check cooldown to prevent rapid re-triggering
-                    current_time = time.time()
+                    current_time = self.simulation_time
                     if not hasattr(self, 'last_auto_plunger_time'):
                         self.last_auto_plunger_time = 0
 
@@ -1575,7 +1598,7 @@ class PymunkEngine(Physics):
             # Changed: removed balls_in_play > 0 requirement to prevent all balls getting stuck in lane
             if len(balls_in_plunger) > 0:
                 # Check cooldown to prevent continuous impulse application (the "phantom magnet" bug)
-                current_time = time.time()
+                current_time = self.simulation_time
                 if not hasattr(self, 'last_multiball_launch_time'):
                     self.last_multiball_launch_time = 0
 
@@ -1620,9 +1643,9 @@ class PymunkEngine(Physics):
         # Check for stuck balls
         self.check_stuck_ball(dt)
 
-        # Update Drop Target Cooldown
-        if hasattr(self, 'drop_target_cooldown') and self.drop_target_cooldown > 0:
-            self.drop_target_cooldown -= dt
+        # Update Drop Target Cooldown Timer
+        if hasattr(self, 'drop_target_timer') and self.drop_target_timer > 0:
+            self.drop_target_timer -= dt
 
 
         
@@ -1944,7 +1967,9 @@ class PymunkEngine(Physics):
         self.mothership_body.position = pos
         
         # Shape: Large hexagon or circle
-        radius = 60.0
+        # Visual Radius: 0.15, Ball Visual: 0.016, Ball Physics: 12.0
+        # Scale = 750. New Radius = 0.15 * 750 = 112.5
+        radius = 112.5
         # self.mothership_shape = pymunk.Circle(self.mothership_body, radius)
         # Use a poly for a more interesting shape (Hexagon)
         import math

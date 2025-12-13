@@ -15,35 +15,24 @@
   </transition>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch, onMounted } from 'vue'
 import SoundManager from '../utils/SoundManager'
 
-const props = defineProps({
-  comboCount: {
-    type: Number,
-    default: 0
-  },
-  comboTimer: {
-    type: Number,
-    default: 0
-  },
-  comboActive: {
-    type: Boolean,
-    default: false
-  },
-  maxTimer: {
-    type: Number,
-    default: 3.0
-  },
-  scoreMultiplier: {
-    type: Number,
-    default: 1.0
-  },
-  isFullscreen: {
-    type: Boolean,
-    default: false
-  }
+const props = withDefaults(defineProps<{
+  comboCount?: number
+  comboTimer?: number
+  comboActive?: boolean
+  maxTimer?: number
+  scoreMultiplier?: number
+  isFullscreen?: boolean
+}>(), {
+  comboCount: 0,
+  comboTimer: 0,
+  comboActive: false,
+  maxTimer: 3.0,
+  scoreMultiplier: 1.0,
+  isFullscreen: false
 })
 
 const triggerAnim = ref(false)
@@ -51,7 +40,8 @@ const currentScaleName = ref('Major')
 
 // Update scale name when combo changes
 watch(() => props.comboCount, (newVal, oldVal) => {
-  if (newVal > oldVal) {
+  // Check if oldVal is undefined (first run) or strictly less
+  if (oldVal === undefined || newVal > oldVal) {
     triggerAnim.value = false
     setTimeout(() => {
       triggerAnim.value = true
@@ -270,14 +260,16 @@ const gradientStyle = computed(() => {
 
 /* Fullscreen Overrides */
 .combo-toast.is-fullscreen {
-  top: 150px; /* Lower down to avoid overlapping with high score/timer if present */
-  right: 60px; /* More margin from edge */
-  padding: 25px 50px; /* Much larger padding */
+  position: fixed;
+  top: 15%;
+  right: 25%; /* Closer to middle */
+  padding: 25px 50px;
   border-radius: 20px;
-  background: rgba(20, 20, 20, 0.7); /* Slightly more transparent background for better integration */
+  background: rgba(20, 20, 20, 0.7);
   border: 2px solid rgba(255, 255, 255, 0.25);
   transform-origin: top right;
   min-width: 200px;
+  z-index: 2000;
 }
 
 .is-fullscreen .count {

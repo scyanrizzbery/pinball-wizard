@@ -4,7 +4,7 @@ module.exports = defineConfig({
     e2e: {
         baseUrl: 'http://localhost:5000',
         viewportWidth: 1280,
-        viewportHeight: 720,
+        viewportHeight: 900,
         video: false,
         screenshotOnRunFailure: true,
         setupNodeEvents(on, config) {

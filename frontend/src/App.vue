@@ -82,6 +82,12 @@
                         :isFullscreen="isFullscreen"
                         @hide="toastVisible = false"
                     />
+
+                    <ReplayIndicator
+                        v-if="stats.is_replay"
+                        :hash="stats.hash"
+                        :isFullscreen="isFullscreen"
+                    />
                 </div>
 
                 <Controls :buttonStates="buttonStates"
@@ -98,6 +104,7 @@
 
             <Settings class="settings-panel"
                       :physics="physics"
+                      :rewards="rewards"
                       :stats="stats"
                       :models="models"
                       :layouts="layouts"
@@ -108,6 +115,7 @@
                       v-model:selected-layout="selectedLayout"
                       v-model:selected-preset="selectedPreset"
                       @update-physics="handleUpdatePhysics"
+                      @update-rewards="handleUpdateRewards"
                       @reset-config="handleResetConfig"
                       @apply-preset="applyPreset"
                       @save-preset="savePreset"
@@ -174,9 +182,12 @@
     </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import {ref, reactive, computed, watch, onMounted, onUnmounted, provide} from 'vue'
 import SoundManager from './utils/SoundManager'
+
+import type { Zone, PhysicsConfig, GameStats, RewardsConfig } from './types'
+
 
 
 import Header from './components/Header.vue'
@@ -190,6 +201,7 @@ import Settings from './components/Settings.vue'
 import GameHistory from './components/GameHistory.vue'
 import Logs from './components/Logs.vue'
 import ToastNotification from './components/ToastNotification.vue'
+import ReplayIndicator from './components/ReplayIndicator.vue'
 import sockets from './services/socket'
 
 provide('sockets', sockets)
@@ -197,23 +209,23 @@ provide('sockets', sockets)
 const connected = ref(false)
 const connectionError = ref(false)
 const videoSrc = ref('')
-const logs = ref([])
+const logs = ref<string[]>([])
 const activeKeys = reactive(new Set())
-const models = ref([])
+const models = ref<any[]>([])
 const selectedModel = ref(localStorage.getItem('pinball_selected_model') || '')
-watch(selectedModel, (newVal) => {
+watch(selectedModel, (newVal: string) => {
     if (newVal) localStorage.setItem('pinball_selected_model', newVal)
 })
-const debounceTimers = {}
-const nudgeEvent = ref(null)
+const debounceTimers: Record<string, ReturnType<typeof setTimeout>> = {}
+const nudgeEvent = ref<{ direction: string; time: number; type?: string; strength?: number } | null>(null)
 const viewMode = ref('3d')
-const layoutConfig = ref(null)
+const layoutConfig = ref<any>(null)
 const optimizedHyperparams = ref(null)
 
 const isLoadingLayout = ref(false)
 const hasUnsavedChanges = ref(false)
 const isSyncingPhysics = ref(false)
-let physicsSyncReleaseTimer = null
+let physicsSyncReleaseTimer: ReturnType<typeof setTimeout> | null = null
 
 // Race condition prevention for auto-start toggle
 const lastAutoStartToggleTime = ref(0)
@@ -230,9 +242,9 @@ const buttonStates = reactive({
     nudgeRight: false
 })
 
-const addLog = (message) => {
+const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString()
-    logs.value.push(`[${timestamp}] ${message}`)
+    logs.value.push(`[${timestamp}] ${message}` as never)
     if (logs.value.length > 50) logs.value.shift()
 }
 
@@ -262,7 +274,7 @@ const handleShipDestroyed = () => {
 }
 
 
-const stats = reactive({
+const stats = reactive<GameStats>({
     score: 0,
     high_score: 0,
     balls: 0,  // Legacy prop (unused now in favor of current_ball)
@@ -290,11 +302,12 @@ const stats = reactive({
     seed: null,
     last_score: 0, // Track last game score
     game_over: false,
-    is_high_score: false // Frontend-managed high score flag
+    is_high_score: false, // Frontend-managed high score flag
+    is_replay: false
 })
 
 // Watch for new high score from backend
-watch(() => stats.high_score, (newValue, oldValue) => {
+watch(() => stats.high_score, (newValue: number, oldValue: number) => {
     if (newValue > oldValue && oldValue > 0) {
         // New high score achieved! Backend updated the high_score
         stats.is_high_score = true
@@ -302,7 +315,7 @@ watch(() => stats.high_score, (newValue, oldValue) => {
     }
 })
 
-const isSimulation = computed(() => stats.is_simulation || false)
+
 
 const toggleViewMode = () => {
     viewMode.value = viewMode.value === '3d' ? 'video' : '3d'
@@ -319,7 +332,7 @@ const toggleFullscreen = () => {
 
 const isTilted = computed(() => stats.is_tilted || false)
 
-const physics = reactive({
+const physics = reactive<PhysicsConfig>({
     gravity: 1200.0,
     friction: 0.01,
     restitution: 0.5,
@@ -346,7 +359,30 @@ const physics = reactive({
     base_combo_bonus: 50,
     combo_multiplier_enabled: true,
     bumper_force: 800.0,
-    zones: [],
+    bumper_respawn_time: 10.0,
+    drop_target_cooldown: 2.0,
+    zones: [
+        {
+            id: 'zone_left_default',
+            type: 'left',
+             points: [
+              {x: 0.1, y: 0.6},
+              {x: 0.3, y: 0.6},
+              {x: 0.3, y: 0.8},
+              {x: 0.1, y: 0.8}
+            ]
+        },
+        {
+            id: 'zone_right_default',
+            type: 'right',
+            points: [
+              {x: 0.7, y: 0.6},
+              {x: 0.9, y: 0.6},
+              {x: 0.9, y: 0.8},
+              {x: 0.7, y: 0.8}
+            ]
+        }
+    ],
     rails: [],
     bumpers: [],
     rail_x_offset: 0,
@@ -358,18 +394,28 @@ const physics = reactive({
     right_flipper_pos_y: 0.85
 })
 
+const rewards = reactive<RewardsConfig>({
+    score_log_scale: 0.1,
+    combo_increase_factor: 0.1,
+    multiplier_increase_factor: 0.5,
+    flipper_penalty: 0.0001,
+    bumper_hit: 0.5,
+    drop_target_hit: 1.0,
+    rail_hit: 0.5
+})
+
 const toggles = reactive({
     ai: true,
     autoStart: true
 })
 
 // Auto-start state management (frontend-controlled)
-const autoStartEnabled = ref(true)
+
 const autoStartTimeoutId = ref(null)
 
-const cameraPresets = ref({})
+const cameraPresets = ref<Record<string, any>>({})
 const selectedPreset = ref(localStorage.getItem('pinball_selected_preset') || '')
-watch(selectedPreset, (newVal) => {
+watch(selectedPreset, (newVal: string) => {
     if (newVal) localStorage.setItem('pinball_selected_preset', newVal)
     else localStorage.removeItem('pinball_selected_preset')
 })
@@ -379,28 +425,28 @@ const handleFullscreenChange = () => {
     isFullscreen.value = !!document.fullscreenElement
 }
 
-const deletePreset = (name) => {
+const deletePreset = (name: string) => {
     sockets.config.emit('delete_preset', {name: name})
     if (selectedPreset.value === name) {
         selectedPreset.value = ''
     }
 }
 
-const layouts = ref([])
+const layouts = ref<any[]>([])
 const selectedLayout = ref(localStorage.getItem('pinball_selected_layout') || 'default')
-watch(selectedLayout, (newVal) => {
+watch(selectedLayout, (newVal: string) => {
     if (newVal) localStorage.setItem('pinball_selected_layout', newVal)
 })
 const selectedDifficulty = ref('medium')
 const showFlipperZones = ref(false)
 
-const updateDifficulty = (difficulty) => {
+const updateDifficulty = (difficulty: string) => {
     selectedDifficulty.value = difficulty
     sockets.training.emit('update_difficulty', {difficulty})
     addLog(`Set difficulty to: ${difficulty}`)
 }
 
-const handleInput = (key, type) => {
+const handleInput = (key: string, type: string) => {
     // Update button state immediately for visual feedback
     if (type === 'down') {
         if (key === 'KeyZ') buttonStates.left = true
@@ -474,14 +520,14 @@ const startNewGame = () => {
     }
 
 
-    stats.game_over = false // Reset game over flag
     stats.is_high_score = false // Reset high score flag
+    stats.is_replay = false
     stats.score = 0 // Reset score visually immediately
     bumpersDestroyed.value = 0 // Reset ship counter
     sockets.control.emit('start_game')
 }
 
-const changeLayout = (layoutId) => {
+const changeLayout = (layoutId: string) => {
     console.trace('[App] changeLayout called with:', layoutId)
     if (layoutId && typeof layoutId === 'string') {
         selectedLayout.value = layoutId
@@ -491,7 +537,7 @@ const changeLayout = (layoutId) => {
     sockets.config.emit('load_layout_by_name', {name: selectedLayout.value})
 }
 
-const handleSaveNewLayout = (name) => {
+const handleSaveNewLayout = (name: string) => {
     console.log("Saving new layout:", name)
     sockets.config.emit('save_new_layout', {name: name})
 }
@@ -501,7 +547,7 @@ const handleSaveLayout = () => {
     sockets.config.emit('save_layout')
 }
 
-const startTraining = (config) => {
+const startTraining = (config: any) => {
 
     try {
         addLog(`Starting training: ${config.modelName}`)
@@ -524,7 +570,7 @@ const startTraining = (config) => {
 
         addLog('Auto-start Disabled (Training Started)')
 
-    } catch (e) {
+    } catch (e: any) {
         addLog(`Error starting training: ${e.message}`)
     }
 }
@@ -533,37 +579,28 @@ const stopTraining = () => {
     try {
         addLog('Stopping training...')
         sockets.training.emit('stop_training')
-    } catch (e) {
+    } catch (e: any) {
         addLog(`Error stopping training: ${e.message}`)
     }
 }
 
-const loadModel = (filename) => {
+const loadModel = (filename: string) => {
     addLog(`Loading model: ${filename}`)
     sockets.training.emit('load_model', {filename})
 }
 
-const updatePhysics = (key, value) => {
-    console.log(`[updatePhysics] ${key} = ${value}`)
 
-    // Update local immediately
-    if (key in physics) {
-        physics[key] = value
-    }
 
-    // Debounce network call
-    if (debounceTimers[key]) {
-        clearTimeout(debounceTimers[key])
-    }
-
-    debounceTimers[key] = setTimeout(() => {
-        console.log('[updatePhysics] Config socket connected:', sockets.config.connected)
-        console.log(`[updatePhysics] Emitting update_physics_v2 for ${key} = ${value}`)
-        sockets.config.emit('update_physics_v2', {[key]: value})
-    }, 500)
+const handleUpdateRewards = (data: any) => {
+    // Update local state
+    Object.keys(data).forEach(key => {
+        rewards[key] = data[key]
+    })
+    // Send to backend
+    sockets.config.emit('update_rewards', data)
 }
 
-const applyPreset = (name) => {
+const applyPreset = (name: string) => {
     const preset = cameraPresets.value[name]
     if (!preset) {
         console.error('Preset not found:', name)
@@ -584,12 +621,12 @@ const applyPreset = (name) => {
     addLog(`Applied camera preset: ${name}`)
 }
 
-const savePreset = (name, config) => {
+const savePreset = (name: string, config: any) => {
     sockets.config.emit('save_preset', {name, config})
     addLog(`Saved camera preset: ${name}`)
 }
 
-const handleZoneUpdate = (newZones) => {
+const handleZoneUpdate = (newZones: Zone[]) => {
     // console.log("Zone update:", newZones)
     physics.zones = newZones
     if (layoutConfig.value) layoutConfig.value.zones = newZones
@@ -601,7 +638,7 @@ const handleZoneUpdate = (newZones) => {
     }, 300)
 }
 
-const handleRailUpdate = (newRails) => {
+const handleRailUpdate = (newRails: any[]) => {
     // console.log("Rail update:", newRails)
     physics.rails = newRails
     if (layoutConfig.value) layoutConfig.value.rails = newRails
@@ -613,7 +650,7 @@ const handleRailUpdate = (newRails) => {
     }, 300)
 }
 
-const handleBumperUpdate = (newBumpers) => {
+const handleBumperUpdate = (newBumpers: any[]) => {
     // console.log("Bumper update:", newBumpers)
     physics.bumpers = newBumpers
     if (layoutConfig.value) layoutConfig.value.bumpers = newBumpers
@@ -625,7 +662,7 @@ const handleBumperUpdate = (newBumpers) => {
     }, 300)
 }
 
-const handleUpdatePhysics = (key, value) => {
+const handleUpdatePhysics = (key: string, value: any) => {
     // console.log(`Updating physics: ${key} = ${value}`)
     // Update local state is handled by v-model in Settings usually, but if this event passes key/value:
     physics[key] = value
@@ -680,9 +717,9 @@ const saveChanges = () => {
 
 
 
-const handleKeydown = (e) => {
+const handleKeydown = (e: KeyboardEvent) => {
     // Ignore keyboard events if user is typing in an input field
-    const target = e.target
+    const target = e.target as HTMLElement
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
         return // Don't process game controls when typing
     }
@@ -695,9 +732,9 @@ const handleKeydown = (e) => {
     }
 }
 
-const handleKeyup = (e) => {
+const handleKeyup = (e: KeyboardEvent) => {
     // Ignore keyboard events if user is typing in an input field
-    const target = e.target
+    const target = e.target as HTMLElement
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
         return // Don't process game controls when typing
     }
@@ -709,7 +746,7 @@ const handleKeyup = (e) => {
 }
 
 // Watch for combo reset to reset musical scale
-watch(() => stats.combo_count, (newCombo, oldCombo) => {
+watch(() => stats.combo_count, (newCombo: number, oldCombo: number) => {
     // If combo dropped to 0, reset the musical scale
     if (oldCombo > 0 && newCombo === 0) {
         SoundManager.resetScale()
@@ -718,7 +755,7 @@ watch(() => stats.combo_count, (newCombo, oldCombo) => {
 
 // Watch for ball count changes to detect game over and auto-restart
 // Watch for ball count changes to detect game over and auto-restart
-watch(() => stats.ball_count, (newCount, oldCount) => {
+watch(() => stats.ball_count, (newCount: number, oldCount: number) => {
     // console.log(`[Ball Count Watch] ${oldCount} → ${newCount}, balls remaining: ${stats.balls_remaining}`)
 
     // If all balls drained (ball_count went to 0) and we have balls remaining
@@ -758,7 +795,7 @@ onMounted(() => {
     const resumeAudio = () => {
         console.log('[Audio] Resuming AudioContext on user interaction...')
         SoundManager.resume()
-        console.log('[Audio] AudioContext state:', SoundManager.audioContext?.state)
+        console.log('[Audio] AudioContext state:', SoundManager.ctx?.state)
 
         // Test sound immediately after resume
         setTimeout(() => {
@@ -774,7 +811,7 @@ onMounted(() => {
     document.addEventListener('keydown', resumeAudio, {once: true})
     document.addEventListener('touchstart', resumeAudio, {once: true})
 
-    sockets.config.on('physics_config_loaded', (config) => {
+    sockets.config.on('physics_config_loaded', (config: PhysicsConfig) => {
         // console.log('Physics Config Loaded:', config)
         if (config) {
             isSyncingPhysics.value = true
@@ -783,10 +820,16 @@ onMounted(() => {
                 physicsSyncReleaseTimer = null
             }
             try {
-                window.__PHYSICS__ = config // Expose for E2E testing
+                (window as any).__PHYSICS__ = config // Expose for E2E testing
                 Object.keys(config).forEach(key => {
                     physics[key] = config[key]
                 })
+
+                if (config.rewards) {
+                    Object.keys(config.rewards).forEach(key => {
+                        rewards[key] = config.rewards[key]
+                    })
+                }
 
                 // Sync Auto-Start toggle from backend config
                 // Ignore if user recently toggled it manually (race condition fix)
@@ -855,7 +898,7 @@ onMounted(() => {
         }
     })
 
-    sockets.training.on('models_list', (data) => {
+    sockets.training.on('models_list', (data: any[]) => {
         models.value = data
         if (!selectedModel.value && data.length > 0) {
             selectedModel.value = data[0].filename
@@ -863,7 +906,7 @@ onMounted(() => {
     })
 
     // Listen for optimized hyperparameters
-    sockets.training.on('hyperparams_loaded', (params) => {
+    sockets.training.on('hyperparams_loaded', (params: any) => {
         // console.log('Received optimized hyperparameters:', params)
         optimizedHyperparams.value = params
         addLog('Loaded optimized hyperparameters')
@@ -874,7 +917,7 @@ onMounted(() => {
         sockets.training.emit('get_hyperparams')
     })
 
-    sockets.config.on('presets_updated', (presets) => {
+    sockets.config.on('presets_updated', (presets: any) => {
         cameraPresets.value = presets
         if (!selectedPreset.value && 'Default' in presets) {
             selectedPreset.value = 'Default'
@@ -887,8 +930,8 @@ onMounted(() => {
         
         // Expose sockets for E2E testing
         if (window) {
-            window.sockets = sockets
-            window.__APP_STATS__ = stats
+            (window as any).sockets = sockets;
+            (window as any).__APP_STATS__ = stats;
         }
 
         // Start initial game after a short delay (let physics engine initialize)
@@ -911,6 +954,8 @@ onMounted(() => {
     sockets.config.on('connect', () => {
         addLog('Connected to config server')
         sockets.config.emit('load_physics')
+        sockets.config.emit('get_layouts')
+        sockets.training.emit('get_models')
     })
 
     sockets.game.on('disconnect', () => {
@@ -918,7 +963,7 @@ onMounted(() => {
         addLog('Disconnected from server')
     })
 
-    sockets.game.on('connect_error', (err) => {
+    sockets.game.on('connect_error', (err: Error) => {
         console.error('Connection Error:', err)
         connectionError.value = true
         addLog(`Connection Error: ${err.message}`)
@@ -928,11 +973,11 @@ onMounted(() => {
         connectionError.value = false
     })
 
-    sockets.game.on('video_frame', (data) => {
+    sockets.game.on('video_frame', (data: {image: string}) => {
         videoSrc.value = 'data:image/jpeg;base64,' + data.image
     })
 
-    sockets.game.on('stats_update', (data) => {
+    sockets.game.on('stats_update', (data: any) => {
         // Only protect frontend-managed properties (not high_score - that comes from backend now)
         // Allow game_over to be synced from backend!
         const frontendOnlyProps = ['is_high_score'] // last_score now comes from backend
@@ -945,20 +990,27 @@ onMounted(() => {
         }
     })
 
-    sockets.game.on('game_init', (data) => {
+    sockets.game.on('game_init', (data: any) => {
         console.log('Game Initialized:', data)
         stats.seed = data.seed
         stats.hash = data.hash
         // We could set is_replay flag if we had one in stats
     })
 
-    sockets.game.on('game_hash', (data) => {
+    sockets.game.on('game_hash', (data: any) => {
         console.log('Game Hash Received:', data)
         stats.seed = data.seed
         stats.hash = data.hash
     })
 
-    sockets.config.on('layout_loaded', (data) => {
+    sockets.game.on('replay_status', (data: any) => {
+        if (data.status === 'playing') {
+            stats.is_replay = true
+            addLog(`REPLAY STARTED: ${stats.hash?.substring(0,8)}`)
+        }
+    })
+
+    sockets.config.on('layout_loaded', (data: any) => {
         console.log('Layout loaded:', data)
         if (data.status === 'success') {
             isLoadingLayout.value = false
@@ -969,12 +1021,12 @@ onMounted(() => {
         }
     })
 
-    sockets.training.on('ai_status', (data) => {
+    sockets.training.on('ai_status', (data: any) => {
         toggles.ai = data.enabled
         addLog(`AI Enabled: ${data.enabled}`)
     })
 
-    sockets.training.on('model_selected', (data) => {
+    sockets.training.on('model_selected', (data: any) => {
         addLog(`Auto-selected model: ${data.model}`)
         selectedModel.value = data.model
         // Refresh model list to ensure the new model is in the dropdown
@@ -982,12 +1034,12 @@ onMounted(() => {
     })
 
 
-    sockets.training.on('difficulty_status', (data) => {
+    sockets.training.on('difficulty_status', (data: any) => {
         selectedDifficulty.value = data.difficulty
         addLog(`Difficulty updated: ${data.difficulty}`)
     })
 
-    sockets.training.on('training_finished', (data) => {
+    sockets.training.on('training_finished', (data: any) => {
         addLog(`Training Finished. New Model: ${data.model}`)
         selectedModel.value = data.model
         // Refresh models to ensure lists are in sync
@@ -1001,11 +1053,11 @@ onMounted(() => {
         }, 2000)
     })
 
-    sockets.config.on('layouts_list', (data) => {
-        console.log('[Layouts List] Received:', data.map(l => l.id))
+    sockets.config.on('layouts_list', (data: any[]) => {
+        console.log('[Layouts List] Received:', data.map((l: any) => l.id))
         layouts.value = data
         // Check if selectedLayout exists in list
-        const exists = layouts.value.some(l => l.id === selectedLayout.value)
+        const exists = layouts.value.some((l: any) => l.id === selectedLayout.value)
         if (!exists) {
             console.warn(`[Layouts List] Selected layout '${selectedLayout.value}' not found in list.`)
             // Start of auto-reset logic
@@ -1024,7 +1076,7 @@ onMounted(() => {
         }
     })
 
-    sockets.config.on('layout_loaded', (data) => {
+    sockets.config.on('layout_loaded', (data: any) => {
         if (data.status === 'success') {
             addLog('Layout loaded successfully')
         } else {
@@ -1035,16 +1087,16 @@ onMounted(() => {
     sockets.config.emit('get_layouts')
     sockets.training.emit('get_models')
 
-    sockets.game.on('log_message', (data) => {
+    sockets.game.on('log_message', (data: any) => {
         addLog(data.message)
     })
 
-    sockets.game.on('ball_loaded', (data) => {
+    sockets.game.on('ball_loaded', (data: any) => {
         console.log(`🔫 Ball ${data.ball_number} loaded - playing revolver ratchet sound`)
         SoundManager.playRevolverRatchet(0.8)
     })
 
-    sockets.training.on('models_list', (data) => {
+    sockets.training.on('models_list', (data: any[]) => {
         // console.log("Provably Fair / Model Verification Hashes:", data)
         const currentSelection = selectedModel.value
         models.value = data
@@ -1062,7 +1114,7 @@ onMounted(() => {
             selectedModel.value = data[0].filename
         }
     })
-    sockets.training.on('model_loaded', (data) => {
+    sockets.training.on('model_loaded', (data: any) => {
         if (data.status === 'success') {
             addLog(`Model loaded: ${data.model}`)
         } else {
@@ -1093,8 +1145,8 @@ onMounted(() => {
     document.addEventListener('fullscreenchange', handleFullscreenChange)
 
     // Expose stats for Cypress testing
-    if (window.Cypress || import.meta.env.DEV) {
-        window.__APP_STATS__ = stats
+    if ((window as any).Cypress || (import.meta as any).env.DEV) {
+        (window as any).__APP_STATS__ = stats
     }
 
     // Diagnostic: Log ball_count every 3 seconds to see if it's updating
@@ -1129,31 +1181,27 @@ body {
 }
 
 #app-container {
-    max-width: 1600px;
+    max-width: 2400px;
     margin: 0 auto;
     padding: 0 20px 180px;
 }
 
 #main-layout {
+    /* Base Desktop Layout (> 1400px) */
     display: grid;
-    grid-template-columns: minmax(400px, 1fr) 240px minmax(320px, 1fr);
-    grid-template-rows: auto auto minmax(0, 1fr);
-    grid-template-areas:
-    "game history settings"
-    "logs logs logs";
-    gap: 20px;
-    margin: 20px 0;
-    /* Base Desktop Layout */
-    display: grid;
-    grid-template-columns: 320px 480px 1fr;
+    /* Use minmax and 1fr for flexible central column, auto for fixed sidebars */
+    grid-template-columns: 280px minmax(500px, 1fr) 300px;
+    grid-template-rows: auto auto; /* Game/Sides then Logs */
     grid-template-areas:
     "history game settings"
     "logs logs logs";
     gap: 20px;
     width: 100%;
-    max-width: 1600px;
-    margin: 0 auto;
+    /* Increase max-width to allow expansion on large screens */
+    max-width: 2400px;
+    margin: 20px auto;
     align-items: start;
+    justify-content: center;
 }
 
 #game-area {
@@ -1294,20 +1342,20 @@ body {
 
 /* Responsive Design */
 
-/* Large Tablet / Small Desktop: 2 Columns */
-@media (max-width: 1200px) {
+/* Laptop / Tablet (900px - 1400px): 2 Columns */
+@media (max-width: 1400px) {
     #main-layout {
         grid-template-columns: 1fr 340px;
         grid-template-areas:
       "game settings"
-      "history history"
+      "history settings"
       "logs logs";
-        gap: 15px;
+        gap: 20px;
     }
 }
 
-/* Mobile / Small Tablet: 1 Column */
-@media (max-width: 800px) {
+/* Mobile / Small Tablet (< 900px): 1 Column */
+@media (max-width: 900px) {
     #main-layout {
         grid-template-columns: 1fr;
         grid-template-areas:

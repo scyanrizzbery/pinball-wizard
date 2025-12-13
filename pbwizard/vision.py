@@ -4,6 +4,7 @@ import os
 import logging
 import json
 import random
+import hashlib
 
 import cv2
 import numpy as np
@@ -31,18 +32,20 @@ class ReplayManager:
         self.event_cursor = 0
         self.lock = threading.Lock()
 
-    def start_recording(self, seed, layout_name):
+    def start_recording(self, seed, layout_name, layout_hash, config_hash):
         with self.lock:
             self.is_recording = True
             self.is_playing = False
             self.replay_data = {
                 'seed': seed,
                 'layout': layout_name,
+                'layout_hash': layout_hash,
+                'config_hash': config_hash,
                 'final_score': 0,  # Will be set when recording stops
                 'events': []
             }
             self.current_frame = 0
-            logger.info(f"Replay Recording Started. Seed: {seed}")
+            logger.info(f"Replay Recording Started. Seed: {seed}, LayoutHash: {layout_hash}, ConfigHash: {config_hash}")
 
     def stop_recording(self, final_score=0):
         with self.lock:
@@ -59,8 +62,18 @@ class ReplayManager:
                 'value': value
             })
 
-    def start_playback(self, replay_json):
+    def start_playback(self, replay_json, current_layout_hash, current_config_hash):
         with self.lock:
+            # Verify hashes
+            recorded_layout_hash = replay_json.get('layout_hash')
+            recorded_config_hash = replay_json.get('config_hash')
+            
+            if recorded_layout_hash and recorded_layout_hash != current_layout_hash:
+                 logger.warning(f"⚠️ Replay Layout Hash Mismatch! Recorded: {recorded_layout_hash}, Current: {current_layout_hash}")
+            
+            if recorded_config_hash and recorded_config_hash != current_config_hash:
+                 logger.warning(f"⚠️ Replay Config Hash Mismatch! Recorded: {recorded_config_hash}, Current: {current_config_hash}")
+
             self.is_playing = True
             self.is_recording = False
             self.replay_data = replay_json
@@ -213,6 +226,30 @@ class PinballLayout:
         # Upper Flippers
         self.upper_flippers = []
         
+        # Default Zones (Left/Right)
+        self.zones = [
+            {
+                'id': 'zone_left_default',
+                'type': 'left',
+                 'points': [
+                  {'x': 0.1, 'y': 0.6},
+                  {'x': 0.3, 'y': 0.6},
+                  {'x': 0.3, 'y': 0.8},
+                  {'x': 0.1, 'y': 0.8}
+                ]
+            },
+            {
+                'id': 'zone_right_default',
+                'type': 'right',
+                'points': [
+                  {'x': 0.7, 'y': 0.6},
+                  {'x': 0.9, 'y': 0.6},
+                  {'x': 0.9, 'y': 0.8},
+                  {'x': 0.7, 'y': 0.8}
+                ]
+            }
+        ]
+
         # Rails (Inlane/Outlane guides)
         # Prevent direct side drains
         self.rails = [
@@ -303,9 +340,53 @@ class PinballLayout:
             'rail_x_offset': self.rail_x_offset,
             'rail_y_offset': self.rail_y_offset,
             'physics': self.physics_params,
+            # 'camera_presets': self.camera_presets, # Exclude camera from hash as it doesn't affect gameplay
+            # 'last_preset': self.last_preset
+        }
+        return config
+
+    def get_hash(self):
+        """Generate a deterministic hash of the layout."""
+        # Use get_config_dict to reuse the "saveable" state logic
+        # But ensure we only verify things that affect PHYSICS
+        data = self.get_config_dict()
+        # Ensure consistent order
+        json_str = json.dumps(data, sort_keys=True)
+        return hashlib.sha256(json_str.encode('utf-8')).hexdigest()[:16]
+
+    def get_config_dict(self):
+        """Return the dictionary representation of the layout."""
+        # This matches the save_to_file structure
+        config = {
+            'width': self.width,
+            'height': self.height,
+            'left_flipper_x_min': self.left_flipper_x_min,
+            'left_flipper_x_max': self.left_flipper_x_max,
+            'left_flipper_y_min': self.left_flipper_y_min,
+            'left_flipper_y_max': self.left_flipper_y_max,
+            'right_flipper_x_min': self.right_flipper_x_min,
+            'right_flipper_x_max': self.right_flipper_x_max,
+            'right_flipper_y_min': self.right_flipper_y_min,
+            'right_flipper_y_max': self.right_flipper_y_max,
+            'bumpers': self.bumpers,
+            'drop_targets': self.drop_targets,
+            'captures': self.captures,
+            'ramps': self.ramps,
+            'teleports': self.teleports,
+            'upper_deck': self.upper_deck,
+            'upper_flippers': self.upper_flippers,
+            'rails': self.rails,
+            'rail_x_offset': self.rail_x_offset,
+            'rail_y_offset': self.rail_y_offset,
+            'physics': self.physics_params,
             'camera_presets': self.camera_presets,
             'last_preset': self.last_preset
         }
+        return config
+
+    def save_to_file(self, filepath):
+        # Remove duplicate 'upper_deck' key
+        config = self.get_config_dict()
         try:
             with open(filepath, 'w') as f:
                 json.dump(config, f, indent=4)
@@ -347,8 +428,6 @@ class PinballLayout:
                 self.rail_y_offset = self.physics_params['rail_y_offset']
 
         # Also load offsets from root config if present (overrides physics if both exist? or fallback?)
-        # Let's check root if not in physics, or overwrite. 
-        # Persistence saves to root.
         if 'rail_x_offset' in config:
             self.rail_x_offset = config['rail_x_offset']
         if 'rail_y_offset' in config:
@@ -516,13 +595,20 @@ class SimulatedFrameCapture(FrameCapture):
         self.height = height
         self.socketio = socketio
         self.replay_manager = ReplayManager()
-        self._saving_config = False  # Flag to prevent reload loop when saving
+        self.input_queue = [] # Queue for deterministic input handling
         self.cap = None
+        
+        self._saving_config = False  # Flag to prevent reload loop when saving
 
-        # Physics Engine
-        # Initial seed
-        self.current_seed = None # Will be set on reset
+        # Physics Engine Placeholder (needed for refresh_layouts)
         self.physics_engine = None
+        self.current_seed = None
+
+        self._load_available_layouts()
+        if layout_config is None:
+            self.refresh_layouts()
+
+        # Physics Engine (Full Init)
         self._init_physics()
 
         self.balls = [] # list of dicts: {'pos': [x,y], 'vel': [vx,vy], 'radius': r, 'lost': False}
@@ -755,7 +841,10 @@ class SimulatedFrameCapture(FrameCapture):
         
         # Start recording if not replaying
         if not self.replay_manager.is_playing:
-            self.replay_manager.start_recording(self.current_seed, self.layout.name)
+            # Calculate hashes for recording
+            layout_hash = self.layout.get_hash()
+            config_hash = self.physics_engine.config.get_hash()
+            self.replay_manager.start_recording(self.current_seed, self.layout.name, layout_hash, config_hash)
             
             # Spawn initial ball (Ball 1)
             # Use callback to ensure safety even during init
@@ -823,7 +912,7 @@ class SimulatedFrameCapture(FrameCapture):
                 'right_flipper_pos_x': self.layout.right_flipper_x_min,
                 'right_flipper_pos_x_max': self.layout.right_flipper_x_max,
                 'right_flipper_pos_y': self.layout.right_flipper_y_min,
-                'right_flipper_pos_y_max': self.layout.right_flipper_y_max,  
+                'right_flipper_pos_y_max': self.layout.right_flipper_y_max,
              })
              
              # Flatten flippers dict for convenience
@@ -960,6 +1049,10 @@ class SimulatedFrameCapture(FrameCapture):
         
         self.physics_engine.add_ball(pos=pos)
         logger.debug(f"Ball added at position {pos}")
+        
+        # Record this event for replay
+        if self.replay_manager.is_recording:
+             self.replay_manager.record_event('add_ball', pos)
 
     def trigger_left(self):
         """Activate left flipper."""
@@ -1004,7 +1097,27 @@ class SimulatedFrameCapture(FrameCapture):
             # Store the replay's original score for display at game over
             self.replay_original_score = replay_json.get('final_score', 0)
             
-            seed = self.replay_manager.start_playback(replay_json)
+            # Verify hashes before starting
+            current_layout_hash = self.layout.get_hash()
+            # Note: Physics engine might be old or not yet set, but layout should be loaded.
+            # We haven't init_physics yet with the replay seed, but we can check the layout.
+            # Config hash requires physics engine (or default config)
+            # We'll use a temporary config check if needed, or just warn in start_playback.
+            # Ideally we should pass the CURRENT environment state.
+            
+            # We need to make sure we are using the RIGHT LAYOUT for this replay if possible?
+            # Existing logic loads layout based on name locally, if replay specifies it?
+            # For now, we assume user loaded correct layout or we rely on the warning.
+            
+            # Getting config hash requires a PhysicsConfig object.
+            from pbwizard.config import PhysicsConfig
+            # Create a temp config to check hash against defaults/current layout override
+            temp_config = PhysicsConfig()
+            if hasattr(self.layout, 'physics_params'):
+                 temp_config.update(self.layout.physics_params)
+            current_config_hash = temp_config.get_hash()
+            
+            seed = self.replay_manager.start_playback(replay_json, current_layout_hash, current_config_hash)
             
             # Reset Game with Seed, keeping replay active
             self._init_physics(seed=seed)
@@ -1077,8 +1190,8 @@ class SimulatedFrameCapture(FrameCapture):
         # Ignore inputs during replay
         if self.replay_manager.is_playing: return
         
-        self.replay_manager.record_event('flipper', data)
-        self._apply_flipper_input(data)
+        with self.lock:
+            self.input_queue.append(('flipper', data))
 
     def _apply_flipper_input(self, data):
         side = data.get('side')
@@ -1101,8 +1214,8 @@ class SimulatedFrameCapture(FrameCapture):
     def handle_plunger(self, data):
         if self.replay_manager.is_playing: return
         
-        self.replay_manager.record_event('plunger', data)
-        self._apply_plunger_input(data)
+        with self.lock:
+            self.input_queue.append(('plunger', data))
 
     def _apply_plunger_input(self, data):
         # 'press', 'release', 'hold' (with value)
@@ -1118,8 +1231,8 @@ class SimulatedFrameCapture(FrameCapture):
     def handle_nudge(self, data):
         if self.replay_manager.is_playing: return
         
-        self.replay_manager.record_event('nudge', data)
-        self._apply_nudge_input(data)
+        with self.lock:
+            self.input_queue.append(('nudge', data))
 
     def _apply_nudge_input(self, data):
         direction = data.get('direction') # 'left', 'right', 'up'
@@ -1127,7 +1240,9 @@ class SimulatedFrameCapture(FrameCapture):
         
         if self.game_over or self.is_tilted: return
         
-        dx, dy = 0, 0
+        dx = data.get('dx', 0.0)
+        dy = data.get('dy', 0.0)
+
         if direction == 'left': dx = -force
         elif direction == 'right': dx = force
         elif direction == 'up': dy = -force
@@ -1137,18 +1252,24 @@ class SimulatedFrameCapture(FrameCapture):
         
         self.last_nudge = {'direction': direction, 'time': time.time()}
         
+        # Apply to physics
+        check_tilt = data.get('check_tilt', True)
+        if self.physics_engine:
+            self.physics_engine.nudge(dx, dy, check_tilt=check_tilt)
+
         # Tilt Logic
-        self.tilt_value += abs(force)
-        if self.tilt_value > self.tilt_threshold:
-            self.is_tilted = True
-            logger.info("TILT!")
-            if self.socketio:
-                self.socketio.emit('game_event', {'type': 'tilt'}, namespace='/game')
-            # Deactivate flippers
-            self.left_flipper_active = False
-            self.right_flipper_active = False
-            self.physics_engine.actuate_flipper('left', False)
-            self.physics_engine.actuate_flipper('right', False)
+        if check_tilt:
+            self.tilt_value += abs(force)
+            if self.tilt_value > self.tilt_threshold:
+                self.is_tilted = True
+                logger.info("TILT!")
+                if self.socketio:
+                    self.socketio.emit('game_event', {'type': 'tilt'}, namespace='/game')
+                # Deactivate flippers
+                self.left_flipper_active = False
+                self.right_flipper_active = False
+                self.physics_engine.actuate_flipper('left', False)
+                self.physics_engine.actuate_flipper('right', False)
 
     def handle_layout_selection(self, data):
         filename = data.get('filename')
@@ -1209,6 +1330,9 @@ class SimulatedFrameCapture(FrameCapture):
         if not os.path.exists(layouts_dir):
             os.makedirs(layouts_dir)
             
+        # Update available layouts list
+        self._load_available_layouts()
+            
         # If specific file provided, load that
         if specific_filename:
              filepath = os.path.join(layouts_dir, specific_filename)
@@ -1237,28 +1361,21 @@ class SimulatedFrameCapture(FrameCapture):
 
     def nudge_left(self):
         """Apply nudge force to the left (pushes table left, ball moves right)."""
-        if self.physics_engine:
-            # Table moves Left -> Ball moves Right (+X)
-            # We also typically nudge "forward" (Up table, -Y)
-            self.physics_engine.nudge(1.0, -0.5)
+        self.handle_nudge({'dx': 1.0, 'dy': -0.5, 'force': 1.0, 'direction': 'left_combo'})
 
     def nudge_right(self):
         """Apply nudge force to the right (pushes table right, ball moves left)."""
-        if self.physics_engine:
-            self.physics_engine.nudge(-1.0, -0.5)
+        self.handle_nudge({'dx': -1.0, 'dy': -0.5, 'force': 1.0, 'direction': 'right_combo'})
 
     def nudge_up(self):
         """Apply forward nudge."""
-        if self.physics_engine:
-            self.physics_engine.nudge(0.0, 1.0)
+        self.handle_nudge({'dx': 0.0, 'dy': 1.0, 'force': 1.0, 'direction': 'up_combo'})
 
     def alien_nudge(self):
         """Apply a random 'alien' nudge that doesn't count towards tilt."""
-        if self.physics_engine:
-             # Random shake
-             dx = random.choice([-1.0, 1.0])
-             dy = random.choice([-0.5, 0.5, 1.0])
-             self.physics_engine.nudge(dx, dy, check_tilt=False)
+        dx = random.choice([-1.0, 1.0])
+        dy = random.choice([-0.5, 0.5, 1.0])
+        self.handle_nudge({'dx': dx, 'dy': dy, 'force': 0.0, 'check_tilt': False, 'direction': 'alien'})
 
     def start(self):
         self.running = True
@@ -1272,17 +1389,71 @@ class SimulatedFrameCapture(FrameCapture):
         else:
             logger.info("Simulation started in Headless Mode (Manual Stepping)")
 
+
+    def get_stats(self):
+        """Return complete game statistics for frontend."""
+        # Debug Log
+        # logger.debug(f"get_stats called. Replay Playing: {self.replay_manager.is_playing}")
+        
+        # Base stats from game state
+        stats = {
+            'score': self.score,
+            'high_score': self.high_score,
+            'balls': self.lives, # Legacy 'balls' prop usually means remaining lives? web_server uses balls_remaining
+            'balls_remaining': self.lives,
+            'current_ball': self.current_ball,
+            'ball_count': len(self.balls),
+            'games_played': getattr(self, 'games_played', 0),
+            'is_tilted': self.is_tilted,
+            'tilt_value': self.tilt_value,
+            'nudge': self.last_nudge,
+            'game_over': self.game_over,
+            
+            # Replay Stats
+            'hash': self.physics_engine.game_hash if self.physics_engine else None,
+            'is_replay': self.replay_manager.is_playing,
+            'seed': self.current_seed
+        }
+        
+        # Physics Engine Stats
+        if self.physics_engine:
+             combo = self.physics_engine.get_combo_status()
+             stats['combo_count'] = combo['combo_count']
+             stats['combo_active'] = combo['combo_active']
+             stats['combo_timer'] = combo['combo_timer']
+             stats['score_multiplier'] = self.physics_engine.get_multiplier()
+        else:
+             stats['combo_count'] = 0
+             stats['combo_active'] = False
+             stats['combo_timer'] = 0.0
+             stats['score_multiplier'] = 1.0
+
+        # Game History (if stored on self)
+        if hasattr(self, 'game_history'):
+            stats['game_history'] = self.game_history
+        else:
+            stats['game_history'] = []
+
+        return stats
+
     def render(self):
         """Force a render of the current frame (for snapshots)."""
         self._draw_frame()
 
     def manual_step(self, dt=0.016, render=True):
         """Perform a single step of simulation (physics + logic + render)."""
-        # Physics Step
-        if self.physics_engine:
-            self.physics_engine.update(dt)
-            
-        # Process Replay Inputs
+
+        # Process Pending Inputs (Recording)
+        if not self.replay_manager.is_playing:
+             with self.lock:
+                 while self.input_queue:
+                     type, data = self.input_queue.pop(0)
+                     self.replay_manager.record_event(type, data)
+                     if type == 'flipper': self._apply_flipper_input(data)
+                     elif type == 'plunger': self._apply_plunger_input(data)
+                     elif type == 'nudge': self._apply_nudge_input(data)
+
+        # Process Replay Inputs (Playback)
         if self.replay_manager.is_playing:
             events = self.replay_manager.get_events_for_frame()
             for evt in events:
@@ -1293,7 +1464,19 @@ class SimulatedFrameCapture(FrameCapture):
                     self._apply_plunger_input(evt['value'])
                 elif evt['type'] == 'nudge':
                     self._apply_nudge_input(evt['value'])
-        
+                elif evt['type'] == 'add_ball':
+                    # Directly add ball to physics engine to avoid recording loop
+                    # (since self.add_ball records)
+                    if self.physics_engine:
+                        self.physics_engine.add_ball(pos=evt['value'])
+                        logger.debug(f"Replay: Added ball at {evt['value']}")
+
+        # Physics Step
+        if self.physics_engine:
+            self.physics_engine.update(dt)
+            # Sync score from physics engine
+            self.score = self.physics_engine.score
+
         # 3-Ball Rule: Check for drain
         if self.physics_engine:
              if hasattr(self, 'respawn_timer') and self.respawn_timer > 0:
@@ -1694,6 +1877,10 @@ class SimulatedFrameCapture(FrameCapture):
         except Exception as e:
             logger.error(f"Failed to save layout configuration: {e}")
             self._saving_config = False
+
+    def save_layout(self):
+        """Alias for save_config to match web server expectation."""
+        self.save_config()
 
     def save_camera_preset(self, name, camera_params=None):
         """Save a camera preset with the current or provided camera parameters."""

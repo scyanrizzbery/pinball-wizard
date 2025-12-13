@@ -1,8 +1,27 @@
+interface MusicalScale {
+    name: string;
+    notes: number[];
+    instrument: string;
+    baseFreq: number;
+    waveform: OscillatorType;
+}
+
 class SoundManager {
+    ctx!: AudioContext;
+    masterGain!: GainNode;
+    volume!: number;
+    muted!: boolean;
+    enabled!: boolean;
+    distortionCurve!: Float32Array;
+    currentScaleIndex!: number;
+    lastComboMilestone!: number;
+    musicalScales!: MusicalScale[];
+    alienResponseCallback?: () => void;
+
     constructor() {
         try {
             console.log("SoundManager: Initializing...")
-            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
             this.masterGain = this.ctx.createGain();
             this.volume = 0.08;
             this.muted = false;
@@ -92,10 +111,10 @@ class SoundManager {
         }
     }
 
-    makeDistortionCurve(amount) {
+    makeDistortionCurve(amount: number) {
         const k = typeof amount === 'number' ? amount : 50,
             n_samples = 44100,
-            curve = new Float32Array(n_samples),
+            curve = new Float32Array(n_samples) as any as Float32Array,
             deg = Math.PI / 180;
         let x;
         for (let i = 0; i < n_samples; ++i) {
@@ -106,10 +125,10 @@ class SoundManager {
     }
 
     // Hard clipping curve for aggressive 808s
-    makeHardClipCurve(amount) {
+    makeHardClipCurve(amount: number) {
         const k = amount;
         const n_samples = 44100;
-        const curve = new Float32Array(n_samples);
+        const curve = new Float32Array(n_samples) as any as Float32Array;
         for (let i = 0; i < n_samples; ++i) {
             let x = i * 2 / n_samples - 1;
             // Hard clip with some smoothing
@@ -120,14 +139,14 @@ class SoundManager {
         return curve;
     }
 
-    setVolume(val) {
+    setVolume(val: number) {
         this.volume = Math.max(0, Math.min(1, val));
         if (!this.muted) {
             this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
         }
     }
 
-    setMute(muted) {
+    setMute(muted: boolean) {
         this.muted = muted;
         if (this.muted) {
             this.masterGain.gain.setValueAtTime(0, this.ctx.currentTime);
@@ -142,12 +161,12 @@ class SoundManager {
         }
     }
 
-    toggle(enabled) {
+    toggle(enabled: boolean) {
         this.enabled = enabled;
     }
 
     // Helper to create an oscillator with envelope
-    playTone(freq, type, duration, vol = 1.0, slide = 0) {
+    playTone(freq: number, type: OscillatorType, duration: number, vol = 1.0, slide = 0) {
         if (!this.enabled) return;
         this.resume();
 
@@ -171,7 +190,7 @@ class SoundManager {
     }
 
     // Helper for noise (snare/thud like)
-    playNoise(duration, vol = 1.0, filterFreq = 1000) {
+    playNoise(duration: number, vol = 1.0, filterFreq = 1000) {
         if (!this.enabled) return;
         this.resume();
 
@@ -203,7 +222,7 @@ class SoundManager {
 
     // --- Electric Guitar Synth ---
 
-    playGuitar(baseFreq, duration = 0.5, vol = 1.0) {
+    playGuitar(baseFreq: number, duration = 0.5, vol = 1.0) {
         // ... (existing playGuitar implementation) ...
         if (!this.enabled) return;
         this.resume();
@@ -212,7 +231,7 @@ class SoundManager {
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(baseFreq, t);
         const distortion = this.ctx.createWaveShaper();
-        distortion.curve = this.distortionCurve;
+        distortion.curve = this.distortionCurve as any;
         distortion.oversample = '4x';
         const filter = this.ctx.createBiquadFilter();
         filter.type = 'lowpass';
@@ -237,7 +256,7 @@ class SoundManager {
         gain2.gain.linearRampToValueAtTime(vol * 0.7, t + 0.05);
         gain2.gain.exponentialRampToValueAtTime(0.01, t + duration);
         const dist2 = this.ctx.createWaveShaper();
-        dist2.curve = this.distortionCurve;
+        dist2.curve = this.distortionCurve as any;
         osc2.connect(dist2);
         dist2.connect(filter);
         osc2.start(t);
@@ -245,7 +264,7 @@ class SoundManager {
     }
 
     // --- Gnarly 808 (Katseye Style) ---
-    playGnarly808(baseFreq, duration = 0.8, vol = 1.0) {
+    playGnarly808(baseFreq: number, duration = 0.8, vol = 1.0) {
         if (!this.enabled) return;
         this.resume();
         const t = this.ctx.currentTime;
@@ -271,7 +290,7 @@ class SoundManager {
         // Distortion chain
         const distortion = this.ctx.createWaveShaper();
         // Use a harder clipping curve for that "fried" sound
-        distortion.curve = this.makeHardClipCurve(0.6);
+        distortion.curve = this.makeHardClipCurve(0.6) as any;
         distortion.oversample = '4x';
 
         const filter = this.ctx.createBiquadFilter();
@@ -704,7 +723,7 @@ class SoundManager {
     }
 
     // Handle 10x combo milestones
-    checkComboMilestone(combo) {
+    checkComboMilestone(combo: number) {
         const milestone = Math.floor(combo / 10);
 
         if (milestone > this.lastComboMilestone && combo >= 10) {
@@ -721,12 +740,12 @@ class SoundManager {
         return false;
     }
 
-    setAlienResponseCallback(callback) {
+    setAlienResponseCallback(callback: () => void) {
         this.alienResponseCallback = callback;
     }
 
     // Play the Close Encounters five-note motif (D-E-C-C-G) followed by alien response
-    playCloseEncounters(baseFreq = 293.66, onResponseCallback = null) { // D4 as base
+    playCloseEncounters(baseFreq = 293.66, onResponseCallback: (() => void) | null = null) { // D4 as base
         if (!this.enabled) return;
         this.resume();
 
@@ -833,7 +852,7 @@ class SoundManager {
     }
 
     // Play a celebratory jingle when reaching a combo milestone
-    playMilestoneJingle(scale) {
+    playMilestoneJingle(scale: MusicalScale) {
         if (!this.enabled) return;
         this.resume();
 
@@ -848,7 +867,7 @@ class SoundManager {
         const t = this.ctx.currentTime;
 
         // Play ascending scale rapidly with scale-specific instrument
-        scale.notes.slice(0, 8).forEach((semitone, index) => {
+        scale.notes.slice(0, 8).forEach((semitone: number, index: number) => {
             const startTime = t + (index * noteDuration * 0.5);
             const freq = baseFreq * Math.pow(2, semitone / 12);
 
@@ -885,7 +904,7 @@ class SoundManager {
     }
 
     // Generic instrument player with waveform selection
-    playInstrument(freq, waveform, startTime, duration, vol = 0.5) {
+    playInstrument(freq: number, waveform: OscillatorType, startTime: number, duration: number, vol = 0.5) {
         if (!this.enabled) return;
 
         const osc = this.ctx.createOscillator();
@@ -905,7 +924,7 @@ class SoundManager {
     }
 
     // Bell-like sound with harmonics
-    playBell(freq, startTime, duration, vol = 0.5) {
+    playBell(freq: number, startTime: number, duration: number, vol = 0.5) {
         if (!this.enabled) return;
 
         // Multiple sine waves at harmonic intervals
@@ -932,7 +951,7 @@ class SoundManager {
     }
 
     // Organ sound with multiple harmonics
-    playOrgan(freq, startTime, duration, vol = 0.5) {
+    playOrgan(freq: number, startTime: number, duration: number, vol = 0.5) {
         if (!this.enabled) return;
 
         // Organ has strong fundamental and octaves
@@ -957,7 +976,7 @@ class SoundManager {
     }
 
     // Brass-like sound with bright harmonics
-    playBrass(freq, startTime, duration, vol = 0.5) {
+    playBrass(freq: number, startTime: number, duration: number, vol = 0.5) {
         if (!this.enabled) return;
 
         const osc = this.ctx.createOscillator();
@@ -985,7 +1004,7 @@ class SoundManager {
     }
 
     // String ensemble sound
-    playStrings(freq, startTime, duration, vol = 0.5) {
+    playStrings(freq: number, startTime: number, duration: number, vol = 0.5) {
         if (!this.enabled) return;
 
         // Multiple detuned oscillators for string ensemble effect

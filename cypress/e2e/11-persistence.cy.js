@@ -1,14 +1,20 @@
 describe('Persistence Tests', () => {
     beforeEach(() => {
+        cy.clearLocalStorage()
         cy.visit('/')
         // Wait for app to fully load
+        cy.waitForConnection()
         cy.get('[data-cy="settings-panel"]', { timeout: 10000 }).should('be.visible')
     })
 
     describe('Layout Persistence', () => {
         it('should display the selected layout name in dropdown on initial load', () => {
-            // Wait for layouts to load
-            cy.get('select').contains('option', /\w+/).should('exist')
+            // Wait for layouts to load in the specific dropdown
+            cy.wait(2000) // Allow time for socket round-trip
+            cy.contains('.label', 'Table Layout')
+                .parent()
+                .find('select option', { timeout: 15000 })
+                .should('have.length.gt', 1)
 
             // Check that a layout is selected (not blank)
             cy.contains('.label', 'Table Layout')
@@ -150,6 +156,7 @@ describe('Persistence Tests', () => {
 
     describe('Model Persistence', () => {
         it('should display the selected model name in dropdown on initial load', () => {
+            cy.wait(2000) // Allow time for socket round-trip
             //  Model dropdown should show a value
             cy.contains('.label', 'Model')
                 .parent()

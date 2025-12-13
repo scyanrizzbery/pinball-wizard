@@ -20,8 +20,12 @@ describe('Pinball Wizard - UI Elements', () => {
 
     describe('Game Display', () => {
         it('should display video feed', () => {
-            // Switch to 2D view if in 3D mode
-            cy.contains('button', 'Switch to 2D').click()
+            // Ensure we are in video mode
+            cy.get('body').then(($body) => {
+                if ($body.find('button:contains("Switch to 2D")').length > 0) {
+                    cy.contains('button', 'Switch to 2D').click()
+                }
+            })
             cy.get('#video-stream').should('be.visible')
         })
 
@@ -96,7 +100,15 @@ describe('Pinball Wizard - UI Elements', () => {
 
     describe('Settings Panel', () => {
         beforeEach(() => {
-            cy.get('.sound-toggle-btn').click()
+            // Ensure we are in 3D mode (Settings are inside Pinball3D)
+            cy.get('body').then(($body) => {
+                // If we see "Switch to 3D", we are in 2D mode -> click it
+                if ($body.find('button:contains("Switch to 3D")').length > 0) {
+                    cy.contains('button', 'Switch to 3D').click()
+                }
+            })
+            // Wait for 3D view to load
+            cy.get('.sound-toggle-btn').should('be.visible').click()
         })
 
         it('should have tabs', () => {

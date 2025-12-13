@@ -71,30 +71,54 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, watch, nextTick, inject } from 'vue'
 import { Chart } from 'highcharts-vue'
 
-const props = defineProps({
-  gameHistory: { type: Array, default: () => [] },
-  gamesPlayed: { type: Number, default: 0 }
+interface GameHistoryItem {
+  type: 'game' | 'event' | 'model_change' | 'layout_change' | 'settings_change' | 'difficulty_change'
+  score: number // score is sometimes 0 but mostly present
+  timestamp: number
+  hash?: string
+  seed?: string
+  event_type?: string // 'layout' | 'model' | 'physics'
+  message?: string
+  model?: string
+  layout?: string
+  difficulty?: string
+  [key: string]: any
+}
+
+interface Stats {
+    min: number
+    max: number
+    mean: number
+    count: number
+}
+
+const props = withDefaults(defineProps<{
+  gameHistory?: GameHistoryItem[]
+  gamesPlayed?: number
+}>(), {
+  gameHistory: () => [],
+  gamesPlayed: 0
 })
 
-const sockets = inject('sockets')
-const chartRef = ref(null)
+const sockets = inject('sockets') as any
+const chartRef = ref<any>(null)
 const isVertical = ref(window.innerWidth >= 1200)
 
 const recentGamesReversed = computed(() => {
   return props.gameHistory.filter(g => g.type === 'game' || g.type === 'event').slice().reverse().slice(0, 10)
 })
 
-const loadReplay = (hash) => {
+const loadReplay = (hash: string) => {
   console.log("Loading replay for hash:", hash)
   if (sockets && sockets.game) {
     sockets.game.emit('load_replay', { hash: hash })
     
     // Listen for replay status updates
-    sockets.game.on('replay_status', (data) => {
+    sockets.game.on('replay_status', (data: any) => {
       if (data.status === 'loading') {
         console.log("⏳ Loading replay...")
       } else if (data.status === 'playing') {
@@ -107,7 +131,7 @@ const loadReplay = (hash) => {
 }
 
 // Stable history to prevent flickering (only update when content actually changes)
-const stableGameHistory = ref([])
+const stableGameHistory = ref<GameHistoryItem[]>([])
 
 watch(() => props.gameHistory, (newVal) => {
   // Check if update is needed
@@ -139,7 +163,7 @@ const showChart = computed(() => {
   return stableGameHistory.value.filter(g => g.type === 'game').length >= 3
 })
 
-const historyStats = computed(() => {
+const historyStats = computed<Stats | null>(() => {
   const games = stableGameHistory.value.filter(g => g.type === 'game')
   if (games.length === 0) return null
   
@@ -164,8 +188,8 @@ const distributionChartOptions = computed(() => {
   const binCount = Math.min(8, Math.ceil(Math.sqrt(scores.length)))
   const binSize = Math.ceil((max - min) / binCount)
   
-  const bins = []
-  const categories = []
+  const bins: number[] = []
+  const categories: string[] = []
   
   for (let i = 0; i < binCount; i++) {
     const binStart = min + (i * binSize)
@@ -237,8 +261,8 @@ const distributionChartOptions = computed(() => {
 })
 
 const chartOptions = computed(() => {
-  const seriesData = []
-  const plotLines = []
+  const seriesData: any[] = []
+  const plotLines: any[] = []
 
   const games = stableGameHistory.value.filter(g => g.type === 'game')
   const maxScore = games.length > 0 ? Math.max(...games.map(g => g.score)) : 0
@@ -397,7 +421,7 @@ const chartOptions = computed(() => {
       backgroundColor: 'rgba(0, 0, 0, 0.85)',
       style: { color: '#fff' },
       headerFormat: '',
-      pointFormatter: function () {
+      pointFormatter: function (this: any) {
         // Use the same format logic (replicated here or accessible?)
         // Highcharts formatter context doesn't easily access component scope functions without binding
         // We can define the logic inline or bind it.
@@ -433,7 +457,7 @@ watch(showChart, (newVal) => {
   }
 })
 
-const formatScore = (num) => {
+const formatScore = (num: number | null | undefined) => {
   if (num === null || num === undefined) return '0'
   if (num >= 1000000) {
     return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'

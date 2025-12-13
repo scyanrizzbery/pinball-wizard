@@ -52,6 +52,32 @@ class PinballEnv(gym.Env):
         self.step_count = 0
         self.max_episode_steps = 5000  # Prevent infinite episodes
 
+        self.load_config()
+
+    def load_config(self):
+        import json
+        import os
+
+        # Default rewards
+        self.rewards_config = {
+            "score_log_scale": 0.1,
+            "combo_increase_factor": 0.1,
+            "multiplier_increase_factor": 0.5,
+            "flipper_penalty": 0.0001,
+            "bumper_hit": 0.5,
+            "drop_target_hit": 1.0,
+            "rail_hit": 0.5
+        }
+
+        try:
+            if os.path.exists("config.json"):
+                with open("config.json", 'r') as f:
+                    config_data = json.load(f)
+                    rewards = config_data.get('rewards', {})
+                    self.rewards_config.update(rewards)
+        except Exception as e:
+            logger.error(f"Error loading config: {e}")
+
     def step(self, action: int):
         """
         Execute one time step within the environment.
@@ -139,7 +165,7 @@ class PinballEnv(gym.Env):
         # We scale by 0.1 to keep rewards in a manageable range (~0-1.5 mostly)
         # Clip negative diffs to 0 to ignore read errors/resets
         clipped_diff = max(0, score_diff)
-        reward = np.log1p(clipped_diff) * 0.1
+        reward = np.log1p(clipped_diff) * self.rewards_config['score_log_scale']
         reward += difficulty_params['survival_reward'] # Survival reward (scaled by difficulty)
         
         # Combo Bonus Reward - encourage maintaining combos
@@ -153,7 +179,7 @@ class PinballEnv(gym.Env):
             # Award bonus only when combo count INCREASES
             if combo_status['combo_active'] and current_combo > self.last_combo_count and current_combo > 1:
                 # One-time bonus for hitting a new combo tier
-                combo_increase_bonus = 0.1 * current_combo 
+                combo_increase_bonus = self.rewards_config['combo_increase_factor'] * current_combo
                 reward += combo_increase_bonus
                 logger.debug(f"Combo increase bonus: +{combo_increase_bonus:.2f} ({self.last_combo_count} -> {current_combo})")
             
@@ -161,7 +187,7 @@ class PinballEnv(gym.Env):
 
             # Extra reward for multiplier INCREASE
             if multiplier > self.last_multiplier:
-                multiplier_increase_bonus = (multiplier - self.last_multiplier) * 0.5
+                multiplier_increase_bonus = (multiplier - self.last_multiplier) * self.rewards_config['multiplier_increase_factor']
                 reward += multiplier_increase_bonus
                 logger.debug(f"Multiplier increase bonus: +{multiplier_increase_bonus:.2f} ({self.last_multiplier:.1f}x -> {multiplier:.1f}x)")
             
@@ -170,7 +196,7 @@ class PinballEnv(gym.Env):
         # Flipper Penalty (Discourage spamming)
         # 0: No-op, 1: Left, 2: Right, 3: Both
         if action in [constants.ACTION_FLIP_LEFT, constants.ACTION_FLIP_RIGHT, constants.ACTION_FLIP_BOTH]:
-             reward -= 0.0001 # Drastically reduced from 0.01 to encourage using flippers
+             reward -= self.rewards_config['flipper_penalty'] # Drastically reduced from 0.01 to encourage using flippers
              # logger.debug("Penalty: Flipper Usage (-0.0001)")
 
         # Event-based Reward (Explicit feedback for hitting targets)
@@ -184,13 +210,13 @@ class PinballEnv(gym.Env):
             if event['type'] == 'collision':
                 # Base rewards for hitting features (independent of score/combo)
                 if 'bumper' in event['label']:
-                    reward += 0.5 # Significant reward for action (was 0.01)
+                    reward += self.rewards_config['bumper_hit'] # Significant reward for action (was 0.01)
                     logger.debug("Reward: Bumper Hit (+0.5)")
                 elif 'drop_target' in event['label']:
-                    reward += 1.0 # Significant reward for targets (was 0.05)
+                    reward += self.rewards_config['drop_target_hit'] # Significant reward for targets (was 0.05)
                     logger.debug("Reward: Drop Target Hit (+1.0)")
                 elif 'rail' in event['label']:
-                    reward += 0.5 # Encouragement for loop shots (was 0.01)
+                    reward += self.rewards_config['rail_hit'] # Encouragement for loop shots (was 0.01)
                     logger.debug("Reward: Rail Hit (+0.5)")
 
         # Debug logging for start of episode

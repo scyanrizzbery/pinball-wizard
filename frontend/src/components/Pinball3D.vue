@@ -26,20 +26,19 @@
     </div>
 
     <!-- Replay Indicator -->
-    <div v-if="isReplayActive" class="overlay-screen replay-overlay">
-      <div class="replay-indicator">
-        <div class="replay-icon">▶</div>
-        <div class="replay-text">REPLAY</div>
-      </div>
-    </div>
+    <ReplayIndicator 
+        v-if="isReplayActive"
+        :hash="stats?.hash" 
+        :isFullscreen="isFullscreen"
+    />
 
     <!-- Tilted Overlay -->
-    <div v-if="stats && stats.is_tilted === true" class="overlay-screen tilted-overlay">
+    <div v-if="stats?.is_tilted === true" class="overlay-screen tilted-overlay">
         <h1>TILTED!</h1>
     </div>
 
     <!-- Game Over Overlay -->
-    <div v-if="stats && stats.game_over" class="overlay-screen game-over-overlay" :class="{ 'is-fullscreen': isFullscreen }">
+    <div v-if="stats?.game_over" class="overlay-screen game-over-overlay" :class="{ 'is-fullscreen': isFullscreen }">
         <div class="game-over-text">GAME OVER</div>
         <div v-if="stats.is_high_score" class="high-score-text">NEW HIGH SCORE!</div>
         <div class="final-score">SCORE: {{ formatNumber(stats.last_score) }}</div>
@@ -52,7 +51,7 @@
         </div>
     </div>
 
-    <div v-if="!config || !config.rails || connectionError" class="loading-placeholder">
+    <div v-if="!config?.rails || connectionError" class="loading-placeholder">
       <div class="spinner"></div>
       <div class="loading-text">{{ connectionError ? 'CONNECTION ERROR' : 'INITIALIZING SYSTEM' }}</div>
       <div style="margin-top: 10px; font-size: 0.8em; color: #666;">
@@ -114,7 +113,7 @@
     <div v-if="showSettings" class="sound-settings-overlay">
         <GameSettings 
             :smokeIntensity="smokeIntensity"
-            @update-smoke-intensity="(val) => smokeIntensity = val"
+            @update-smoke-intensity="(val: number) => smokeIntensity = val"
             @close="showSettings = false" 
         />
     </div>
@@ -138,64 +137,84 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import SoundManager from '../utils/SoundManager'
 import GameSettings from './GameSettings.vue'
+import type { PhysicsConfig, GameStats, Point } from '../types'
+import ReplayIndicator from "@/components/ReplayIndicator.vue";
+
 
 onMounted(() => {
     console.log(`[Pinball3D] MOUNTED. Camera Mode: ${props.cameraMode}, Is Fullscreen: ${props.isFullscreen}`)
 })
 
-const props = defineProps({
-    socket: Object,
-    configSocket: Object,
-    config: Object,
-    nudgeEvent: Object,
-    stats: Object,
-    cameraMode: { type: String, default: 'perspective' },
-    autoStartEnabled: { type: Boolean, default: false },
-    showFlipperZones: { type: Boolean, default: false },
-    connectionError: { type: Boolean, default: false },
-    isFullscreen: { type: Boolean, default: false },
+const props = withDefaults(defineProps<{
+    socket?: any;
+    configSocket?: any;
+    config?: PhysicsConfig | null;
+    nudgeEvent?: { direction: string; time: number; type?: string; strength?: number } | null;
+    stats?: GameStats | null;
+    cameraMode?: string;
+    autoStartEnabled?: boolean;
+    showFlipperZones?: boolean;
+    connectionError?: boolean;
+    isFullscreen?: boolean;
+}>(), {
+    cameraMode: 'perspective',
+    autoStartEnabled: false,
+    showFlipperZones: false,
+    connectionError: false,
+    isFullscreen: false
 })
 
 const emit = defineEmits(['toggle-fullscreen', 'toggle-view', 'ship-destroyed', 'restart-game', 'update-rail', 'update-bumper', 'reset-zones'])
 
-const container = ref(null)
-let scene, camera, renderer, controls
-let resizeObserver
+const container = ref<HTMLElement | null>(null)
+let scene: THREE.Scene, camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, renderer: THREE.WebGLRenderer, controls: OrbitControls
+let resizeObserver: ResizeObserver
 // let socket // Use props.socket
-let balls = [] // Array of mesh objects
-let flippers = {} // { left: mesh, right: mesh, upper: [] }
-let tableGroup
-let ballGeo, ballMat
-let zoneMeshes = [] // Store zone meshes for show/hide
+// Interactive objects container type
+interface InteractiveObjects {
+    left: THREE.Mesh | null;
+    right: THREE.Mesh | null;
+    upper: any[];
+    dropTargets: THREE.Mesh[];
+    bumpers: THREE.Group[];
+    mothership?: THREE.Group;
+    [key: string]: any;
+}
+
+let balls: THREE.Mesh[] = [] // Array of mesh objects
+let flippers: InteractiveObjects = { left: null, right: null, upper: [], dropTargets: [], bumpers: [] }
+let tableGroup: THREE.Group
+let ballGeo: THREE.SphereGeometry, ballMat: THREE.MeshStandardMaterial
+let zoneMeshes: THREE.Mesh[] = [] // Store zone meshes for show/hide
 
 // Ball effects for combo-based visuals
-let ballGlows = []
-let ballTrails = [] // { mesh: THREE.Mesh, positions: THREE.Vector3[] }
-let ballParticles = []
+let ballGlows: any[] = []
+let ballTrails: { mesh: THREE.Mesh, positions: THREE.Vector3[] }[] = [] // { mesh: THREE.Mesh, positions: THREE.Vector3[] }
+let ballParticles: any[] = []
 
 // Physics Config (to sync dimensions)
-let physicsConfig = ref(null)
+let physicsConfig = ref<PhysicsConfig | null>(null)
 // Store previous flipper values for change detection (not reactive)
 let lastFlipperValues = {
-    length: null,
-    width: null,
-    tipWidth: null
+    length: null as number | null,
+    width: null as number | null,
+    tipWidth: null as number | null
 }
 const cameraDebug = ref({ x: 0, y: 0, z: 0 })
 const showDebug = ref(false)
 const showSettings = ref(false)
 const smokeIntensity = ref(0.5)
-let debugTimeout = null
+let debugTimeout: ReturnType<typeof setTimeout> | null = null
 
 // Auto-Restart Timer State
 const autoRestartTimer = ref(3)
-let autoRestartInterval = null
+let autoRestartInterval: ReturnType<typeof setInterval> | null = null
 
 // Watch for Game Over state
 watch(() => props.stats?.game_over, (isGameOver) => {
@@ -259,9 +278,7 @@ const containerSize = computed(() => {
 const activeBallCount = ref(0)
 
 // Computed: Check if replay is active
-const isReplayActive = computed(() => {
-  return props.stats?.is_replay === true
-})
+const isReplayActive = computed(() => props.stats?.is_replay)
 
 // Mobile Controls State
 const controlsActive = ref(false)
@@ -269,9 +286,9 @@ const controlsActive = ref(false)
 // Stuck Ball State
 const stuckBallDialog = ref(false)
 const stuckBallTimer = ref(20)
-let stuckBallInterval = null
+let stuckBallInterval: ReturnType<typeof setInterval> | null = null
 
-const formatNumber = (num) => {
+const formatNumber = (num: number | null | undefined) => {
   if (num === undefined || num === null) return '0'
   return num.toLocaleString()
 }
@@ -284,12 +301,12 @@ const selectedType = ref(null) // 'rail' or 'bumper'
 const isDragging = ref(false)
 const dragPoint = ref(null) // 'p1', 'p2', or 'body'
 const dragStartPos = new THREE.Vector2()
-const dragState = { initialP1: null, initialP2: null, initialPos: null }
+const dragState: { initialP1: Point | null, initialP2: Point | null, initialPos: Point | null } = { initialP1: null, initialP2: null, initialPos: null }
 const raycaster = new THREE.Raycaster()
 const mouse = new THREE.Vector2()
-const railHandles = [] // Array of mesh handles
-const railMeshes = [] // Array of rail body meshes
-const bumperMeshes = [] // Array of bumper meshes
+const railHandles: THREE.Mesh[] = [] // Array of mesh handles
+const railMeshes: THREE.Mesh[] = [] // Array of rail body meshes
+const bumperMeshes: THREE.Group[] = [] // Array of bumper meshes
 let dragPlane = new THREE.Plane() // Plane for raycasting during drag
 
 // Camera Pan State
@@ -360,7 +377,7 @@ const updateRailHandles = () => {
         const p1 = mapToWorld(rail.p1.x, rail.p1.y)
         const p2 = mapToWorld(rail.p2.x, rail.p2.y)
         
-        const createHandle = (pos, pointName) => {
+        const createHandle = (pos: {x: number, y: number}, pointName: string) => {
             const geometry = new THREE.SphereGeometry(0.02, 16, 16)
             const material = new THREE.MeshBasicMaterial({ 
                 color: index === selectedRailIndex.value ? 0xff0000 : 0x00ff00 
@@ -382,7 +399,7 @@ const clearRailHandles = () => {
     railHandles.length = 0
 }
 
-const mapToWorld = (x, y) => {
+const mapToWorld = (x: number, y: number) => {
     // Map normalized (0-1) to world coordinates used in 3D scene
     // Based on mapX and mapY functions
     return {
@@ -391,7 +408,7 @@ const mapToWorld = (x, y) => {
     }
 }
 
-const mapFromWorld = (wx, wy) => {
+const mapFromWorld = (wx: number, wy: number) => {
     // Inverse of mapToWorld
     return {
         x: (wx / 0.6) + 0.5,
@@ -400,10 +417,9 @@ const mapFromWorld = (wx, wy) => {
 }
 
 // Drag & Drop logic removed (replaced by buttons)
-const onDragStart = () => {}
 const onDrop = () => {}
 
-const onMouseDown = (event) => {
+const onMouseDown = (event: MouseEvent) => {
     // console.log("Container MouseDown", event.button)
     // Resume Audio Context on first interaction
     SoundManager.resume()
@@ -530,7 +546,7 @@ const onMouseDown = (event) => {
     }
 }
 
-const onMouseMove = (event) => {
+const onMouseMove = (event: MouseEvent) => {
     // Handle camera panning
     if (isPanning.value) {
         const deltaX = event.clientX - panStart.x
@@ -585,7 +601,7 @@ const onMouseMove = (event) => {
         if (selectedType.value === 'rail') {
             const rail = props.config.rails[selectedRailIndex.value]
             if (rail) {
-                if (dragPoint.value === 'body') {
+                if (dragPoint.value === 'body' && dragState.initialP1 && dragState.initialP2) {
                     // Calculate delta
                     const dx = normPos.x - dragStartPos.x
                     const dy = normPos.y - dragStartPos.y
@@ -612,9 +628,9 @@ const onMouseMove = (event) => {
                 const railMesh = railMeshes[selectedRailIndex.value]
                 if (railMesh) {
                      // Recalculate position/rotation similar to createTable
-                     const nOffsetX = parseFloat(props.config.rail_x_offset || 0)
-                     const nOffsetY = parseFloat(props.config.rail_y_offset || 0)
-                     const lengthScale = parseFloat(props.config.guide_length_scale || 1.0)
+                     const nOffsetX = Number(props.config.rail_x_offset || 0)
+                     const nOffsetY = Number(props.config.rail_y_offset || 0)
+                     const lengthScale = Number(props.config.guide_length_scale || 1.0)
                      
                      // Use the UPDATED rail data directly
                      const r1x = rail.p1.x + nOffsetX
@@ -709,7 +725,7 @@ const onMouseMove = (event) => {
             }
         } else if (selectedType.value === 'bumper') {
             const bumper = props.config.bumpers[selectedBumperIndex.value]
-            if (bumper) {
+            if (bumper && dragState.initialPos) {
                 const dx = normPos.x - dragStartPos.x
                 const dy = normPos.y - dragStartPos.y
                 
@@ -753,8 +769,8 @@ const onMouseUp = () => {
 }
 
 // Zoom functionality
-let zoomDebounceTimer = null
-const onWheel = (event) => {
+let zoomDebounceTimer: ReturnType<typeof setTimeout> | null = null
+const onWheel = (event: WheelEvent) => {
     // If controls are NOT active, ignore wheel (require click to activate)
     if (!controlsActive.value) return
 
@@ -795,7 +811,7 @@ const onWheel = (event) => {
     }, 300)
 }
 
-const updateMouse = (event) => {
+const updateMouse = (event: MouseEvent) => {
     const rect = container.value.getBoundingClientRect()
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
@@ -834,10 +850,10 @@ const cancelRelaunch = () => {
 
 
 
-const mapX = (x) => (x - 0.5) * 0.6
-const mapY = (y) => (0.5 - y) * 1.2
+const mapX = (x: number) => (x - 0.5) * 0.6
+const mapY = (y: number) => (0.5 - y) * 1.2
 
-const createTable = (config = null) => {
+const createTable = (config: PhysicsConfig | null = null) => {
   console.log('[createTable] Called with config:', config ? 'present' : 'null')
   console.log('[createTable] Current ball count:', balls.length)
 
@@ -872,16 +888,23 @@ const createTable = (config = null) => {
   ballTrails = []
   ballParticles = []
 
-  // Initialize ball resources - Chrome finish
+  // Initialize Texture Loader
+  const textureLoader = new THREE.TextureLoader()
+
+  // Initialize ball resources - Chrome finish with Texture
   ballGeo = new THREE.SphereGeometry(0.016, 32, 32)
+  const ballTex = textureLoader.load('/textures/ball_texture.png')
+  ballTex.colorSpace = THREE.SRGBColorSpace
+  
   ballMat = new THREE.MeshStandardMaterial({ 
-    color: 0xdddddd, // Bright silver (very visible)
-    metalness: 0.7, // Reduced from 0.95 for more subtle reflections
-    roughness: 0.25, // Increased from 0.1 to diffuse reflections
-    emissive: 0x333333, // Slightly darker base emissive
-    emissiveIntensity: 0.05 // Reduced from 0.1 for subtler glow
+    map: ballTex,
+    color: 0xeeeeee, 
+    metalness: 0.8, // High metalness for shiny look
+    roughness: 0.3, // Texture provides the detail
+    emissive: 0x222222, 
+    emissiveIntensity: 0.1
   })
-  flippers = { left: null, right: null, dropTargets: [], bumpers: [] }
+  flippers = { left: null, right: null, upper: [], dropTargets: [], bumpers: [] }
   zoneMeshes = [] // Clear zone meshes array
 
 // Floor - Brighter playfield with Texture Support
@@ -897,7 +920,7 @@ const createTable = (config = null) => {
       }
   }
 
-  const textureLoader = new THREE.TextureLoader()
+
   let floorMat
   
   // Try to load texture dynamically - no hardcoded list
@@ -954,12 +977,24 @@ const createTable = (config = null) => {
   floor.receiveShadow = true
   tableGroup.add(floor)
 
-  // Walls - Chrome-like finish
+  // Walls - Brushed Metal Texture
+  // Walls - Dynamic or Default Brushed Metal
+  let wallTexturePath = '/textures/wall_texture.png'
+  if (layoutId === 'lisa_frank') {
+      wallTexturePath = '/textures/lisa_frank_wall.png'
+  }
+  const wallTexture = textureLoader.load(wallTexturePath)
+  wallTexture.colorSpace = THREE.SRGBColorSpace
+  wallTexture.wrapS = THREE.RepeatWrapping
+  wallTexture.wrapT = THREE.RepeatWrapping
+  wallTexture.repeat.set(1, 4)
+
   const wallMat = new THREE.MeshStandardMaterial({
-    color: 0x888888,
-    roughness: 0.2,
-    metalness: 0.9,
-    emissive: 0x222222,
+    map: wallTexture,
+    color: 0xaaaaaa,
+    roughness: 0.4,
+    metalness: 0.8,
+    emissive: 0x111111,
     emissiveIntensity: 0.1
   })
   const wallHeight = 0.1
@@ -1046,13 +1081,17 @@ const createTable = (config = null) => {
          domeMesh.castShadow = true
          bumperGroup.add(domeMesh)
 
-         // Ring base around dome - more prominent
+         // Ring base around dome - more prominent with texture
+         const ringTexture = textureLoader.load('/textures/bumper_base.png')
+         ringTexture.colorSpace = THREE.SRGBColorSpace
+         
          const ringMat = new THREE.MeshStandardMaterial({
+           map: ringTexture,
            color: 0x888888, // Lighter gray
-           roughness: 0.25,
-           metalness: 0.85,
-           emissive: 0x444444,
-           emissiveIntensity: 0.3
+           roughness: 0.3,
+           metalness: 0.8,
+           emissive: 0x222222,
+           emissiveIntensity: 0.2
          })
          const ringMesh = new THREE.Mesh(ringGeo, ringMat)
          ringMesh.rotation.x = Math.PI / 2
@@ -1140,15 +1179,24 @@ const createTable = (config = null) => {
     shipRotator.rotation.z = Math.PI // Rotate 180 degrees so top faces flippers (South)
     mothershipGroup.add(shipRotator)
     
-    // 1. Main Saucer Body (Metallic Grey)
+    // 1. Main Saucer Body (Metallic Grey with Hull Texture)
     // Flattened sphere for top and bottom
+    const hullTexture = textureLoader.load('/textures/alien_hull.png')
+    hullTexture.colorSpace = THREE.SRGBColorSpace
+    hullTexture.wrapS = THREE.RepeatWrapping
+    hullTexture.wrapT = THREE.RepeatWrapping
+    hullTexture.repeat.set(4, 2)
+    
     const saucerGeo = new THREE.SphereGeometry(0.15, 32, 16)
     saucerGeo.scale(1, 0.3, 1) // Flatten Y
     const saucerMat = new THREE.MeshStandardMaterial({
-        color: 0x8888aa, // Metallic Blue-Grey
-        roughness: 0.2,
-        metalness: 0.9,
-        envMapIntensity: 1.0
+        map: hullTexture,
+        color: 0xaaaaaa, // Tint
+        roughness: 0.4,
+        metalness: 0.7,
+        envMapIntensity: 1.0,
+        bumpMap: hullTexture,
+        bumpScale: 0.02
     })
     const saucer = new THREE.Mesh(saucerGeo, saucerMat)
     shipRotator.add(saucer)
@@ -1378,9 +1426,9 @@ const createTable = (config = null) => {
       })
 
       config.rails.forEach((rail, index) => {
-        const normOffsetX = parseFloat(config.rail_x_offset || 0)
-        const normOffsetY = parseFloat(config.rail_y_offset || 0)
-        const lengthScale = parseFloat(config.guide_length_scale || 1.0)
+        const normOffsetX = Number(config.rail_x_offset || 0)
+        const normOffsetY = Number(config.rail_y_offset || 0)
+        const lengthScale = Number(config.guide_length_scale || 1.0)
         
         // Apply global offsets to raw coordinates
         const r1x = rail.p1.x + normOffsetX
@@ -1534,13 +1582,20 @@ const createTable = (config = null) => {
   // We want -0.02..0.02 relative to pivot.
   flipperGeo.translate(0, 0, -flipperHeight/2)
 
-  // Enhanced flipper material - vibrant red with metallic finish
+  // Standard Stern-style Red Rubber Flipper
+  const flipperTexture = textureLoader.load('/textures/flipper_texture.png')
+  flipperTexture.colorSpace = THREE.SRGBColorSpace
+  flipperTexture.wrapS = THREE.RepeatWrapping
+  flipperTexture.wrapT = THREE.RepeatWrapping
+  flipperTexture.repeat.set(1, 1)
+
   const flipperMat = new THREE.MeshStandardMaterial({
-    color: 0xff0000, // Bright red
-    roughness: 0.3,
-    metalness: 0.7,
-    emissive: 0x880000,
-    emissiveIntensity: 0.2
+    map: flipperTexture,
+    // color: 0xffffff, // Use texture color directly
+    roughness: 0.8, // Rubber is rough/matte
+    metalness: 0.1, // Rubber is not metallic
+    emissive: 0x110000,
+    emissiveIntensity: 0.1
   })
 
   // Left Flipper
@@ -1662,16 +1717,16 @@ const createTable = (config = null) => {
 // Ball
 
 
-const updateBalls = (ballData) => {
+const updateBalls = (ballData: any[]) => {
   if (!ballData) return
   
   // Get current combo for visual effects
   const combo = props.stats?.combo_count || 0
 
-  // Track if ball count changed (multiball activation/deactivation)
-  const previousBallCount = balls.length
-  const newBallCount = ballData.length
-  const ballCountChanged = previousBallCount !== newBallCount
+  // Track if ball count changed
+  // const previousBallCount = balls.length
+  // const newBallCount = ballData.length
+
 
   // Create new balls if needed
   while (balls.length < ballData.length) {
@@ -2104,7 +2159,7 @@ const updateFlippers = (state) => {
   }
 }
 
-let animationId
+let animationId: number
 const animate = () => {
   animationId = requestAnimationFrame(animate)
   if (renderer && scene && camera) {
@@ -2125,7 +2180,7 @@ const animate = () => {
     animateMothership()
     
     // Animate Fireworks
-    if (window.fireworksGroup) animateParticleSystem(window.fireworksGroup)
+    if ((window as any).fireworksGroup) animateParticleSystem((window as any).fireworksGroup)
 
     if (controls) controls.update()
 
@@ -2147,8 +2202,14 @@ const animate = () => {
 
 // Spark System
 const triggerSparks = (pos) => {
+    // Check if scene is valid (has add method)
+    if (!scene || typeof scene.add !== 'function') {
+        // Only warn once or just ignore? Warn helps debug.
+        // console.warn('triggerSparks: scene is not ready', scene)
+        return
+    }
     // Ensure spark group exists
-    if (!window.sparkGroup) {
+    if (!(window as any).sparkGroup) {
          const g = new THREE.Group()
          g.userData = { pool: [] }
          // Create pool of spark lines/points
@@ -2166,11 +2227,19 @@ const triggerSparks = (pos) => {
              g.add(p)
              g.userData.pool.push(p)
          }
-         scene.add(g)
-         window.sparkGroup = g
+         try {
+             if (scene && typeof scene.add === 'function') {
+                scene.add(g)
+                ;(window as any).sparkGroup = g
+             } else {
+                console.error('triggerSparks: scene invalid during group creation', scene)
+             }
+         } catch(e) {
+             console.error('triggerSparks: Error adding group', e)
+         }
     }
     
-    const pool = window.sparkGroup.userData.pool
+    const pool = (window as any).sparkGroup.userData.pool
     const count = 8 + Math.floor(Math.random() * 8)
     
     for(let i=0; i<count; i++) {
@@ -2208,8 +2277,8 @@ const triggerSparks = (pos) => {
 
 // Animation loop addition for sparks
 const animateSparks = () => {
-    if (window.sparkGroup) {
-        window.sparkGroup.userData.pool.forEach(p => {
+    if ((window as any).sparkGroup) {
+        (window as any).sparkGroup.userData.pool.forEach(p => {
             if (!p.visible) return
             
             p.userData.life -= p.userData.decay
@@ -2383,7 +2452,10 @@ const animateMothership = () => {
 
 const initThree = () => {
   scene = new THREE.Scene()
-  scene.background = new THREE.Color(0x1a1a28) // Brighter background (was #0a0a15)
+  const bgTexture = new THREE.TextureLoader().load('/textures/starfield.png')
+  bgTexture.colorSpace = THREE.SRGBColorSpace
+  scene.background = bgTexture // Starfield background
+  // scene.background = new THREE.Color(0x1a1a28) // Fallback
 
   // Initial size (will be updated by ResizeObserver)
   const width = container.value.clientWidth
@@ -2547,7 +2619,7 @@ const initThree = () => {
   }
 
   
-  const updateDropTargets = (dropTargetStates) => {
+  const updateDropTargets = (dropTargetStates: boolean[]) => {
     if (!flippers.dropTargets || !dropTargetStates) return
     
     // console.log('[updateDropTargets] States received:', dropTargetStates)
@@ -2565,7 +2637,7 @@ const initThree = () => {
     })
   }
 
-  const updateBumpers = (state) => {
+  const updateBumpers = (state: { bumper_states?: boolean[], bumper_health?: number[] }) => {
     if (!flippers.bumpers || !state) return
     const bumperStates = state.bumper_states || []
     const bumperHealth = state.bumper_health || []
@@ -3014,7 +3086,7 @@ watch(() => [props.stats?.combo_count, props.stats?.score_multiplier], () => {
 }, { deep: true })
 
 // Function to update visibility of 3D vs 2D elements based on camera mode
-const updateVisibilityForCameraMode = (mode) => {
+const updateVisibilityForCameraMode = (mode: string) => {
     const is2D = mode === 'top-down'
 
     // Update bumpers: show/hide 3D dome vs 2D circle
@@ -3070,38 +3142,7 @@ watch(() => props.showFlipperZones, (newValue) => {
 
 // Watch for config changes from parent (must be after createTable is defined)
 // Watch for config changes from parent (must be after createTable is defined)
-const updateTable = (config) => {
-  // Update Bumpers
-  if (config.bumpers && flippers.bumpers && config.bumpers.length === flippers.bumpers.length) {
-    config.bumpers.forEach((b, i) => {
-      const mesh = flippers.bumpers[i]
-      if (mesh) mesh.position.set(mapX(b.x), mapY(b.y), 0.025)
-    })
-  } else {
-    // Count mismatch, full rebuild
-    createTable(config)
-    return
-  }
-
-  // Update Rails
-  // Note: This assumes rail count matches. If not, we should rebuild.
-  // But we don't store rail meshes in a convenient list matching config index?
-  // createTable adds them to tableGroup but doesn't store them in flippers list (except bumpers/dropTargets).
-  // I need to update createTable to store rails in flippers.rails or similar.
-  // For now, let's just call createTable for now if it's not just bumpers.
-  // Or better: Update createTable to store rails.
-  
-  // Since I can't easily update createTable in this Replace block without changing more code,
-  // I will fallback to createTable for now if it's not just bumpers.
-  // But wait, I don't know if it's just bumpers.
-  
-  // Let's just call createTable for now. It SHOULD be fast enough.
-  // The user's issue might be that the watcher wasn't firing or something else.
-  // But if I use this block, I can at least debug.
-  
-  createTable(config)
-  camera.updateProjectionMatrix()
-}
+// updateTable removed as it was unused and broken
 
 const activateControls = () => {
     if (controls && !controlsActive.value) {
@@ -3166,8 +3207,11 @@ watch(() => props.config, (newConfig) => {
         lastFlipperValues.width = newConfig.flipper_width
         lastFlipperValues.tipWidth = newConfig.flipper_tip_width
         
-        updateCamera() // Ensure camera is re-applied/clamped if needed
+        // updateCamera() // REMOVED: Don't reset camera on table edit
     }
+
+    // Update physicsConfig reference so updateCamera uses fresh values when called
+    physicsConfig.value = newConfig
 
     // 2. Check Camera Configuration Logic
     // Update Camera Position if in perspective mode AND camera params changed
@@ -3284,7 +3328,7 @@ const triggerShake = (eventData) => {
 }
 
 // Confetti for High Score
-let fireworksInterval = null
+let fireworksInterval: ReturnType<typeof setInterval> | null = null
 
 const triggerFireworks = () => {
     console.log('🎆 triggerFireworks called')
@@ -3301,7 +3345,7 @@ const triggerFireworks = () => {
     }
 
     // Ensure persistent group exists
-    if (!window.fireworksGroup) {
+    if (!(window as any).fireworksGroup) {
         console.log('🎆 Creating fireworks group')
          const g = new THREE.Group()
          g.userData = { pool: [], lastPos: new THREE.Vector3(), velocity: new THREE.Vector3() }
@@ -3323,13 +3367,13 @@ const triggerFireworks = () => {
          } else {
              console.error('🎆 ERROR: scene is undefined!')
          }
-         window.fireworksGroup = g
+         (window as any).fireworksGroup = g
     } else {
         console.log('🎆 Fireworks group already exists')
     }
 
     const launchConfetti = () => {
-        const fGroup = window.fireworksGroup
+        const fGroup = (window as any).fireworksGroup
         if (!fGroup) return
 
         // "Broken T-Shirt Cannon" Effect
@@ -3408,7 +3452,7 @@ const triggerFireworks = () => {
 
     // Initial "poof" explosion before broken cannon starts sputtering
     const triggerExplosionPuff = () => {
-        const fGroup = window.fireworksGroup
+        const fGroup = (window as any).fireworksGroup
         if (!fGroup) return
         
         console.log('💥 Explosion puff triggered!')
@@ -3512,9 +3556,9 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   
   if (fireworksInterval) clearInterval(fireworksInterval)
-  if (window.fireworksGroup && scene) {
-      scene.remove(window.fireworksGroup)
-      window.fireworksGroup = null
+  if ((window as any).fireworksGroup && scene) {
+      scene.remove((window as any).fireworksGroup)
+      (window as any).fireworksGroup = null
   }
 
   if (tableGroup) {
@@ -3732,8 +3776,8 @@ const handleKeydown = (e) => {
 
 .editor-controls {
     position: absolute;
-    bottom: 20px;
-    right: 20px;
+    bottom: 4%;
+    right: 23%;
     left: auto;
     z-index: 4000;
     display: flex;
@@ -3841,7 +3885,7 @@ const handleKeydown = (e) => {
     position: absolute;
     top: 40px;
     right: 5px;
-    z-index: 200;
+    z-index: 1001;
 }
 
 .editor-controls button.active {
@@ -3945,40 +3989,6 @@ const handleKeydown = (e) => {
   z-index: 3100; /* Above Game Over */
 }
 
-/* Replay Indicator - High priority */
-.replay-overlay {
-  z-index: 3050; /* Above Game Over, below Training */
-  background: transparent;
-  pointer-events: none;
-}
-
-.replay-indicator {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(255, 100, 0, 0.9);
-  padding: 10px 20px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(255, 100, 0, 0.5);
-  animation: pulse 2s infinite;
-}
-
-.replay-icon {
-  font-size: 1.5em;
-  color: white;
-  animation: blink 1s infinite;
-}
-
-.replay-text {
-  font-size: 1.2em;
-  font-weight: bold;
-  color: white;
-  letter-spacing: 2px;
-}
-
 .tilted-overlay {
   background: rgba(255, 0, 0, 0.3);
   color: #ff3333;
@@ -4038,7 +4048,7 @@ const handleKeydown = (e) => {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  z-index: 2000;
+  z-index: 3000;
   animation: fadeIn 0.5s ease-out;
 }
 

@@ -18,6 +18,9 @@ A reinforcement learning agent for playing pinball.
 ## Mobile
 ![Mobile View](assets/screenshot_mobile.png)
 
+## Training
+![Training View](assets/screenshot_desktop_train.png)
+
 ## 🛠️ Installation
 
 1.  **Clone the repository**

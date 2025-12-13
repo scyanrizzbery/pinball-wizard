@@ -61,8 +61,25 @@ class QueueStopCallback(BaseCallback):
                 if cmd == 'STOP':
                     logger.info("Training stopped by user command.")
                     return False
-            except:
-                pass
+                elif isinstance(cmd, dict) and cmd.get('type') == 'UPDATE_REWARDS':
+                    # Update environment rewards
+                    # self.training_env is a VecEnv (DummyVecEnv)
+                    if hasattr(self.training_env, 'envs'):
+                        for env in self.training_env.envs:
+                            # Unwrap Monitor if present
+                            while hasattr(env, 'env'):
+                                if hasattr(env, 'rewards_config'):
+                                    env.rewards_config.update(cmd.get('rewards', {}))
+                                    logger.info(f"Updated rewards config: {cmd.get('rewards')}")
+                                    break
+                                env = env.env
+                            else:
+                                # If loop finished without break, check the env itself
+                                if hasattr(env, 'rewards_config'):
+                                    env.rewards_config.update(cmd.get('rewards', {}))
+                                    logger.info(f"Updated rewards config: {cmd.get('rewards')}")
+            except Exception as e:
+                logger.error(f"Error processing command queue: {e}")
         return True
 
 

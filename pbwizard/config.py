@@ -1,3 +1,5 @@
+import hashlib
+import json
 from dataclasses import dataclass, asdict
 
 
@@ -31,6 +33,10 @@ class PhysicsConfig:
     
     # Bumpers
     bumper_force: float = 800.0
+    bumper_respawn_time: float = 10.0
+    
+    # Drop Targets
+    drop_target_cooldown: float = 2.0
     
     # Tilt / Nudge
     nudge_cost: float = 0.1
@@ -55,6 +61,13 @@ class PhysicsConfig:
 
     def to_dict(self):
         return asdict(self)
+
+    def get_hash(self):
+        """Generate a deterministic hash of the configuration."""
+        data = self.to_dict()
+        # Sort keys to ensure consistent JSON
+        json_str = json.dumps(data, sort_keys=True)
+        return hashlib.sha256(json_str.encode('utf-8')).hexdigest()[:16]
 
     @classmethod
     def from_dict(cls, data: dict):

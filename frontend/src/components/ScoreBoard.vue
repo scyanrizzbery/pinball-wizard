@@ -58,20 +58,33 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps({
-  score: { type: Number, default: 0 },
-  highScore: { type: Number, default: 0 },
-  balls: { type: Number, default: 3 },
-  comboCount: { type: Number, default: 0 },
-  scoreMultiplier: { type: Number, default: 1.0 },
-  comboActive: { type: Boolean, default: false },
-  isFullscreen: { type: Boolean, default: false },
+const props = withDefaults(defineProps<{
+  score?: number
+  highScore?: number
+  balls?: number
+  comboCount?: number
+  scoreMultiplier?: number
+  comboActive?: boolean
+  isFullscreen?: boolean
+}>(), {
+  score: 0,
+  highScore: 0,
+  balls: 3,
+  comboCount: 0,
+  scoreMultiplier: 1.0,
+  comboActive: false,
+  isFullscreen: false
 })
 
-const getReelItems = (num, minDigits) => {
+interface ReelItem {
+    type: 'digit' | 'comma'
+    value?: number
+}
+
+const getReelItems = (num: number, minDigits: number): ReelItem[] => {
   let s = num.toString();
   if (s.length < minDigits) {
     s = s.padStart(minDigits, '0');
@@ -136,14 +149,33 @@ const formattedScore = computed(() => props.score.toString())
 }
 
 .scoreboard-container.double-scale {
-  transform: scale(2.0); /* Slightly reduced from 2.5 to fit vertical */
-  transform-origin: top left; /* Changed from top center */
-  margin-top: 0;
+  position: fixed;
+  top: 15%;
+  left: 20%; /* Closer to middle */
+  transform: scale(2.2); /* Larger */
+  transform-origin: top left;
+  margin: 0;
   flex-direction: column;
-  gap: 15px;
-  background: rgba(0, 0, 0, 0.6); /* Slightly darker for better contrast */
-  padding: 15px;
-  align-items: flex-start; /* Left align items */
+  gap: 40px; /* Larger gap between islands */
+  
+  /* Completely remove shared container rendering */
+  background: transparent !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 0;
+  
+  align-items: flex-start;
+  z-index: 2000;
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .scoreboard-container.double-scale {
+    transform: scale(1.5);
+    left: 5%;
+    top: 10%;
+  }
 }
 
 .stat-box {
@@ -152,6 +184,18 @@ const formattedScore = computed(() => props.score.toString())
   align-items: center;
   position: relative;
   transform: scale(.9);
+  /* Default: no background */
+}
+
+/* In fullscreen, give each box its own card style */
+.double-scale .stat-box {
+  background: rgba(0, 0, 0, 0.6);
+  padding: 10px 15px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+  width: 100%; /* Ensure uniform width if needed, or stick to auto */
+  align-items: center; /* Center content in the card */
 }
 
 .main-score {
@@ -159,10 +203,16 @@ const formattedScore = computed(() => props.score.toString())
 }
 
 .high-score-box {
-  transform: scale(0.75); /* Make high score smaller */
+  transform: scale(0.75);
   transform-origin: top center;
-  opacity: 0.8; /* Slightly less opaque */
-  margin-top: 5px; /* Adjust alignment */
+  opacity: 0.8;
+  margin-top: 0; /* Reset margin since we have gap */
+}
+
+/* In fullscreen, don't scale down high score as much since it has its own box now */
+.double-scale .high-score-box {
+  transform: scale(0.9);
+  opacity: 0.9;
 }
 
 .hash-box {

@@ -58,22 +58,30 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import SoundManager from '../utils/SoundManager'
 
-const props = defineProps({
-  smokeIntensity: { type: Number, default: 1.0 }
-})
+const props = defineProps<{
+  smokeIntensity: number
+}>()
 
-const emit = defineEmits(['close', 'update-smoke-intensity'])
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'update-smoke-intensity', value: number): void
+}>()
 
 const volume = ref(0.5)
 const muted = ref(false)
 const localSmokeIntensity = ref(0.5)
 const selectedPreset = ref('medium')
 
-const presets = {
+// Explicit type for presets values based on usage
+interface PresetSettings {
+    smoke: number
+}
+
+const presets: Record<string, PresetSettings> = {
   low: { smoke: 0.0 },
   medium: { smoke: 0.5 },
   high: { smoke: 1.0 },
@@ -129,7 +137,8 @@ const testSound = () => {
   color: #eee;
   box-shadow: 0 4px 12px rgba(0,0,0,0.5);
   pointer-events: auto;
-  z-index: 300;
+  z-index: 1100;
+  position: relative;
 }
 
 .header {

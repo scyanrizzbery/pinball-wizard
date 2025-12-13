@@ -17,6 +17,10 @@ describe('Game Over Screen', () => {
                 balls_remaining: 0
             };
 
+            if (win.sockets && win.sockets.game) {
+                win.sockets.game.disconnect();
+            }
+
             // Trigger the stats_update listener directly
             // Client-side socket: calling 'onevent' or finding listeners
             // socket.listeners("stats_update") returns array of functions
@@ -30,7 +34,7 @@ describe('Game Over Screen', () => {
         // Assert Overlay Visibility
         // .game-over-overlay should be visible
         cy.get('.game-over-overlay').should('be.visible');
-        cy.get('.game-over-overlay h1').should('contain', 'GAME OVER'); // Check header
+        cy.get('.game-over-overlay .game-over-text').should('contain', 'GAME OVER'); // Check header
         // Check formatted score (1,337)
         cy.get('.final-score').should('contain', '1,337');
     });

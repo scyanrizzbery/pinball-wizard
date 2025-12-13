@@ -15,6 +15,8 @@ class MockPhysicsEngine:
         self.score = 0
         self.drop_target_states = []
         self.is_tilted = False
+        self.config = MagicMock()
+        self.config.get_hash.return_value = "mock_hash"
     
     def add_ball(self, pos):
         pass

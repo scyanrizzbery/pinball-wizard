@@ -58,9 +58,12 @@ def stream_frames():
                     game_state = vision_system.get_game_state()
                     socketio.emit('game_state', game_state, namespace='/game')
                     # Also emit stats_update for App.vue compatibility
+                    # Also emit stats_update for App.vue compatibility
                     if hasattr(vision_system, 'get_stats'):
+                        # logger.info("Calling vision_system.get_stats()")
                         stats_data = vision_system.get_stats()
                     else:
+                        logger.warning("vision_system has no get_stats method!")
                         stats_data = {
                             'score': game_state.get('score', 0),
                             'high_score': game_state.get('high_score', 0),
@@ -905,3 +908,39 @@ def start_server(vision_sys, port=5000):
     # Start streaming thread
     socketio.start_background_task(stream_frames)
     socketio.run(app, host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
+@socketio.on('update_rewards', namespace='/config')
+def handle_update_rewards(rewards_data):
+    """Handle reward updates from frontend."""
+    import json
+    import os
+
+    try:
+        config_path = "config.json"
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config_data = json.load(f)
+        else:
+            config_data = {}
+
+        # Merge with existing rewards if partial update
+        if 'rewards' not in config_data:
+            config_data['rewards'] = {}
+
+        config_data['rewards'].update(rewards_data)
+
+        with open(config_path, 'w') as f:
+            json.dump(config_data, f, indent=4)
+
+        # Notify controller if training is running
+        if vision_system and hasattr(vision_system, 'controller'):
+            if hasattr(vision_system.controller, 'update_rewards'):
+                vision_system.controller.update_rewards(rewards_data)
+
+        socketio.emit('status', {'msg': 'Rewards updated and saved'}, namespace='/config')
+        logger.info(f"Rewards updated: {rewards_data}")
+
+    except Exception as e:
+        logger.error(f"Error updating rewards: {e}")
+        socketio.emit('status', {'msg': f'Error updating rewards: {e}'}, namespace='/config')
+

@@ -164,21 +164,32 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import type { GameStats, PhysicsConfig, Zone, Rail, Bumper, DropTarget, Point } from '../types'
 
-const props = defineProps({
-  videoSrc: String,
-  isTilted: Boolean,
-  stats: Object,
-  nudgeEvent: Object,
-  physics: Object, // Receive physics config to get zone coords
-  socket: Object, // Receive socket instance
-  configSocket: Object, // Receive config socket instance
-  hasUnsavedChanges: Boolean
-})
+interface Props {
+  videoSrc?: string
+  isTilted: boolean
+  stats: GameStats
+  nudgeEvent?: { time: number; direction: string }
+  physics: PhysicsConfig
+  socket?: any
+  configSocket?: any
+  hasUnsavedChanges: boolean
+}
 
-const emit = defineEmits(['update-zone', 'update-rail', 'update-bumper', 'save-layout', 'reset-zones', 'toggle-view', 'toggle-fullscreen'])
+const props = defineProps<Props>()
+
+const emit = defineEmits<{
+  (e: 'update-zone', zones: Zone[]): void
+  (e: 'update-rail', rails: Rail[]): void
+  (e: 'update-bumper', bumpers: Bumper[]): void
+  (e: 'save-layout'): void
+  (e: 'reset-zones'): void
+  (e: 'toggle-view'): void
+  (e: 'toggle-fullscreen'): void
+}>()
 
 const handleKeydown = (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.code)) {
@@ -1047,7 +1058,7 @@ img {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  z-index: 2000;
+  z-index: 3000;
   animation: fadeIn 0.5s ease-out;
 }
 

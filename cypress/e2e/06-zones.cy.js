@@ -3,7 +3,7 @@ describe('Multi-Zone Support', () => {
         // Visit the app
         cy.visit('/')
         // Wait for socket connection
-        cy.contains('Connected', { timeout: 10000 }).should('be.visible')
+        cy.waitForConnection()
         // Wait for physics config to load (ensures zones are populated)
         cy.contains('Physics config loaded', { timeout: 10000 }).should('be.visible')
 
