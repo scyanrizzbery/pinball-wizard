@@ -57,54 +57,74 @@ class ReflexAgent:
         self.right_cooldown = 0
 
     def act(self, ball_pos, frame_width, frame_height, velocity=(0, 0)):
-        # Check if agent is enabled
+        # Wrapper for single ball compatibility
+        if ball_pos is None:
+            self.tick_state(action_left=False, action_right=False)
+            return
+            
+        self.act_multiball([(ball_pos, velocity)], frame_width, frame_height)
+
+    def act_multiball(self, balls_data, frame_width, frame_height):
+        # balls_data is list of tuples: [ (pos, vel), ... ]
         if not getattr(self, 'enabled', True):
-            # Release flippers when disabled
             self.hw.release_left()
             self.hw.release_right()
             return
+            
+        should_flip_left = False
+        should_flip_right = False
         
-        if ball_pos is None:
-            return
+        # Analyze each ball
+        for ball_pos, velocity in balls_data:
+            if ball_pos is None: continue
+            
+            x, y = ball_pos
+            vx, vy = velocity
+            
+            # --- Left Logic ---
+            # Check if this ball wants to flip left
+            ball_flip_left = False
+            is_prediction = False
+            
+            if vy > self.VY_THRESHOLD:
+                ball_flip_left = True
+            elif self.USE_VELOCITY_PREDICTION:
+                 # Predict
+                 frames_ahead = 5
+                 predicted_y = y + (vy * frames_ahead / 30.0)
+                 if vy > self.VY_THRESHOLD * 0.5:
+                     ball_flip_left = True
+                     is_prediction = True
+            
+            if ball_flip_left:
+                should_flip_left = True
+                
+            # --- Right Logic ---
+            ball_flip_right = False
+            if vy > self.VY_THRESHOLD:
+                ball_flip_right = True
+            elif self.USE_VELOCITY_PREDICTION:
+                 if vy > self.VY_THRESHOLD * 0.5:
+                     ball_flip_right = True
 
-        x, y = ball_pos
-        vx, vy = velocity
-
-        # Debug Log (Throttle?)
-        if random.random() < 0.1: # Log 10% of frames
-             logger.info(f"Agent Act [{self.difficulty}]: Pos=({x:.1f}, {y:.1f}), Vel=({vx:.1f}, {vy:.1f}), LeftCooldown={self.left_cooldown}, RightCooldown={self.right_cooldown}")
-
-        # Only flip if ball is moving down (vy > threshold) to prevent flailing
+            if ball_flip_right:
+                should_flip_right = True
+                
+        # Now apply state logic (Cooldowns and Holds) ONCE
         
-        # Left Flipper Logic
+        # Left State
         if self.left_cooldown > 0:
             self.left_cooldown -= 1
             self.hw.release_left()
         else:
-            # Check if we should START flipping
-            should_flip = vy > self.VY_THRESHOLD
-
-            # Hard mode: predictive flipping based on velocity
-            if self.USE_VELOCITY_PREDICTION and not should_flip:
-                # Predict if ball will be in zone soon based on velocity
-                frames_ahead = 5
-                predicted_y = y + (vy * frames_ahead / 30.0)  # Approximate position
-                if vy > self.VY_THRESHOLD * 0.5:
-                    should_flip = True
-                    logger.debug("Predictive flip (hard mode)")
-            
-            # Check if we are ALREADY holding
             is_holding = self.left_hold_steps > 0
             
             if is_holding:
-                # If holding, check if we should CONTINUE
-                # Continue if:
-                # 1. We haven't reached MIN_HOLD (forced hold)
-                # 2. We haven't reached MAX_HOLD AND (ball is still in zone OR moving down)
-                
+                # Continue holding if valid or forced
+                # NOTE: We assume 'should_flip_left' represents "ball is in danger"
                 force_hold = self.left_hold_steps < self.MIN_HOLD
-                valid_hold = (vy > self.VY_THRESHOLD) and self.left_hold_steps < self.MAX_HOLD
-
+                valid_hold = should_flip_left and self.left_hold_steps < self.MAX_HOLD
+                
                 if force_hold or valid_hold:
                     self.hw.flip_left()
                     self.left_hold_steps += 1
@@ -112,36 +132,24 @@ class ReflexAgent:
                     self.hw.release_left()
                     self.left_cooldown = self.COOLDOWN
                     self.left_hold_steps = 0
-            elif should_flip:
-                # Start flipping
-                logger.debug("Ball Moving Down -> Flip Left")
+            elif should_flip_left:
                 self.hw.flip_left()
                 self.left_hold_steps = 1
             else:
                 self.hw.release_left()
                 self.left_hold_steps = 0
-        
-        # Right Flipper Logic
+                
+        # Right State
         if self.right_cooldown > 0:
             self.right_cooldown -= 1
             self.hw.release_right()
         else:
-            should_flip = vy > self.VY_THRESHOLD
-
-            # Hard mode: predictive flipping
-            if self.USE_VELOCITY_PREDICTION and not should_flip:
-                frames_ahead = 5
-                predicted_y = y + (vy * frames_ahead / 30.0)
-                if vy > self.VY_THRESHOLD * 0.5:
-                    should_flip = True
-                    logger.debug("Predictive flip (hard mode)")
-            
             is_holding = self.right_hold_steps > 0
             
             if is_holding:
                 force_hold = self.right_hold_steps < self.MIN_HOLD
-                valid_hold = (vy > self.VY_THRESHOLD) and self.right_hold_steps < self.MAX_HOLD
-
+                valid_hold = should_flip_right and self.right_hold_steps < self.MAX_HOLD
+                
                 if force_hold or valid_hold:
                     self.hw.flip_right()
                     self.right_hold_steps += 1
@@ -149,13 +157,17 @@ class ReflexAgent:
                     self.hw.release_right()
                     self.right_cooldown = self.COOLDOWN
                     self.right_hold_steps = 0
-            elif should_flip:
-                logger.debug("Ball Moving Down -> Flip Right")
+            elif should_flip_right:
                 self.hw.flip_right()
                 self.right_hold_steps = 1
             else:
                 self.hw.release_right()
                 self.right_hold_steps = 0
+                
+    def tick_state(self, action_left, action_right):
+        # Helper to just tick down cooldowns if no action
+        if self.left_cooldown > 0: self.left_cooldown -= 1
+        if self.right_cooldown > 0: self.right_cooldown -= 1
 
 
 class RLAgent:

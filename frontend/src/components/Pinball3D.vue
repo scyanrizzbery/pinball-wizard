@@ -1592,7 +1592,9 @@ const createTable = (config: PhysicsConfig | null = null) => {
   
   if (config && config.left_flipper_pos_x !== undefined) {
       // Physics pivot is at (x_min, y_max)
-      lx = mapX(config.left_flipper_pos_x)
+      // Apply flipper_spacing (additive for left flipper to move right)
+      const spacing = config.flipper_spacing || 0
+      lx = mapX(config.left_flipper_pos_x + spacing)
       ly = mapY(config.left_flipper_pos_y_max)
   }
   
@@ -1614,7 +1616,9 @@ const createTable = (config: PhysicsConfig | null = null) => {
   
   if (config && config.right_flipper_pos_x_max !== undefined) {
       // Physics pivot is at (x_max, y_max)
-      rx = mapX(config.right_flipper_pos_x_max)
+      // Apply flipper_spacing (subtractive for right flipper to move left)
+      const spacing = config.flipper_spacing || 0
+      rx = mapX(config.right_flipper_pos_x_max - spacing)
       ry = mapY(config.right_flipper_pos_y_max)
   }
   

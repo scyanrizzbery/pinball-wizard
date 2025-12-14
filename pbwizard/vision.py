@@ -1857,6 +1857,18 @@ class SimulatedFrameCapture(FrameCapture):
             b = self.balls[0]
             return b['pos'], b['vel']
 
+    def get_all_balls_status(self):
+        """Get position and velocity for ALL balls (Multiball support)."""
+        with self.lock:
+            balls = []
+            if self.physics_engine and hasattr(self.physics_engine, 'balls'):
+                for b in self.physics_engine.balls:
+                    balls.append(((b.position.x, b.position.y), (b.velocity.x, b.velocity.y)))
+            elif self.balls:
+                for b in self.balls:
+                    balls.append((b['pos'], b['vel']))
+            return balls
+
     def save_config(self):
         """Save the current physics parameters back to the layout file."""
         # Use the layout's filepath if it has one, otherwise use our tracked path

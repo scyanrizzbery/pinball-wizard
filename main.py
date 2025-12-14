@@ -175,27 +175,33 @@ def main():
                 self.training_stats.update(stats)
 
         def update(self):
-            # Try to get ground truth from simulation first
+            # Try to get ground truth from simulation first (Multiball)
+            if hasattr(self.capture, 'get_all_balls_status'):
+                balls = self.capture.get_all_balls_status()
+                if balls: # List of ((x,y), (vx,vy))
+                    # Still get frame for display/sync
+                    raw_frame = self.capture.get_frame()
+                    if raw_frame is not None:
+                         with self.lock:
+                             self.latest_processed_frame = raw_frame
+                             if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
+                                 self.current_ball_count = len(self.capture.physics_engine.balls)
+                    return balls
+
+            # Fallback for Single Ball Sim (Legacy)
             if hasattr(self.capture, 'get_ball_status'):
                 status = self.capture.get_ball_status()
                 if status:
-                    ball_pos, _ = status
-                    # Still get frame for display
+                    ball_pos, vel = status
+                    # Still get frame
                     raw_frame = self.capture.get_frame()
                     if raw_frame is not None:
-                        # Draw debug info on frame if needed
-                        with self.lock:
-                            self.latest_processed_frame = raw_frame
-                            # Count actual balls on table (not balls_remaining which is balls left to play)
-                            if hasattr(self.capture, 'physics_engine') and self.capture.physics_engine:
-                                self.current_ball_count = len(self.capture.physics_engine.balls)
-                            elif hasattr(self.capture, 'balls'):
-                                self.current_ball_count = sum(1 for ball in self.capture.balls if not ball.get('lost', False))
-                            else:
-                                self.current_ball_count = 0
-                    return ball_pos
+                         with self.lock:
+                             self.latest_processed_frame = raw_frame
+                             self.current_ball_count = 1
+                    return [(ball_pos, vel)]
             
-            # Fallback to CV tracking
+            # Fallback to CV tracking (Single Ball)
             raw_frame = self.capture.get_frame()
             if raw_frame is not None:
                 ball_pos, processed_frame = self.tracker.process_frame(raw_frame)
@@ -205,11 +211,14 @@ def main():
                     self.current_ball_count = 1 if ball_pos is not None else 0
 
                 if processed_frame is not None:
-
                     with self.lock:
                         self.latest_processed_frame = processed_frame
-                return ball_pos
-            return None
+                
+                if ball_pos:
+                    return [(ball_pos, (0,0))] # No velocity from single frame CV
+            return []
+
+
 
         def get_frame(self):
             with self.lock:
@@ -548,106 +557,86 @@ def main():
                 # For now, let's stick to the previous loop style BUT with calculated DT if possible
                 # Actually, simply calling update() triggers one frame step which is 1/60s in simulation.
                 
-                ball_pos = vision_wrapper.update()
+                balls_data = vision_wrapper.update()
                 
-                if ball_pos is not None:
-                    
-                    # Calculate velocity only if position changed (new frame)
-                    # This prevents v=0 when main loop is faster than camera
-                    if last_ball_pos is not None and (ball_pos[0] != last_ball_pos[0] or ball_pos[1] != last_ball_pos[1]):
-                        real_dt = current_time - last_pos_time
-                        if real_dt > 0:
-                            last_vx = (ball_pos[0] - last_ball_pos[0]) / real_dt
-                            last_vy = (ball_pos[1] - last_ball_pos[1]) / real_dt
-                            last_pos_time = current_time
-                            last_ball_pos = ball_pos
-                    elif last_ball_pos is None:
-                        last_ball_pos = ball_pos
-                        last_pos_time = current_time
-                        
-                    vx, vy = last_vx, last_vy
+                if balls_data:
+                    # balls_data is list of ((x,y), (vx,vy))
 
                     if use_rl:
-                        
-                        # Check if ball is in any zone
-                        zones = zone_manager.get_zone_status(ball_pos[0], ball_pos[1])
-                        
-                        action = constants.ACTION_NOOP
-                        
-                        if vision_wrapper.ai_enabled:
-                            # logger.debug(f"RL Agent: Ball at ({ball_pos[0]:.1f}, {ball_pos[1]:.1f}), Zones={zones}, Vel=({vx:.1f}, {vy:.1f})")
-                            if zones['left'] or zones['right']:
-                                logger.debug(f"AI Active in Zone! Zones={zones}, Action={action}")
+                        should_flip_left = False
+                        should_flip_right = False
+                        any_action = False
+
+                        for b_pos, b_vel in balls_data:
+                            if b_pos is None: continue
+
+                            # Check zones for THIS ball
+                            zones = zone_manager.get_zone_status(b_pos[0], b_pos[1])
                             
-                            # Construct observation [x, y, vx, vy, t1, t2, t3, t4]
-                            # Match environment.py: _create_observation
+                            # Construct Obs for THIS ball
                             obs = np.zeros(8, dtype=np.float32)
-                            obs[0] = ball_pos[0] / width
-                            obs[1] = ball_pos[1] / height
-                            obs[2] = np.clip(vx / 50.0, -1, 1)
-                            obs[3] = np.clip(vy / 50.0, -1, 1)
+                            obs[0] = b_pos[0] / width
+                            obs[1] = b_pos[1] / height
+                            obs[2] = np.clip(b_vel[0] / 50.0, -1, 1)
+                            obs[3] = np.clip(b_vel[1] / 50.0, -1, 1)
                             
-                            # Add Drop Target States
+                            # Drop Targets (Global State)
                             target_states = []
                             if hasattr(vision_wrapper.capture, 'drop_target_states'):
                                 target_states = vision_wrapper.capture.drop_target_states
-                                
-                            # Pad or Truncate to fixed size 4
+                            
                             for i in range(4):
                                 if i < len(target_states):
                                     obs[4 + i] = 1.0 if target_states[i] else 0.0
-                                else:
-                                    obs[4 + i] = 0.0 # Pad with 0
                             
-                            action = agnt.predict(obs)
+                            # Predict Action for THIS ball
+                            if vision_wrapper.ai_enabled:
+                                action = agnt.predict(obs)
+                                if action != constants.ACTION_NOOP:
+                                    any_action = True
+                                
+                                # Aggregate Desires
+                                if (action == constants.ACTION_FLIP_LEFT or action == constants.ACTION_FLIP_BOTH) and zones['left']:
+                                    should_flip_left = True
+                                if (action == constants.ACTION_FLIP_RIGHT or action == constants.ACTION_FLIP_BOTH) and zones['right']:
+                                    should_flip_right = True
 
-                        # Anti-holding for RL
+                        # Anti-Holding Logic (Global)
                         if not hasattr(vision_wrapper, 'rl_hold_steps'): vision_wrapper.rl_hold_steps = 0
                         if not hasattr(vision_wrapper, 'rl_cooldown'): vision_wrapper.rl_cooldown = 0
                         
                         if vision_wrapper.rl_cooldown > 0:
                             vision_wrapper.rl_cooldown -= 1
-                            action = constants.ACTION_NOOP
+                            should_flip_left = False
+                            should_flip_right = False
                         else:
-                            is_holding = (action != constants.ACTION_NOOP)
-                            if is_holding:
+                            if any_action:
                                 vision_wrapper.rl_hold_steps += 1
                             else:
                                 vision_wrapper.rl_hold_steps = 0
                                 
                             if vision_wrapper.rl_hold_steps > 90: # 3 seconds
-                                action = constants.ACTION_NOOP
-                                vision_wrapper.rl_cooldown = 30 # 1 second cooldown
+                                should_flip_left = False
+                                should_flip_right = False
+                                vision_wrapper.rl_cooldown = 30
                                 vision_wrapper.rl_hold_steps = 0
                         
-                        # Execute action with zone restrictions
-                        # Logic matches environment.py: _execute_action
-                        
-                        # Left Flipper
-                        if (action == constants.ACTION_FLIP_LEFT or action == constants.ACTION_FLIP_BOTH) and zones['left']:
-                            hw.hold_left()
-                        else:
-                            hw.release_left()
+                        # Execute Aggregated Actions
+                        # If either side wants to hold, we hold.
+                        if should_flip_left: hw.hold_left()
+                        else: hw.release_left()
 
-                        # Right Flipper
-                        should_flip_right = (action == constants.ACTION_FLIP_RIGHT or action == constants.ACTION_FLIP_BOTH)
-                        
+                        if should_flip_right: hw.hold_right()
+                        else: hw.release_right()
 
-                        if should_flip_right and zones['right']:
-                            hw.hold_right()
-                        else:
-                            hw.release_right()
                     else:
-                        # Reflex Agent
+                        # Reflex Agent (Multiball)
                         if vision_wrapper.ai_enabled:
-
-                            agnt.act(ball_pos, width, height, velocity=(vx, vy))
-                    
-                    # last_ball_pos updated above
+                            agnt.act_multiball(balls_data, width, height)
+                
                 else:
                     # Ball lost
-                    last_ball_pos = None
-                    last_vx, last_vy = 0.0, 0.0
+                    pass
                 
                 # Rate limiting (approx 60 Hz)
                 # Ensure we don't drift too far from realtime

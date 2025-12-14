@@ -284,26 +284,33 @@ if __name__ == "__main__":
             # Run Manager's share of trials (Visual)
             # This ensures at least one process is feeding the UI
             logger.info("Manager starting visual optimization loop...")
-            study.optimize(objective, n_trials=args.trials) 
-            
-            # Note: args.trials here is just for the manager's loop limit. 
-            # Subprocesses run independently. Total trials = ManagerTrials + (NumWorkers * WorkerTrials)
-            # This is a bit loose but fine for this purpose. 
-            
-            logger.info("Manager finished trials.")
-            
-            logger.info("Optimization finished!")
-            logger.info(f"Best trial: {study.best_trial.value}")
-            logger.info("Best parameters:")
-            for key, value in study.best_trial.params.items():
-                logger.info(f"    {key}: {value}")
-            
-            # Save best params to file
-            with open('frontend/public/hyperparams.json', 'w') as f:
-                json.dump(study.best_trial.params, f, indent=4)
+            try:
+                study.optimize(objective, n_trials=args.trials)
+                logger.info("Manager finished trials.")
+            except KeyboardInterrupt:
+                logger.info("Optimization interrupted by user. Saving best parameters so far...")
 
-        except KeyboardInterrupt:
-            logger.info("Stopping optimization...")
+            logger.info("Optimization finished!")
+            
+            try:
+                logger.info(f"Best trial: {study.best_trial.value}")
+                logger.info("Best parameters:")
+                for key, value in study.best_trial.params.items():
+                    logger.info(f"    {key}: {value}")
+                
+                # Save best params to file
+                with open('hyperparams.json', 'w') as f:
+                    json.dump(study.best_trial.params, f, indent=4)
+                # Also save to frontend if needed (legacy path)
+                with open('frontend/public/hyperparams.json', 'w') as f:
+                    json.dump(study.best_trial.params, f, indent=4)
+                    
+                logger.info("Saved hyperparams.json")
+            except ValueError:
+                logger.warning("No trials completed, cannot save best params.")
+            except Exception as e:
+                logger.error(f"Failed to save params: {e}")
+
         finally:
             logger.info("Terminating workers...")
             for p in workers:

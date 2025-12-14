@@ -23,6 +23,7 @@ class PhysicsConfig:
     flipper_stroke_angle: float = 42.0  # Updated from -30.0 to match config.json
     flipper_length: float = 0.23  # Updated from 0.12 to match config.json
     flipper_width: float = 0.05
+    flipper_spacing: float = 0.0 # Additional gap between flippers (from center-line)
     flipper_tip_width: float = 0.025
     flipper_elasticity: float = 0.5
     flipper_friction: float = 0.01

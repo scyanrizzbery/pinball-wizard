@@ -205,6 +205,15 @@
                 </div>
                 <div class="slider-container">
                     <div class="slider-label">
+                        <span>Gap Offset</span>
+                        <span>{{ formatNumber(physics.flipper_spacing, 3) }}</span>
+                    </div>
+                    <input type="range" min="-0.05" max="0.1" step="0.001" :value="physics.flipper_spacing"
+                           @input="updatePhysics('flipper_spacing', parseFloat($event.target.value))"
+                           :disabled="stats.is_training">
+                </div>
+                <div class="slider-container">
+                    <div class="slider-label">
                         <span>Length</span>
                         <span>{{ formatNumber(physics.flipper_length, 2) }}</span>
                     </div>
@@ -847,9 +856,20 @@ const formatTime = (seconds: number | undefined) => {
     return `${minutes}m ${remainingSeconds}s`
 }
 
+const updateDebounceTimers: Record<string, any> = {}
+
 const updatePhysics = (param: string, value?: any) => {
     const val = value !== undefined ? value : (props.physics as any)[param]
-    emit('update-physics', param, val)
+    
+    // Debounce to prevent flooding backend (especially for expensive rebuilds like flippers)
+    if (updateDebounceTimers[param]) {
+        clearTimeout(updateDebounceTimers[param])
+    }
+    
+    updateDebounceTimers[param] = setTimeout(() => {
+        emit('update-physics', param, val)
+        delete updateDebounceTimers[param]
+    }, 100)
 }
 
 // Type-safe event handler helpers

@@ -52,6 +52,8 @@ export interface PhysicsConfig {
     flipper_stroke_angle: number;
     flipper_length: number;
     flipper_width: number;
+    flipper_spacing: number;
+    flipper_tip_width: number;
     flipper_tip_width: number;
     flipper_elasticity: number;
     ball_mass: number;

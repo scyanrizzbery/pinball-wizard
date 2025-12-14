@@ -1090,15 +1090,27 @@ class PymunkEngine(Physics):
         # self._add_static_triangle(r_p1, r_pivot_y, r_p3, elasticity=1.5, collision_type=COLLISION_TYPE_BUMPER)
 
     def _setup_flippers(self):
+        # Apply flipper spacing from config
+        spacing = getattr(self.config, 'flipper_spacing', 0.0)
+        
         # Left Flipper - pivot at BOTTOM-left to match visuals
-        l_pivot = (self.layout.left_flipper_x_min * self.width, self.layout.left_flipper_y_max * self.height)
+        # Add spacing to move IT RIGHT (positive X)
+        l_x = (self.layout.left_flipper_x_min + spacing) * self.width
+        l_pivot = (l_x, self.layout.left_flipper_y_max * self.height)
         self.flippers['left'] = self._create_flipper(l_pivot, 'left')
         
         # Right Flipper - pivot at BOTTOM-right to match visuals
-        r_pivot = (self.layout.right_flipper_x_max * self.width, self.layout.right_flipper_y_max * self.height)
+        # Subtract spacing to move IT LEFT (negative X)
+        r_x = (self.layout.right_flipper_x_max - spacing) * self.width
+        r_pivot = (r_x, self.layout.right_flipper_y_max * self.height)
         self.flippers['right'] = self._create_flipper(r_pivot, 'right')
         
         self.flippers['upper'] = []
+
+    def update_flipper_spacing(self, spacing):
+        """Update flipper spacing and rebuild flippers."""
+        self.config.flipper_spacing = spacing
+        self._rebuild_flippers()
 
     def update_flipper_length(self, length_ratio):
         """Update flipper length and rebuild flippers."""
