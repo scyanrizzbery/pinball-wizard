@@ -18,10 +18,10 @@ class PhysicsConfig:
     ball_radius: float = 10.0 # Pixel radius, usually derived but good to catch
     
     # Flippers
-    flipper_speed: float = 30.0
-    flipper_resting_angle: float = 30.0 # Rest angle (down)
-    flipper_stroke_angle: float = -30.0 # Stroke angle (up)
-    flipper_length: float = 0.12 # Ratio of simplified width? Or layout unit? previously flipper_length_ratio
+    flipper_speed: float = 20.0  # Updated from 30.0 to match config.json
+    flipper_resting_angle: float = -36.0  # Updated from 30.0 to match config.json (note sign change)
+    flipper_stroke_angle: float = 42.0  # Updated from -30.0 to match config.json
+    flipper_length: float = 0.23  # Updated from 0.12 to match config.json
     flipper_width: float = 0.05
     flipper_tip_width: float = 0.025
     flipper_elasticity: float = 0.5
@@ -29,7 +29,7 @@ class PhysicsConfig:
     
     # Plunger
     launch_angle: float = 0.0
-    plunger_release_speed: float = 1800.0
+    plunger_release_speed: float = 1500.0  # Updated from 1800.0 to match config.json
     
     # Bumpers
     bumper_force: float = 800.0
@@ -39,9 +39,9 @@ class PhysicsConfig:
     drop_target_cooldown: float = 2.0
     
     # Tilt / Nudge
-    nudge_cost: float = 0.1
-    tilt_decay: float = 0.005 # per step?
-    tilt_threshold: float = 1.0
+    nudge_cost: float = 2.4  # Updated from 0.1 to match config.json
+    tilt_decay: float = 0.06  # Updated from 0.005 to match config.json
+    tilt_threshold: float = 10.0  # Updated from 1.0 to match config.json
     
     # Combo System
     combo_window: float = 3.0
@@ -50,7 +50,7 @@ class PhysicsConfig:
     combo_multiplier_enabled: bool = True
     
     # Auto-Play
-    auto_plunge_enabled: bool = True
+    auto_plunge_enabled: bool = False  # Updated from True to match config.json
     
     # Rails / Guides (Visual/Physics alignment)
     rail_x_offset: float = 0.0

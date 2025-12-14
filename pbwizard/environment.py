@@ -63,7 +63,7 @@ class PinballEnv(gym.Env):
             "score_log_scale": 0.106,
             "combo_increase_factor": 0.1,
             "multiplier_increase_factor": 0.5,
-            "flipper_penalty": 0.0001,
+            "flipper_penalty": 0.00001,  # Updated from 0.0001 to match config.json
             "bumper_hit": 0.5,
             "drop_target_hit": 1.0,
             "rail_hit": 0.5

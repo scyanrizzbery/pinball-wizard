@@ -608,6 +608,14 @@ class SimulatedFrameCapture(FrameCapture):
         if layout_config is None:
             self.refresh_layouts()
 
+        # CRITICAL: Initialize flipper_resting_angle BEFORE _init_physics()
+        # _init_physics() uses this value at line 862 for upper flippers
+        # If not set, will cause AttributeError and prevent AI from working
+        val = -30.0
+        if self.layout and hasattr(self.layout, 'physics_params'):
+            val = self.layout.physics_params.get('flipper_resting_angle', -30.0)
+        self.flipper_resting_angle = val
+
         # Physics Engine (Full Init)
         self._init_physics()
 
@@ -626,9 +634,7 @@ class SimulatedFrameCapture(FrameCapture):
         
         # Flipper Angles (Degrees)
         self.flipper_angles = {'left': 0.0, 'right': 0.0}
-        self.flipper_resting_angle = self.layout.flipper_resting_angle if hasattr(self.layout,
-                                                                                  'flipper_resting_angle') else -30.0
-
+        
         # Camera / View Parameters
         # Default to Top-Down 2D-ish view or whatever matches typical 2D
         # These correspond to the "cam_x", "cam_y", "cam_z" expected by get_config
