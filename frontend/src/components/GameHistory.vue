@@ -484,6 +484,7 @@ const formatScore = (num: number | null | undefined) => {
   overflow-y: scroll;
   scrollbar-width: none;
   box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  flex-grow: 1; /* Expand on wide viewports */
 }
 
 #history-container h3 {

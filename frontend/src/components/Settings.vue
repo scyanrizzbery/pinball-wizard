@@ -76,6 +76,27 @@
                     </select>
                 </div>
             </div>
+            <div class="control-group">
+                <div style="flex: 1;">
+                    <div class="label">Display</div>
+                    <div style="display: flex; gap: 5px;">
+                        <button @click="$emit('toggle-fullscreen')" class="control-btn" style="flex: 1;">
+                            {{ isFullscreen ? '🚪 Exit Fullscreen' : '📺 Fullscreen' }}
+                        </button>
+                        <button @click="$emit('toggle-view')" class="control-btn" style="flex: 1;">
+                            {{ cameraMode === 'perspective' ? '📐 2D View' : '🎮 3D View' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="control-group">
+                <div style="flex: 1;">
+                    <div class="label">Editor</div>
+                    <button @click="$emit('toggle-edit-mode')" class="control-btn" :class="{ active: isEditMode }">
+                        {{ isEditMode ? '✅ Done Editing' : '✏️ Edit Rails' }}
+                    </button>
+                </div>
+            </div>
         </div>
 
         <div class="tabs">
@@ -681,7 +702,7 @@ import type { PhysicsConfig, GameStats, RewardsConfig } from '../types'
 interface Props {
     physics: PhysicsConfig
     rewards?: RewardsConfig
-    stats?: GameStats
+   stats?: GameStats
     cameraPresets: Record<string, any>
     models: any[]
     layouts: any[]
@@ -691,6 +712,9 @@ interface Props {
     selectedDifficulty: string
     optimizedHyperparams?: Record<string, any>
     showFlipperZones?: boolean
+    isFullscreen?: boolean
+    cameraMode?: string
+    isEditMode?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -727,6 +751,9 @@ const emit = defineEmits<{
   (e: 'save-layout-settings'): void
   (e: 'update:showFlipperZones', value: boolean): void
   (e: 'destroy-bumpers'): void
+  (e: 'toggle-fullscreen'): void
+  (e: 'toggle-view'): void
+  (e: 'toggle-edit-mode'): void
 }>()
 
 const activeTab = ref<string>('settings')
@@ -1060,6 +1087,7 @@ const stopTraining = () => {
     flex-direction: column;
     overflow: hidden;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    flex-grow: 1; /* Expand on wide viewports */
 }
 
 .tabs {

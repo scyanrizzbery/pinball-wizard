@@ -89,6 +89,7 @@ services:
     entrypoint: cypress open
 
   optuna-dashboard:
+    profiles: [ "optuna" ]
     build: .
     ports:
       - "8080:8080"

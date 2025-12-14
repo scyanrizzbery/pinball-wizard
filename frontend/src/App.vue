@@ -51,6 +51,7 @@
                         :showFlipperZones="showFlipperZones"
                         :connectionError="connectionError"
                         :isFullscreen="isFullscreen"
+                        :isEditMode="isEditMode"
                         @toggle-view="toggleViewMode"
                         @toggle-fullscreen="toggleFullscreen"
                         @ship-destroyed="handleShipDestroyed"
@@ -111,6 +112,9 @@
                       :camera-presets="cameraPresets"
                       :selected-difficulty="selectedDifficulty"
                       :optimized-hyperparams="optimizedHyperparams"
+                      :isFullscreen="isFullscreen"
+                      :cameraMode="cameraMode"
+                      :isEditMode="isEditMode"
                       v-model:selected-model="selectedModel"
                       v-model:selected-layout="selectedLayout"
                       v-model:selected-preset="selectedPreset"
@@ -125,6 +129,9 @@
                       @start-training="startTraining"
                       @stop-training="stopTraining"
                       @update-difficulty="updateDifficulty"
+                      @toggle-fullscreen="toggleFullscreen"
+                      @toggle-view="toggleCameraMode"
+                      @toggle-edit-mode="toggleEditMode"
                       @update:showFlipperZones="showFlipperZones = $event"
                       @save-new-layout="handleSaveNewLayout"
                       @save-layout="handleSaveLayout"/>
@@ -232,6 +239,10 @@ const lastAutoStartToggleTime = ref(0)
 
 // UI State
 const isFullscreen = ref(false)
+const isEditMode = ref(false)
+
+// Computed prop for cameraMode (matches Pinball3D expectation)
+const cameraMode = computed(() => viewMode.value === '3d' ? 'perspective' : 'top-down')
 
 // Track button pressed states for visual feedback
 const buttonStates = reactive({
@@ -319,6 +330,13 @@ watch(() => stats.high_score, (newValue: number, oldValue: number) => {
 
 const toggleViewMode = () => {
     viewMode.value = viewMode.value === '3d' ? 'video' : '3d'
+}
+
+// Alias for Settings panel  
+const toggleCameraMode = toggleViewMode
+
+const toggleEditMode = () => {
+    isEditMode.value = !isEditMode.value
 }
 
 const toggleFullscreen = () => {
@@ -1180,7 +1198,7 @@ body {
     /* Base Desktop Layout (> 1400px) */
     display: grid;
     /* Use minmax and 1fr for flexible central column, auto for fixed sidebars */
-    grid-template-columns: 280px minmax(500px, 1fr) 300px;
+    grid-template-columns: minmax(280px, 400px) minmax(500px, 1fr) minmax(300px, 500px);
     grid-template-rows: auto auto; /* Game/Sides then Logs */
     grid-template-areas:
     "history game settings"

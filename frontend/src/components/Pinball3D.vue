@@ -80,20 +80,7 @@
 
     <!-- Rail Editor Controls -->
     <!-- Rail Editor Controls -->
-    <div class="editor-controls" v-if="cameraMode === 'perspective'">
-        <div class="controls-row">
-            <button @click="$emit('toggle-fullscreen')" class="fullscreen-btn" title="Playfield Full">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
-                </svg>
-            </button>
-            <button @click="toggleEditMode" :class="{ active: isEditMode }">
-                {{ isEditMode ? 'Done Editing' : 'Edit Rails' }}
-            </button>
-            <button @click="$emit('toggle-view')" class="switch-view-btn">
-                {{ cameraMode === 'perspective' ? 'Switch to 2D' : 'Switch to 3D' }}
-            </button>
-        </div>
+    <div class="editor-controls" v-if="cameraMode === 'perspective' && isEditMode">
 
         <div v-if="isEditMode" class="edit-actions">
             <button @click="deleteSelectedObject" :disabled="selectedRailIndex === -1 && selectedBumperIndex === -1">Delete Selected</button>
@@ -162,6 +149,7 @@ const props = withDefaults(defineProps<{
     showFlipperZones?: boolean;
     connectionError?: boolean;
     isFullscreen?: boolean;
+    isEditMode?: boolean; // NEW: controlled from App.vue
 }>(), {
     cameraMode: 'perspective',
     autoStartEnabled: false,
@@ -217,7 +205,7 @@ const autoRestartTimer = ref(3)
 let autoRestartInterval: ReturnType<typeof setInterval> | null = null
 
 // Watch for Game Over state
-watch(() => props.stats?.game_over, (isGameOver) => {
+watch(() => props.stats?.game_over, (isGameOver: boolean) => {
     if (isGameOver) {
         // Game Over Triggered
         if (props.autoStartEnabled) {
@@ -230,11 +218,17 @@ watch(() => props.stats?.game_over, (isGameOver) => {
 })
 
 // Also watch autoStartEnabled in case it's toggled ON during Game Over
-watch(() => props.autoStartEnabled, (enabled) => {
+watch(() => props.autoStartEnabled, (enabled: boolean) => {
     if (enabled && props.stats?.game_over) {
         startRestartCountdown()
     } else {
         stopRestartCountdown()
+    }
+})
+
+watch(() => props.isEditMode, (newVal: boolean, oldVal: boolean) => {
+    if (newVal !== oldVal) {
+        updateRailHandles()
     }
 })
 
@@ -294,7 +288,7 @@ const formatNumber = (num: number | null | undefined) => {
 }
 
 // Rail Editor State
-const isEditMode = ref(false)
+// isEditMode is now a prop from App.vue
 const selectedRailIndex = ref(-1)
 const selectedBumperIndex = ref(-1)
 const selectedType = ref(null) // 'rail' or 'bumper'
@@ -314,15 +308,7 @@ const isPanning = ref(false)
 const panStart = new THREE.Vector2()
 const cameraStartPos = new THREE.Vector3()
 
-const toggleEditMode = () => {
-    isEditMode.value = !isEditMode.value
-    if (!isEditMode.value) {
-        selectedRailIndex.value = -1
-        clearRailHandles()
-    } else {
-        updateRailHandles()
-    }
-}
+
 
 const addRail = () => {
     // Add a default rail in the center
@@ -370,7 +356,7 @@ const deleteSelectedObject = () => {
 
 const updateRailHandles = () => {
     clearRailHandles()
-    if (!isEditMode.value || !props.config || !props.config.rails) return
+    if (!props.isEditMode || !props.config || !props.config.rails) return
     
     props.config.rails.forEach((rail, index) => {
         // Create handles for p1 and p2
@@ -436,7 +422,7 @@ const onMouseDown = (event: MouseEvent) => {
         return
     }
     
-    if (!isEditMode.value) return
+    if (!props.isEditMode) return
     
     updateMouse(event)
     raycaster.setFromCamera(mouse, camera)
@@ -561,7 +547,7 @@ const onMouseMove = (event: MouseEvent) => {
     }
     
     // Hover detection for OrbitControls locking
-    if (isEditMode.value && !isDragging.value && !isPanning.value) {
+    if (props.isEditMode && !isDragging.value && !isPanning.value) {
         updateMouse(event)
         raycaster.setFromCamera(mouse, camera)
         
@@ -1771,48 +1757,6 @@ const updateBalls = (ballData: any[]) => {
     tableGroup.remove(pGroup)
     tableGroup.remove(ball)
   }
-  
-  // Fix for multiball alignment issue: When ball count changes, force renderer update
-  // This prevents rails from going out of alignment during multiball
-  // if (ballCountChanged && renderer && camera && container.value) {
-  //   console.log(`[Multiball] Ball count changed: ${previousBallCount} → ${newBallCount}`)
-  //
-  //   // Use clientWidth/clientHeight for consistency with initThree
-  //   const width = container.value.clientWidth
-  //   const height = container.value.clientHeight
-  //
-  //   console.log(`[Multiball] Container size: ${width}x${height}`)
-  //   console.log(`[Multiball] Current camera aspect: ${camera.aspect}`)
-  //   console.log(`[Multiball] Current renderer size:`, renderer.getSize(new THREE.Vector2()))
-  //
-  //   if (width > 0 && height > 0) {
-  //     const newAspect = width / height
-  //     camera.aspect = newAspect
-  //     camera.updateProjectionMatrix()
-  //     renderer.setSize(width, height, false) // false = don't update style
-  //
-  //     console.log(`[Multiball] Updated camera aspect to: ${newAspect}`)
-  //     console.log(`[Multiball] Updated renderer size to: ${width}x${height}`)
-  //   }
-  //
-  //   // Also do a delayed update to catch any async layout changes
-  //   setTimeout(() => {
-  //     if (renderer && camera && container.value) {
-  //       const width2 = container.value.clientWidth
-  //       const height2 = container.value.clientHeight
-  //
-  //       if (width2 > 0 && height2 > 0 && (width2 !== width || height2 !== height)) {
-  //         const newAspect2 = width2 / height2
-  //         camera.aspect = newAspect2
-  //         camera.updateProjectionMatrix()
-  //         renderer.setSize(width2, height2, false)
-  //         console.log(`[Multiball] Delayed update: size changed to ${width2}x${height2}, aspect: ${newAspect2}`)
-  //       } else {
-  //         console.log(`[Multiball] Delayed update: no size change needed`)
-  //       }
-  //     }
-  //   }, 100) // Increased to 100ms for more reliable async catch
-  // }
 
   // Update ball positions and stats
   ballData.forEach((data, i) => {
@@ -2994,11 +2938,15 @@ const initThree = () => {
       }
 
       // Setup socket event listeners  
-      socket.on('connect', onConnect)
-      socket.on('game_state', onGameState)
-      socket.on('stuck_ball', onStuckBall)
-      console.log('[Pinball3D] Socket event listeners registered')
-      
+      if (typeof socket.on === 'function') {
+        socket.on('connect', onConnect)
+        socket.on('game_state', onGameState)
+        socket.on('stuck_ball', onStuckBall)
+        console.log('[Pinball3D] Socket event listeners registered')
+      } else {
+        console.warn('[Pinball3D] socket.on is not a function, skipping event listeners')
+      }
+
       // Store cleanup function
       (container.value as any)._cleanupSocket = () => {
         if (socket && typeof socket.off === 'function') {
@@ -3572,9 +3520,8 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   
   if (fireworksInterval) clearInterval(fireworksInterval)
-  if ((window as any).fireworksGroup && scene) {
-      ;(scene as any).remove((window as any).fireworksGroup)
-      (window as any).fireworksGroup = null
+  if ((window as any).fireworksGroup && scene && typeof scene.remove === 'function') {
+      scene.remove((window as any).fireworksGroup)
   }
 
   if (tableGroup) {
