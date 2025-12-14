@@ -818,6 +818,47 @@ def handle_get_models():
         logger.error(f"Error listing models: {e}")
 
 
+@socketio.on('load_model', namespace='/training')
+def handle_load_model(data):
+    """Handle request to load a specific model."""
+    filename = data.get('filename') or data.get('model')
+    if not filename:
+        logger.error("load_model called with no filename")
+        return
+
+    logger.info(f"Request to load model: {filename}")
+    
+    # Update High Score Tracking Name
+    if hasattr(vision_system, 'capture'):
+        vision_system.capture.last_model = filename
+        
+    # Load into Agent
+    if hasattr(vision_system, 'agent') and hasattr(vision_system.agent, 'load_model'):
+        model_path = os.path.join("models", filename)
+        if vision_system.agent.load_model(model_path):
+             logger.info(f"Successfully loaded model: {filename}")
+             socketio.emit('model_loaded', {'filename': filename}, namespace='/training')
+             
+             # Persist choice in config
+             try:
+                 config_path = "config.json"
+                 config_data = {}
+                 if os.path.exists(config_path):
+                     with open(config_path, 'r') as f:
+                        config_data = json.load(f)
+                 
+                 config_data['last_model'] = filename
+                 with open(config_path, 'w') as f:
+                     json.dump(config_data, f, indent=4)
+             except Exception as e:
+                 logger.error(f"Failed to save last_model to config: {e}")
+
+        else:
+             socketio.emit('error', {'message': f"Failed to load model {filename}"}, namespace='/training')
+    else:
+        logger.warning("No agent available to load model into")
+
+
 
 @socketio.on('get_hyperparams', namespace='/training')
 def handle_get_hyperparams():

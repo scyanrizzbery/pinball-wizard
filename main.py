@@ -11,6 +11,7 @@ except RuntimeError:
 
 import time
 import logging
+import json
 
 import numpy as np
 from dotenv import load_dotenv
@@ -127,7 +128,17 @@ def main():
                     model_path = os.path.join(models_dir, files[0])
                     logger.info(f"Falling back to first available model: {files[0]}")
             
+                    logger.info(f"Falling back to first available model: {files[0]}")
+            
         agnt = agent.RLAgent(model_path=model_path)
+        
+        # Set initial model name on capture for high score tracking
+        initial_model_name = os.path.basename(model_path)
+        if hasattr(cap, 'last_model'): # Should ideally dynamically add it if not exists, but python allows dynamic attr
+             cap.last_model = initial_model_name
+        else:
+             cap.last_model = initial_model_name
+             
     else:
         logger.info("Using Reflex Agent")
         agnt = agent.ReflexAgent(zone_manager, hw)
@@ -154,6 +165,36 @@ def main():
                 'mean_reward': 0.0,
                 'is_training': False
             }
+            self.load_high_scores()
+
+        def load_high_scores(self):
+            self.high_scores = [] # List of {score, model, layout, date, timestamp}
+            try:
+                if os.path.exists("highscores.json"):
+                    with open("highscores.json", 'r') as f:
+                        self.high_scores = json.load(f)
+                    # Sort by score descending
+                    self.high_scores.sort(key=lambda x: x['score'], reverse=True)
+                    # Update max high score
+                    if self.high_scores:
+                        self.high_score = self.high_scores[0]['score']
+            except Exception as e:
+                logger.error(f"Error loading high scores: {e}")
+
+        def save_high_score(self, entry):
+            self.high_scores.append(entry)
+            self.high_scores.sort(key=lambda x: x['score'], reverse=True)
+            self.high_scores = self.high_scores[:10] # Keep top 10
+            
+            # Update max high score
+            if self.high_scores:
+                self.high_score = self.high_scores[0]['score']
+                
+            try:
+                with open("highscores.json", 'w') as f:
+                    json.dump(self.high_scores, f, indent=2)
+            except Exception as e:
+                logger.error(f"Error saving high scores: {e}")
 
         def add_history_event(self, event_type, data=None):
             """Add a non-game event to history"""
@@ -266,6 +307,41 @@ def main():
                     'timestamp': time.time(),
                     'is_high_score': is_high_score
                 })
+
+                # Check and Save High Score
+                # Only save if score > 0
+                if current_score > 0:
+                    # Check if it qualifies for top 10
+                    qualifies = False
+                    if len(self.high_scores) < 10:
+                        qualifies = True
+                    elif current_score > self.high_scores[-1]['score']:
+                        qualifies = True
+                    
+                    if qualifies:
+                        is_high_score = True # Mark this specific run as high score (top 10)
+                        
+                        layout_name = "unknown"
+                        if hasattr(self.capture, 'layout') and self.capture.layout:
+                             layout_name = self.capture.layout.name or "custom"
+                        
+                        # Determine Model Name (if AI is playing)
+                        model_name = "Manual"
+                        if self.ai_enabled:
+                             model_name = "AI Agent"
+                             # Try to get loaded model name
+                             if hasattr(self.capture, 'last_model') and self.capture.last_model:
+                                 model_name = self.capture.last_model
+                        
+                        entry = {
+                            "score": current_score,
+                            "model": model_name,
+                            "layout": layout_name,
+                            "hash": game_hash, 
+                            "timestamp": time.time(),
+                            "date": time.strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        self.save_high_score(entry)
                 # Keep last 50 entries
                 if len(self.game_history) > 50:
                     self.game_history.pop(0)
@@ -335,7 +411,8 @@ def main():
                 'hash': game_hash,
                 'seed': seed,
                 'game_over': self.capture.game_over if hasattr(self.capture, 'game_over') else False,
-                'is_replay': self.capture.replay_manager.is_playing if hasattr(self.capture, 'replay_manager') else False
+                'is_replay': self.capture.replay_manager.is_playing if hasattr(self.capture, 'replay_manager') else False,
+                'high_scores': self.high_scores
             }
             
             # Fetch Hash/Seed from Physics Engine

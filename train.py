@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import multiprocessing
+import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.utils import safe_mean
 
@@ -181,6 +182,30 @@ class ProgressBarCallback(BaseCallback):
         return True
 
 
+class TensorboardRewardCallback(BaseCallback):
+    def __init__(self, log_interval=2048, verbose=0):
+        super().__init__(verbose)
+        self.log_interval = log_interval
+        self.last_log_step = 0
+        self.reward_buffer = {}
+
+    def _on_step(self) -> bool:
+        infos = self.locals.get('infos', [])
+        for info in infos:
+            breakdown = info.get('reward_breakdown')
+            if not breakdown:
+                continue
+            for key, value in breakdown.items():
+                self.reward_buffer.setdefault(key, []).append(value)
+        if self.reward_buffer and self.num_timesteps - self.last_log_step >= self.log_interval:
+            for key, values in self.reward_buffer.items():
+                if values:
+                    self.logger.record(f'custom/reward_{key}', float(np.mean(values)))
+            self.reward_buffer.clear()
+            self.last_log_step = self.num_timesteps
+        return True
+
+
 def train_worker(config, state_queue, command_queue, status_queue):
     """
     Worker function to run training in a separate process.
@@ -272,15 +297,19 @@ def train_worker(config, state_queue, command_queue, status_queue):
         # 2. Setup Agent
         model_name = config.get('model_name', 'ppo_pinball')
         total_timesteps = config.get('total_timesteps', 100000)
+        tensorboard_log = config.get('tensorboard_log') or os.getenv('TENSORBOARD_LOG')
+        if tensorboard_log:
+            os.makedirs(tensorboard_log, exist_ok=True)
         
-        agent_wrapper = agent.RLAgent(env=env)
+        agent_wrapper = agent.RLAgent(env=env, tensorboard_log=tensorboard_log)
         
         # 3. Callbacks
         callbacks = [
             StateSyncCallback(vision_wrapper, state_queue),
             QueueStopCallback(command_queue),
             WebStatsCallback(status_queue, total_timesteps, model_name=model_name),
-            ProgressBarCallback(total_timesteps)
+            ProgressBarCallback(total_timesteps),
+            TensorboardRewardCallback(log_interval=config.get('tensorboard_log_interval', 2048))
         ]
         
         # 4. Train

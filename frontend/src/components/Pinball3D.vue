@@ -38,16 +38,47 @@
     </div>
 
     <!-- Game Over Overlay -->
-    <div v-if="stats?.game_over" class="overlay-screen game-over-overlay" :class="{ 'is-fullscreen': isFullscreen }">
-        <div class="game-over-text">GAME OVER</div>
-        <div v-if="stats.is_high_score" class="high-score-text">NEW HIGH SCORE!</div>
-        <div class="final-score">SCORE: {{ formatNumber(stats.last_score) }}</div>
-        
-        <div v-if="autoStartEnabled" class="auto-restart-text">
-            Restarting in {{ Math.ceil(autoRestartTimer) }}...
+    <div v-if="stats?.game_over || showHighScores" class="overlay-screen game-over-overlay" :class="{ 'is-fullscreen': isFullscreen }">
+        <div class="game-over-text">{{ stats?.game_over ? 'GAME OVER' : 'HIGH SCORES' }}</div>
+        <div v-if="stats?.game_over && stats.is_high_score" class="high-score-text">NEW HIGH SCORE!</div>
+        <div class="final-score" v-if="stats?.game_over">SCORE: {{ formatNumber(stats.last_score) }}</div>
+
+        <!-- High Score Table -->
+        <div class="high-score-table-container" v-if="stats?.high_scores && stats.high_scores.length > 0" @wheel.stop>
+            <table class="high-score-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Score</th>
+                        <th>Model/Player</th>
+                        <!-- <th>Layout</th> -->
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="(entry, index) in stats.high_scores" :key="index" :class="{ 'highlight': stats?.game_over && entry.score === stats.last_score && entry.timestamp === stats.hash }">
+                        <td>{{ index + 1 }}</td>
+                        <td>{{ formatNumber(entry.score) }}</td>
+                        <td>
+                            <div class="model-name-truncate" :title="entry.model">{{ entry.model }}</div>
+                        </td>
+                        <!-- <td>{{ entry.layout }}</td> -->
+                        <td>{{ entry.date }}</td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
-        <div v-else class="press-start-text">
-            PRESS LAUNCH TO START
+        
+        <div v-if="stats && stats.game_over">
+            <div v-if="autoStartEnabled" class="auto-restart-text">
+                Restarting in {{ Math.ceil(autoRestartTimer) }}...
+            </div>
+            <div v-else class="press-start-text">
+                PRESS LAUNCH TO START
+            </div>
+        </div>
+        <div v-else class="close-overlay-container">
+            <button class="close-overlay-btn" @click="emit('close-high-scores')">Close</button>
         </div>
     </div>
 
@@ -101,7 +132,8 @@
         <GameSettings 
             :smokeIntensity="smokeIntensity"
             @update-smoke-intensity="(val: number) => smokeIntensity = val"
-            @close="showSettings = false" 
+            @close="showSettings = false"
+            @toggle-high-scores="$emit('toggle-high-scores')"
         />
     </div>
 
@@ -150,6 +182,7 @@ const props = withDefaults(defineProps<{
     connectionError?: boolean;
     isFullscreen?: boolean;
     isEditMode?: boolean; // NEW: controlled from App.vue
+    showHighScores?: boolean;
 }>(), {
     cameraMode: 'perspective',
     autoStartEnabled: false,
@@ -158,7 +191,16 @@ const props = withDefaults(defineProps<{
     isFullscreen: false
 })
 
-const emit = defineEmits(['toggle-fullscreen', 'toggle-view', 'ship-destroyed', 'restart-game', 'update-rail', 'update-bumper', 'reset-zones'])
+const emit = defineEmits([
+    'toggle-fullscreen',
+    'toggle-high-scores',
+    'toggle-view',
+    'ship-destroyed',
+    'restart-game',
+    'update-rail',
+    'update-bumper',
+    'reset-zones'
+])
 
 const container = ref<HTMLElement | null>(null)
 let scene: THREE.Scene, camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, renderer: THREE.WebGLRenderer, controls: OrbitControls
@@ -755,7 +797,6 @@ const onMouseUp = () => {
 }
 
 // Zoom functionality
-let zoomDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const onWheel = (event: WheelEvent) => {
     // If controls are NOT active, ignore wheel (require click to activate)
     if (!controlsActive.value) return
@@ -789,12 +830,7 @@ const onWheel = (event: WheelEvent) => {
         lastCameraConfig.value.zoom = newZoom
     }
     
-    // Debounce network update
-    if (zoomDebounceTimer) clearTimeout(zoomDebounceTimer)
-    zoomDebounceTimer = setTimeout(() => {
-        // console.log('Emitting zoom update:', newZoom)
-        props.configSocket.emit('update_physics_v2', { camera_zoom: newZoom })
-    }, 300)
+    props.configSocket.emit('update_physics_v2', { camera_zoom: newZoom })
 }
 
 const updateMouse = (event: MouseEvent) => {
@@ -3975,6 +4011,7 @@ const handleKeydown = (e) => {
 .game-over-overlay {
   background: rgba(0, 0, 0, 0.85);
   color: white;
+  pointer-events: auto;
 }
 
 .game-over-overlay h1 {
@@ -4072,5 +4109,92 @@ const handleKeydown = (e) => {
   0% { transform: scale(1); }
   50% { transform: scale(1.05); }
   100% { transform: scale(1); }
+}
+
+/* High Score Table Styles */
+.high-score-table-container {
+    margin-top: 20px;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 12px;
+    padding: 15px;
+    backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    max-height: 40vh;
+    overflow-y: auto;
+    width: 90%;
+}
+
+.high-score-table {
+    width: 100%;
+    border-collapse: collapse;
+    color: #eee;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 0.9em;
+}
+
+.high-score-table th {
+    text-align: left;
+    padding: 8px;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+    color: #4caf50;
+    text-transform: uppercase;
+    font-size: 0.8em;
+    letter-spacing: 1px;
+}
+
+.high-score-table td {
+    padding: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.high-score-table tr.highlight {
+    background: rgba(76, 175, 80, 0.2);
+    color: #fff;
+    font-weight: bold;
+    animation: flash 2s infinite;
+}
+
+@keyframes flash {
+    0%, 100% { background: rgba(76, 175, 80, 0.2); }
+    50% { background: rgba(76, 175, 80, 0.5); }
+}
+
+.model-name-truncate {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block; /* Ensure it respects width */
+}
+
+/* Scrollbar for table */
+.high-score-table-container::-webkit-scrollbar {
+    width: 6px;
+}
+.high-score-table-container::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.1);
+}
+.high-score-table-container::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.2);
+    border-radius: 3px;
+}
+
+.close-overlay-container {
+    margin-top: 20px;
+}
+
+.close-overlay-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    color: white;
+    padding: 10px 20px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background 0.2s;
+}
+
+.close-overlay-btn:hover {
+    background: rgba(255, 255, 255, 0.4);
 }
 </style>

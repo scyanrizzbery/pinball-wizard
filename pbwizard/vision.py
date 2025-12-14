@@ -1027,7 +1027,9 @@ class SimulatedFrameCapture(FrameCapture):
             logger.info(f"Loading layout: {layout_name}")
             # Load the new layout
             self.layout = PinballLayout(filepath=filepath)
-            
+            if 'name' in self.layout.config:
+                self.layout.name = self.layout.config['name']
+
             # Track the layout ID (filename without extension)
             self.current_layout_id = layout_name
 
@@ -1765,6 +1767,13 @@ class SimulatedFrameCapture(FrameCapture):
         events = []
         if self.physics_engine and hasattr(self.physics_engine, 'get_events'):
             events = self.physics_engine.get_events()
+            
+            # Check for stuck ball events and auto-rescue
+            for event in events:
+                if event.get('type') == 'stuck_ball':
+                    logger.warning("Stuck ball event detected in vision system! Triggering rescue.")
+                    if hasattr(self.physics_engine, 'rescue_ball'):
+                        self.physics_engine.rescue_ball()
 
         return {
             'balls': out_balls,
@@ -1889,7 +1898,6 @@ class SimulatedFrameCapture(FrameCapture):
             # Keep flag set for a short time to let file system events settle
             import threading
             def clear_flag():
-                time.sleep(0.6)  # Longer than file watcher debounce (0.5s)
                 self._saving_config = False
             threading.Thread(target=clear_flag, daemon=True).start()
 

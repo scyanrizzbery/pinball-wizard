@@ -62,6 +62,7 @@ defineProps<{
   justify-content: center;
   flex-wrap: wrap;
   gap: 10px;
+  gap: 10px;
   font-size: 1em;
 }
 

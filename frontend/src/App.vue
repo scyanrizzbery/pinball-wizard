@@ -1,8 +1,18 @@
 <template>
     <div id="app-container">
-        <Header :connected="connected">
+        <Modal 
+            :show="modalState.show"
+            :title="modalState.title"
+            :message="modalState.message"
+            :type="modalState.type"
+            :placeholder="modalState.placeholder"
+            :initialValue="modalState.initialValue"
+            :confirmText="modalState.confirmText"
+            @confirm="handleModalConfirm"
+            @cancel="handleModalCancel"
+        />
 
-        </Header>
+        <Header :connected="connected"/>
 
         <div id="main-layout">
             <div id="game-area">
@@ -48,10 +58,13 @@
                         :stats="stats"
                         :cameraMode="viewMode === '3d' ? 'perspective' : 'top-down'"
                         :autoStartEnabled="toggles.autoStart"
+                        :showHighScores="showHighScores"
                         :showFlipperZones="showFlipperZones"
                         :connectionError="connectionError"
                         :isFullscreen="isFullscreen"
                         :isEditMode="isEditMode"
+                        @close-high-scores="showHighScores = false"
+                        @toggle-high-scores="showHighScores = !showHighScores"
                         @toggle-view="toggleViewMode"
                         @toggle-fullscreen="toggleFullscreen"
                         @ship-destroyed="handleShipDestroyed"
@@ -205,11 +218,13 @@ import HighScoreBar from './components/HighScoreBar.vue'
 import Pinball3D from './components/Pinball3D.vue'
 import Controls from './components/Controls.vue'
 import Settings from './components/Settings.vue'
+import Modal from './components/Modal.vue'
 import GameHistory from './components/GameHistory.vue'
 import Logs from './components/Logs.vue'
 import ToastNotification from './components/ToastNotification.vue'
 import ReplayIndicator from './components/ReplayIndicator.vue'
 import sockets from './services/socket'
+import GameSettings from "@/components/GameSettings.vue";
 
 provide('sockets', sockets)
 // window.sockets assigned in main.js now
@@ -223,11 +238,72 @@ const selectedModel = ref(localStorage.getItem('pinball_selected_model') || '')
 watch(selectedModel, (newVal: string) => {
     if (newVal) localStorage.setItem('pinball_selected_model', newVal)
 })
-const debounceTimers: Record<string, ReturnType<typeof setTimeout>> = {}
 const nudgeEvent = ref<{ direction: string; time: number; type?: string; strength?: number } | null>(null)
+
 const viewMode = ref('3d')
 const layoutConfig = ref<any>(null)
 const optimizedHyperparams = ref(null)
+
+// Modal State
+const modalState = reactive({
+    show: false,
+    title: '',
+    message: '',
+    type: 'confirm' as 'alert' | 'confirm' | 'prompt',
+    placeholder: '',
+    initialValue: '',
+    confirmText: 'OK',
+    resolve: null as ((value: any) => void) | null,
+    reject: null as ((reason?: any) => void) | null
+})
+
+const showModal = (options: {
+    title?: string, 
+    message: string, 
+    type?: 'alert' | 'confirm' | 'prompt',
+    placeholder?: string,
+    initialValue?: string,
+    confirmText?: string
+}) => {
+    return new Promise<any>((resolve, reject) => {
+        modalState.title = options.title || ''
+        modalState.message = options.message
+        modalState.type = options.type || 'alert'
+        modalState.placeholder = options.placeholder || ''
+        modalState.initialValue = options.initialValue || ''
+        modalState.confirmText = options.confirmText || 'OK'
+        modalState.show = true
+        modalState.resolve = resolve
+        modalState.reject = reject
+    })
+}
+
+const handleModalConfirm = (value?: string) => {
+    modalState.show = false
+    if (modalState.resolve) {
+        if (modalState.type === 'confirm') modalState.resolve(true)
+        else if (modalState.type === 'prompt') modalState.resolve(value)
+        else modalState.resolve(true)
+    }
+}
+
+const handleModalCancel = () => {
+    modalState.show = false
+    if (modalState.resolve) {
+        modalState.resolve(modalState.type === 'confirm' ? false : null)
+    }
+}
+
+// Provide global modal functions
+provide('confirm', async (message: string) => {
+    return await showModal({ message, type: 'confirm' })
+})
+provide('prompt', async (message: string, defaultValue = '') => {
+    return await showModal({ message, type: 'prompt', initialValue: defaultValue })
+})
+provide('alert', async (message: string) => {
+    return await showModal({ message, type: 'alert' })
+})
 
 const isLoadingLayout = ref(false)
 const hasUnsavedChanges = ref(false)
@@ -326,6 +402,7 @@ watch(() => stats.high_score, (newValue: number, oldValue: number) => {
     }
 })
 
+const showHighScores = ref(false)
 
 
 const toggleViewMode = () => {
@@ -648,33 +725,21 @@ const handleZoneUpdate = (newZones: Zone[]) => {
     physics.zones = newZones
     if (layoutConfig.value) layoutConfig.value.zones = newZones
     hasUnsavedChanges.value = true
-
-    if (debounceTimers.zones) clearTimeout(debounceTimers.zones)
-    debounceTimers.zones = setTimeout(() => {
-        sockets.config.emit('update_zones', physics.zones)
-    }, 300)
+    sockets.config.emit('update_zones', physics.zones)
 }
 
 const handleRailUpdate = (newRails: any[]) => {
     physics.rails = newRails
     if (layoutConfig.value) layoutConfig.value.rails = newRails
     hasUnsavedChanges.value = true
-
-    if (debounceTimers.rails) clearTimeout(debounceTimers.rails)
-    debounceTimers.rails = setTimeout(() => {
-        sockets.config.emit('update_rails', physics.rails)
-    }, 300)
+    sockets.config.emit('update_rails', physics.rails)
 }
 
 const handleBumperUpdate = (newBumpers: any[]) => {
     physics.bumpers = newBumpers
     if (layoutConfig.value) layoutConfig.value.bumpers = newBumpers
     hasUnsavedChanges.value = true
-
-    if (debounceTimers.bumpers) clearTimeout(debounceTimers.bumpers)
-    debounceTimers.bumpers = setTimeout(() => {
-        sockets.config.emit('update_bumpers', physics.bumpers)
-    }, 300)
+    sockets.config.emit('update_bumpers', physics.bumpers)
 }
 
 const handleUpdatePhysics = (key: string, value: any) => {
@@ -687,8 +752,8 @@ const handleUpdatePhysics = (key: string, value: any) => {
     sockets.config.emit('set_physics_param', { key, value })
 }
 
-const handleResetConfig = () => {
-    if (confirm('Are you sure you want to reset all physics parameters to default?')) {
+const handleResetConfig = async () => {
+    if (await showModal({ message: 'Are you sure you want to reset all physics parameters to default?', type: 'confirm' })) {
         sockets.config.emit('reset_config')
     }
 }
@@ -739,6 +804,17 @@ const handleKeydown = (e: KeyboardEvent) => {
     }
 
     if (e.repeat) return
+
+    // Camera Presets (1-4)
+    if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' || e.code === 'Digit4') {
+        const index = parseInt(e.code.replace('Digit', '')) - 1
+        const presets = Object.keys(cameraPresets.value)
+        if (index >= 0 && index < presets.length) {
+            applyPreset(presets[index])
+            addLog(`Switched to view: ${presets[index]}`)
+        }
+    }
+
     if (e.code === 'KeyZ' || e.code === 'Slash' || e.code === 'Space' || e.code === 'ShiftLeft' ||
         e.code === 'ShiftRight') {
         e.preventDefault()
@@ -1247,7 +1323,7 @@ body {
     width: 100%;
     background: rgba(0, 0, 0, 0.1);
     border-top: 1px solid rgba(255, 255, 255, 0.1);
-    z-index: 2000;
+    z-index: 3000;
     display: none;
     justify-content: center;
     align-items: center;

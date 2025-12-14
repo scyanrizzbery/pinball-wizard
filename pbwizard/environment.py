@@ -1,9 +1,9 @@
 import logging
 import time
+import numpy as np
 
 import gymnasium as gym
 from gymnasium import spaces
-import numpy as np
 
 from pbwizard import constants
 
@@ -165,9 +165,21 @@ class PinballEnv(gym.Env):
         # We scale by 0.1 to keep rewards in a manageable range (~0-1.5 mostly)
         # Clip negative diffs to 0 to ignore read errors/resets
         clipped_diff = max(0, score_diff)
-        reward = np.log1p(clipped_diff) * self.rewards_config['score_log_scale']
+        score_reward = np.log1p(clipped_diff) * self.rewards_config['score_log_scale']
+        reward = score_reward
         reward += difficulty_params['survival_reward'] # Survival reward (scaled by difficulty)
-        
+        reward_components = {
+            'score': score_reward,
+            'survival': difficulty_params['survival_reward'],
+            'combo': 0.0,
+            'multiplier': 0.0,
+            'events': 0.0,
+            'height': 0.0,
+            'flipper_penalty': 0.0,
+            'holding_penalty': 0.0,
+            'ball_lost': 0.0
+        }
+
         # Combo Bonus Reward - encourage maintaining combos
         # CHANGE: Only award bonus on INCREASE to prevent per-frame explosion
         if hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'physics_engine'):
@@ -181,6 +193,7 @@ class PinballEnv(gym.Env):
                 # One-time bonus for hitting a new combo tier
                 combo_increase_bonus = self.rewards_config['combo_increase_factor'] * current_combo
                 reward += combo_increase_bonus
+                reward_components['combo'] += combo_increase_bonus
                 logger.debug(f"Combo increase bonus: +{combo_increase_bonus:.2f} ({self.last_combo_count} -> {current_combo})")
             
             self.last_combo_count = current_combo if combo_status['combo_active'] else 0
@@ -189,6 +202,7 @@ class PinballEnv(gym.Env):
             if multiplier > self.last_multiplier:
                 multiplier_increase_bonus = (multiplier - self.last_multiplier) * self.rewards_config['multiplier_increase_factor']
                 reward += multiplier_increase_bonus
+                reward_components['multiplier'] += multiplier_increase_bonus
                 logger.debug(f"Multiplier increase bonus: +{multiplier_increase_bonus:.2f} ({self.last_multiplier:.1f}x -> {multiplier:.1f}x)")
             
             self.last_multiplier = multiplier
@@ -196,7 +210,9 @@ class PinballEnv(gym.Env):
         # Flipper Penalty (Discourage spamming)
         # 0: No-op, 1: Left, 2: Right, 3: Both
         if action in [constants.ACTION_FLIP_LEFT, constants.ACTION_FLIP_RIGHT, constants.ACTION_FLIP_BOTH]:
-             reward -= self.rewards_config['flipper_penalty'] # Drastically reduced from 0.01 to encourage using flippers
+             penalty = self.rewards_config['flipper_penalty']
+             reward -= penalty
+             reward_components['flipper_penalty'] -= penalty
              # logger.debug("Penalty: Flipper Usage (-0.0001)")
 
         # Event-based Reward (Explicit feedback for hitting targets)
@@ -211,12 +227,15 @@ class PinballEnv(gym.Env):
                 # Base rewards for hitting features (independent of score/combo)
                 if 'bumper' in event['label']:
                     reward += self.rewards_config['bumper_hit'] # Significant reward for action (was 0.01)
+                    reward_components['events'] += self.rewards_config['bumper_hit']
                     logger.debug("Reward: Bumper Hit (+0.5)")
                 elif 'drop_target' in event['label']:
                     reward += self.rewards_config['drop_target_hit'] # Significant reward for targets (was 0.05)
+                    reward_components['events'] += self.rewards_config['drop_target_hit']
                     logger.debug("Reward: Drop Target Hit (+1.0)")
                 elif 'rail' in event['label']:
                     reward += self.rewards_config['rail_hit'] # Encouragement for loop shots (was 0.01)
+                    reward_components['events'] += self.rewards_config['rail_hit']
                     logger.debug("Reward: Rail Hit (+0.5)")
 
         # Debug logging for start of episode
@@ -226,11 +245,10 @@ class PinballEnv(gym.Env):
         
         # Height Reward: Encourage keeping ball up (y is 0 at top, 1 at bottom)
         if ball_pos is not None:
-             # Reward is higher when y is smaller (top of screen)
-             # DRASTICALLY REDUCED: Was 0.2 per step. Now effectively 0 to remove noise.
-             # We want users to HIT TARGETS, not just float.
-             reward += (1.0 - (ball_pos[1] / height)) * 0.005 # Further reduced from 0.01
-             
+             height_term = (1.0 - (ball_pos[1] / height)) * 0.005
+             reward += height_term
+             reward_components['height'] += height_term
+
              # Flipper Hit Reward: Detect if we imparted upward velocity
              # If we are in lower area (y > 0.8) and have strong upward velocity (vy < -50)
              if ball_pos[1] / height > 0.8 and vy < -100: # Moving UP fast
@@ -252,7 +270,8 @@ class PinballEnv(gym.Env):
              holding_threshold = difficulty_params['holding_threshold']
              if self.holding_steps > holding_threshold: # Threshold varies by difficulty
                  reward -= difficulty_params['holding_penalty'] # Penalty scaled by difficulty
-                 
+                 reward_components['holding_penalty'] -= difficulty_params['holding_penalty']
+
                  # STUCK BALL HEURISTIC: Force Nudge if stuck for too long
                  if self.holding_steps > holding_threshold + 20:
                       import random
@@ -309,6 +328,7 @@ class PinballEnv(gym.Env):
         if ball_lost and not is_spawning:
             if ball_lost:
                 reward -= 1.0 # Reduced penalty (was -5.0) to allow positive runs
+                reward_components['ball_lost'] -= 1.0
                 logger.warning(f"TERMINATION: ball_lost flag was True. Spawning={is_spawning}. Pos={ball_pos}. Reward Penalty: -1.0")
             terminated = True
         
@@ -321,6 +341,8 @@ class PinballEnv(gym.Env):
             truncated = True
             logger.info(f"Episode truncated: reached max steps ({self.max_episode_steps})")
 
+
+        info = {'reward_breakdown': reward_components}
 
         return obs, reward, terminated, truncated, info
 

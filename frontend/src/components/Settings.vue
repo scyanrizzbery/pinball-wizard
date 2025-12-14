@@ -1,103 +1,5 @@
 <template>
     <div id="physics-controls" data-cy="settings-panel">
-        <!-- Top Controls (Model, Layout, View) -->
-        <div class="top-controls">
-            <div class="control-group">
-                <div style="flex: 1;">
-                    <div class="label">Model</div>
-                    <select :value="selectedModel"
-                            @change="$emit('update:selectedModel', $event.target.value); $emit('load-model')"
-                            class="select-input" :disabled="stats.is_training">
-                        <option v-for="model in models" :key="model.filename" :value="model.filename">
-                            {{ model.filename }} ({{ model.mod_time || model.hash }})
-                        </option>
-                    </select>
-                </div>
-            </div>
-            <div class="control-group">
-                <div style="flex: 1;">
-                    <div class="label">Table Layout</div>
-                    <div style="display: flex; gap: 5px;">
-                        <select :value="selectedLayout" @change="$emit('change-layout', $event.target.value)"
-                                class="select-input"
-                                :disabled="stats.is_training" style="flex: 1;">
-                            <option v-for="layout in layouts" :key="layout.id" :value="layout.id">
-                                {{ layout.name }}
-                            </option>
-                        </select>
-                        <button @click="saveLayout" class="control-btn" title="Save Layout"
-                                style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
-                            💾
-                        </button>
-                        <button @click="saveLayoutAs" class="control-btn" title="Save Layout As..."
-                                style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
-                            ➕
-                        </button>
-                        <button @click="saveLayoutSettings" class="control-btn" title="Save Settings to Layout"
-                                style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
-                            ⚙️💾
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div class="control-group">
-                <div style="flex: 1;">
-                    <div class="label">View</div>
-                    <div style="display: flex; gap: 5px;">
-                        <select :value="selectedPreset"
-                                @change="$emit('update:selectedPreset', $event.target.value); $emit('apply-preset', $event.target.value)"
-                                class="select-input" :disabled="stats.is_training" style="flex: 1;">
-                            <option value="" disabled>Select Camera Preset</option>
-                            <option v-for="(preset, name) in cameraPresets" :key="name" :value="name">{{
-                                    name
-                                }}
-                            </option>
-                        </select>
-                        <button @click="savePreset" class="control-btn" title="Save View"
-                                style="padding: 0 10px; font-size: 1.2em;"
-                                :disabled="stats.is_training || !selectedPreset">
-                            💾
-                        </button>
-                        <button @click="savePresetAs" class="control-btn" title="Save View As..."
-                                style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
-                            ➕
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div class="control-group">
-                <div style="flex: 1;">
-                    <div class="label">AI Difficulty</div>
-                    <select :value="selectedDifficulty" @change="$emit('update-difficulty', $event.target.value)"
-                            class="select-input" :disabled="stats.is_training">
-                        <option value="easy">Easy</option>
-                        <option value="medium">Medium</option>
-                        <option value="hard">Hard</option>
-                    </select>
-                </div>
-            </div>
-            <div class="control-group">
-                <div style="flex: 1;">
-                    <div class="label">Display</div>
-                    <div style="display: flex; gap: 5px;">
-                        <button @click="$emit('toggle-fullscreen')" class="control-btn" style="flex: 1;">
-                            {{ isFullscreen ? '🚪 Exit Fullscreen' : '📺 Fullscreen' }}
-                        </button>
-                        <button @click="$emit('toggle-view')" class="control-btn" style="flex: 1;">
-                            {{ cameraMode === 'perspective' ? '📐 2D View' : '🎮 3D View' }}
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div class="control-group">
-                <div style="flex: 1;">
-                    <div class="label">Editor</div>
-                    <button @click="$emit('toggle-edit-mode')" class="control-btn" :class="{ active: isEditMode }">
-                        {{ isEditMode ? '✅ Done Editing' : '✏️ Edit Rails' }}
-                    </button>
-                </div>
-            </div>
-        </div>
 
         <div class="tabs">
             <button class="tab" :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">Settings
@@ -108,6 +10,110 @@
 
         <!-- Settings Tab -->
         <div v-show="activeTab === 'settings'" class="tab-content">
+            <!-- Top Controls (Model, Layout, View) -->
+            <div class="group-header" @click="toggleGroup('global')">
+                <span>Global Settings</span>
+                <span class="arrow" :class="{ rotated: groupsExpanded.global }">▼</span>
+            </div>
+
+            <div class="top-controls" v-show="groupsExpanded.global">
+                <div class="control-group">
+                    <div style="flex: 1;">
+                        <div class="label">Model</div>
+                        <select :value="selectedModel"
+                                @change="$emit('update:selectedModel', $event.target.value); $emit('load-model')"
+                                class="select-input" :disabled="stats.is_training">
+                            <option v-for="model in models" :key="model.filename" :value="model.filename">
+                                {{ model.filename }} ({{ model.mod_time || model.hash }})
+                            </option>
+                        </select>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <div style="flex: 1;">
+                        <div class="label">Table Layout</div>
+                        <div style="display: flex; gap: 5px;">
+                            <select :value="selectedLayout" @change="$emit('change-layout', $event.target.value)"
+                                    class="select-input"
+                                    :disabled="stats.is_training" style="flex: 1;">
+                                <option v-for="layout in layouts" :key="layout.id" :value="layout.id">
+                                    {{ layout.name }}
+                                </option>
+                            </select>
+                            <button @click="saveLayout" class="control-btn" title="Save Layout"
+                                    style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
+                                💾
+                            </button>
+                            <button @click="saveLayoutAs" class="control-btn" title="Save Layout As..."
+                                    style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
+                                ➕
+                            </button>
+                            <button @click="saveLayoutSettings" class="control-btn" title="Save Settings to Layout"
+                                    style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
+                                ⚙️💾
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <div style="flex: 1;">
+                        <div class="label">View</div>
+                        <div style="display: flex; gap: 5px;">
+                            <select :value="selectedPreset"
+                                    @change="$emit('update:selectedPreset', $event.target.value); $emit('apply-preset', $event.target.value)"
+                                    class="select-input" :disabled="stats.is_training" style="flex: 1;">
+                                <option value="" disabled>Select Camera Preset</option>
+                                <option v-for="(preset, name) in cameraPresets" :key="name" :value="name">{{
+                                        name
+                                    }}
+                                </option>
+                            </select>
+                            <button @click="savePreset" class="control-btn" title="Save View"
+                                    style="padding: 0 10px; font-size: 1.2em;"
+                                    :disabled="stats.is_training || !selectedPreset">
+                                💾
+                            </button>
+                            <button @click="savePresetAs" class="control-btn" title="Save View As..."
+                                    style="padding: 0 10px; font-size: 1.2em;" :disabled="stats.is_training">
+                                ➕
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <div style="flex: 1;">
+                        <div class="label">AI Difficulty</div>
+                        <select :value="selectedDifficulty" @change="$emit('update-difficulty', $event.target.value)"
+                                class="select-input" :disabled="stats.is_training">
+                            <option value="easy">Easy</option>
+                            <option value="medium">Medium</option>
+                            <option value="hard">Hard</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <div style="flex: 1;">
+                        <div class="label">Display</div>
+                        <div style="display: flex; gap: 5px;">
+                            <button @click="$emit('toggle-fullscreen')" class="control-btn" style="flex: 1;">
+                                {{ isFullscreen ? '🚪 Exit Fullscreen' : '📺 Fullscreen' }}
+                            </button>
+                            <button @click="$emit('toggle-view')" class="control-btn" style="flex: 1;">
+                                {{ cameraMode === 'perspective' ? '📐 2D View' : '🎮 3D View' }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <div style="flex: 1;">
+                        <div class="label">Editor</div>
+                        <button @click="$emit('toggle-edit-mode')" class="control-btn" :class="{ active: isEditMode }">
+                            {{ isEditMode ? '✅ Done Editing' : '✏️ Edit Rails' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Ball Physics Group -->
             <div class="group-header" @click="toggleGroup('ball')">
                 <span>Ball Physics</span>
@@ -510,61 +516,6 @@
                 </div>
             </div>
 
-
-            <div style="margin-top: auto; padding-top: 20px;">
-                <button class="control-btn" @click="$emit('reset-config')" :disabled="stats.is_training"
-                        style="width: 100%; background-color: #d32f2f;">Reset Physics
-                </button>
-            </div>
-
-        </div>
-
-        <!-- Training Tab -->
-        <div v-show="activeTab === 'training'" class="tab-content">
-            <div v-if="!stats.is_training" class="training-grid">
-                <div class="setting-group">
-                    <label>Model Name</label>
-                    <input type="text" v-model="trainingConfig.modelName" class="input-full">
-                </div>
-                <div class="setting-group">
-                    <label>Timesteps</label>
-                    <input type="number" v-model="trainingConfig.timesteps" class="input-full">
-                </div>
-                <div class="setting-group">
-                    <label>Learning Rate</label>
-                    <input type="number" v-model="trainingConfig.learningRate" step="0.0001" class="input-full">
-                </div>
-                <div class="setting-group">
-                    <label>Entropy (ent_coef)</label>
-                    <input type="number" v-model="trainingConfig.entCoef" step="0.0001" class="input-full">
-                </div>
-                <div class="setting-group">
-                    <label>Gamma (Discount)</label>
-                    <input type="number" v-model="trainingConfig.gamma" step="0.01" max="1.0" class="input-full">
-                </div>
-                <div class="setting-group">
-                    <label>GAE Lambda</label>
-                    <input type="number" v-model="trainingConfig.gaeLambda" step="0.01" max="1.0" class="input-full">
-                </div>
-                <div class="setting-group">
-                    <label>Steps (n_steps)</label>
-                    <select v-model="trainingConfig.nSteps" class="input-full">
-                        <option :value="1024">1024</option>
-                        <option :value="2048">2048</option>
-                        <option :value="4096">4096</option>
-                    </select>
-                </div>
-                <div class="setting-group">
-                    <label>Batch Size</label>
-                    <select v-model="trainingConfig.batchSize" class="input-full">
-                        <option :value="64">64</option>
-                        <option :value="128">128</option>
-                        <option :value="256">256</option>
-                    </select>
-                </div>
-            </div>
-
-            <!-- Rewards Group (Moved from Settings) -->
             <div class="group-header" @click="toggleGroup('rewards')">
                 <span>Rewards</span>
                 <span class="arrow" :class="{ rotated: groupsExpanded.rewards }">▼</span>
@@ -625,6 +576,53 @@
                     </div>
                     <input type="range" min="0.1" max="2.0" step="0.1" :value="rewards.rail_hit"
                            @input="updateRewards('rail_hit', parseFloat($event.target.value))">
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Training Tab -->
+        <div v-show="activeTab === 'training'" class="tab-content">
+            <div v-if="!stats.is_training" class="training-grid">
+                <div class="setting-group">
+                    <label>Model Name</label>
+                    <input type="text" v-model="trainingConfig.modelName" class="input-full">
+                </div>
+                <div class="setting-group">
+                    <label>Timesteps</label>
+                    <input type="number" v-model="trainingConfig.timesteps" class="input-full" step="10000">
+                </div>
+                <div class="setting-group">
+                    <label>Learning Rate</label>
+                    <input type="number" v-model="trainingConfig.learningRate" step="0.0001" class="input-full">
+                </div>
+                <div class="setting-group">
+                    <label>Entropy (ent_coef)</label>
+                    <input type="number" v-model="trainingConfig.entCoef" step="0.0001" class="input-full">
+                </div>
+                <div class="setting-group">
+                    <label>Gamma (Discount)</label>
+                    <input type="number" v-model="trainingConfig.gamma" step="0.01" max="1.0" class="input-full">
+                </div>
+                <div class="setting-group">
+                    <label>GAE Lambda</label>
+                    <input type="number" v-model="trainingConfig.gaeLambda" step="0.01" max="1.0" class="input-full">
+                </div>
+                <div class="setting-group">
+                    <label>Steps (n_steps)</label>
+                    <select v-model="trainingConfig.nSteps" class="input-full">
+                        <option :value="1024">1024</option>
+                        <option :value="2048">2048</option>
+                        <option :value="4096">4096</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label>Batch Size</label>
+                    <select v-model="trainingConfig.batchSize" class="input-full">
+                        <option :value="64">64</option>
+                        <option :value="128">128</option>
+                        <option :value="256">256</option>
+                    </select>
                 </div>
             </div>
 
@@ -692,7 +690,7 @@
                 <highcharts :options="lossChartOptions" style="width:100%; height:200px;"></highcharts>
             </div>
 
-            <div style="margin-top: auto; padding-top: 20px; display: flex; gap: 10px;">
+            <div style="margin-top: auto; padding: 20px; display: flex; gap: 10px;">
                 <button class="control-btn" style="flex: 1; background-color: #4caf50;" @click="startTraining"
                         :disabled="stats?.is_training">Start Training
                 </button>
@@ -700,12 +698,22 @@
                         :disabled="!stats?.is_training">Stop
                 </button>
             </div>
+
+            <div style="margin: 10px">
+                <button class="control-btn"
+                        @click="resetTrainingDefaults"
+                        style="width: 50%; background-color: #f39c12;"
+                        :disabled="stats.is_training">
+                    ↺ Reset Defaults
+                </button>
+            </div>
         </div>
+
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue'
+import { ref, reactive, watch, computed, inject } from 'vue'
 import type { PhysicsConfig, GameStats, RewardsConfig } from '../types'
 
 interface Props {
@@ -765,19 +773,37 @@ const emit = defineEmits<{
   (e: 'toggle-edit-mode'): void
 }>()
 
+
 const activeTab = ref<string>('settings')
+const isTopControlsExpanded = ref(false)
+
+const confirmDialog = inject('confirm') as (msg: string) => Promise<boolean>
+const promptDialog = inject('prompt') as (msg: string, defaultVal?: string) => Promise<string | null>
+
+const DEFAULTS = {
+    training: {
+        modelName: 'ppo_pinball',
+        timesteps: 100000,
+        learningRate: 0.0003,
+        entCoef: 0.01,
+        gamma: 0.99,
+        nSteps: 2048,
+        batchSize: 64,
+        gaeLambda: 0.95
+    },
+    rewards: {
+        score_log_scale: 0.1,
+        combo_increase_factor: 0.1,
+        multiplier_increase_factor: 0.5,
+        flipper_penalty: 0.0001,
+        bumper_hit: 0.5,
+        drop_target_hit: 1.0,
+        rail_hit: 0.5
+    }
+}
 
 // selectedPreset is now a prop
-const trainingConfig = reactive({
-    modelName: 'ppo_pinball',
-    timesteps: 100000,
-    learningRate: 0.0003,
-    entCoef: 0.01,
-    gamma: 0.99,
-    nSteps: 2048,
-    batchSize: 64,
-    gaeLambda: 0.95
-})
+const trainingConfig = reactive({ ...DEFAULTS.training })
 
 // Update config when optimized params are received
 watch(() => props.optimizedHyperparams, (newParams: Record<string, any> | undefined) => {
@@ -792,42 +818,54 @@ watch(() => props.optimizedHyperparams, (newParams: Record<string, any> | undefi
 }, {immediate: true})
 
 
-const saveLayout = () => {
-    if (confirm("Overwrite current layout?")) {
+const saveLayout = async () => {
+    if (await confirmDialog("Overwrite current layout?")) {
         emit('save-layout')
     }
 }
 
-const saveLayoutAs = () => {
-    const name = prompt("Enter name for new layout:")
+const resetTrainingDefaults = async () => {
+    if (await confirmDialog("Reset all training hyperparameters and rewards to defaults?")) {
+        // Reset training config
+        Object.assign(trainingConfig, DEFAULTS.training)
+        
+        // Reset rewards via emit to parent (since rewards prop is readonly/handled by parent)
+        emit('update-rewards', DEFAULTS.rewards)
+    }
+}
+
+
+const saveLayoutAs = async () => {
+    const name = await promptDialog("Enter name for new layout:")
     if (name) {
         emit('save-layout-as', name)
     }
 }
 
-const saveLayoutSettings = () => {
-    if (confirm("Save current physics settings to the active layout file?")) {
+const saveLayoutSettings = async () => {
+    if (await confirmDialog("Save current physics settings to the active layout file?")) {
         emit('save-layout-settings')
     }
 }
 
-const savePreset = () => {
+const savePreset = async () => {
     if (props.selectedPreset) {
-        if (confirm(`Overwrite camera view '${props.selectedPreset}'?`)) {
+        if (await confirmDialog(`Overwrite camera view '${props.selectedPreset}'?`)) {
             emit('save-preset', props.selectedPreset)
         }
     }
 }
 
-const savePresetAs = () => {
-    const name = prompt("Enter name for new camera view:")
+const savePresetAs = async () => {
+    const name = await promptDialog("Enter name for new camera view:")
     if (name) {
         emit('save-preset', name)
     }
 }
 
 const groupsExpanded = reactive<Record<string, boolean>>({
-    ball: true,
+    global: true,
+    ball: false,
     flipper: false,
     mechanics: false,
     rewards: false,
@@ -856,20 +894,9 @@ const formatTime = (seconds: number | undefined) => {
     return `${minutes}m ${remainingSeconds}s`
 }
 
-const updateDebounceTimers: Record<string, any> = {}
-
 const updatePhysics = (param: string, value?: any) => {
     const val = value !== undefined ? value : (props.physics as any)[param]
-    
-    // Debounce to prevent flooding backend (especially for expensive rebuilds like flippers)
-    if (updateDebounceTimers[param]) {
-        clearTimeout(updateDebounceTimers[param])
-    }
-    
-    updateDebounceTimers[param] = setTimeout(() => {
-        emit('update-physics', param, val)
-        delete updateDebounceTimers[param]
-    }, 100)
+    emit('update-physics', param, val)
 }
 
 // Type-safe event handler helpers
@@ -895,8 +922,8 @@ const updateRewards = (param: string, value: number) => {
 
 
 
-const deletePreset = () => {
-    if (props.selectedPreset && confirm(`Delete preset "${props.selectedPreset}"?`)) {
+const deletePreset = async () => {
+    if (props.selectedPreset && await confirmDialog(`Delete preset "${props.selectedPreset}"?`)) {
         emit('delete-preset', props.selectedPreset)
         emit('update:selectedPreset', '')
     }
@@ -914,6 +941,7 @@ const startTraining = () => {
 const trainingChartData = reactive<{
     timestamps: number[],
     mean_reward: number[][],
+    ep_len_mean: number[][],
     loss: number[][],
     entropy_loss: number[][],
     value_loss: number[][],
@@ -923,6 +951,7 @@ const trainingChartData = reactive<{
 }>({
     timestamps: [],
     mean_reward: [],
+    ep_len_mean: [],
     loss: [],
     entropy_loss: [],
     value_loss: [],
@@ -953,13 +982,11 @@ const performanceChartOptions = computed(() => ({
             labels: {style: {color: '#4caf50'}},
             gridLineColor: '#333'
         },
-        { // Secondary Y-axis (Expl Var)
-            title: {text: 'Expl. Var', style: {color: '#9c27b0'}},
+        { // Secondary Y-axis (Mean Length)
+            title: {text: 'Episode Len', style: {color: '#9c27b0'}},
             labels: {style: {color: '#9c27b0'}},
             opposite: true,
             gridLineColor: '#333',
-            max: 1.0,
-            min: 0.0
         }
     ],
     legend: {itemStyle: {color: '#ccc'}},
@@ -972,8 +999,8 @@ const performanceChartOptions = computed(() => ({
             yAxis: 0
         },
         {
-            name: 'Explained Variance',
-            data: trainingChartData.explained_variance,
+            name: 'Mean Length',
+            data: trainingChartData.ep_len_mean,
             color: '#9c27b0',
             yAxis: 1
         }
@@ -1034,6 +1061,7 @@ watch(() => props.stats, (newStats: GameStats | undefined) => {
     if (!newStats.is_training && trainingChartData.mean_reward.length > 0) {
         trainingChartData.timestamps = []
         trainingChartData.mean_reward = []
+        trainingChartData.ep_len_mean = []
         trainingChartData.loss = []
         trainingChartData.entropy_loss = []
         trainingChartData.value_loss = []
@@ -1053,6 +1081,7 @@ watch(() => props.stats, (newStats: GameStats | undefined) => {
         // Add sampled data points
         // Use || 0 to prevent NaN/undefined from breaking charts
         trainingChartData.mean_reward.push([timestamp, newStats.ep_rew_mean || 0])
+        trainingChartData.ep_len_mean.push([timestamp, newStats.ep_len_mean || 0])
         trainingChartData.explained_variance.push([timestamp, newStats.explained_variance || 0])
 
         const s = newStats as any
@@ -1173,10 +1202,11 @@ const stopTraining = () => {
 .arrow {
     transition: transform 0.3s ease;
     font-size: 0.8em;
+    transform: rotate(90deg);
 }
 
 .arrow.rotated {
-    transform: rotate(180deg);
+    transform: rotate(0);
 }
 
 .group-content {
@@ -1299,12 +1329,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .top-controls {
-    padding: 15px;
-    background: #252525;
-    border-bottom: 1px solid #333;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    padding: 15px 15px 0;
 }
 
 .control-group {

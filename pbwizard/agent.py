@@ -172,7 +172,7 @@ class ReflexAgent:
 
 class RLAgent:
 
-    def __init__(self, env=None, model_path=None):
+    def __init__(self, env=None, model_path=None, tensorboard_log=None):
         self.model = None
         self.enabled = True  # AI enabled by default
         self._warned_no_model = False
@@ -215,7 +215,8 @@ class RLAgent:
                 batch_size=int(hyperparams['batch_size']),
                 gamma=hyperparams['gamma'],
                 gae_lambda=hyperparams.get('gae_lambda', 0.95),
-                device='cpu' # Force CPU for MlpPolicy
+                device='cpu',
+                tensorboard_log=tensorboard_log
             )
         else:
             logger.warning("RLAgent initialized without env or model_path. Cannot train or predict.")
@@ -233,7 +234,8 @@ class RLAgent:
                 batch_size=int(hyperparams.get('batch_size', 64)),
                 gamma=hyperparams.get('gamma', 0.99),
                 gae_lambda=hyperparams.get('gae_lambda', 0.95),
-                device='cpu'
+                device='cpu',
+                tensorboard_log=self.model.tensorboard_log if self.model else None
             )
 
         if self.model:

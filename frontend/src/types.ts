@@ -127,5 +127,14 @@ export interface GameStats {
     value_loss?: number;
     policy_gradient_loss?: number;
     entropy_loss?: number;
+    high_scores?: HighScoreEntry[];
     [key: string]: any;
+}
+
+export interface HighScoreEntry {
+    score: number;
+    model: string;
+    layout: string;
+    date: string;
+    timestamp: number;
 }

@@ -55,6 +55,12 @@
       </div>
     </div>
 
+    <div class="header-controls">
+        <button class="icon-btn" @click="$emit('toggle-high-scores')" title="View High Scores">
+            🏆 High Scores
+        </button>
+    </div>
+
   </div>
 </template>
 
@@ -66,9 +72,10 @@ const props = defineProps<{
   smokeIntensity: number
 }>()
 
-const emit = defineEmits<{
+const $emit = defineEmits<{
   (e: 'close'): void
   (e: 'update-smoke-intensity', value: number): void
+  (e: 'toggle-high-scores'): void
 }>()
 
 const volume = ref(0.5)
@@ -109,7 +116,7 @@ const updateMute = () => {
 }
 
 const updateSmokeIntensity = () => {
-    emit('update-smoke-intensity', localSmokeIntensity.value)
+    $emit('update-smoke-intensity', localSmokeIntensity.value)
     // If manual adjustment doesn't match a preset, strictly speaking we are "custom", but for now keep last preset or ignore.
 }
 
@@ -234,4 +241,19 @@ input[type="range"] {
 .test-btn:hover {
   background: #45a049;
 }
+
+.header-controls {
+}
+
+.icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.icon-btn:hover {
+    transform: scale(1.1);
+}
+
 </style>

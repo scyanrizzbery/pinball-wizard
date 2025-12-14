@@ -1,15 +1,14 @@
 {
-    "name": "Medieval Madness",
     "width": 0.6,
     "height": 1.2,
     "left_flipper_x_min": 0.25,
     "left_flipper_x_max": 0.3,
-    "left_flipper_y_min": 0.85,
-    "left_flipper_y_max": 0.92,
+    "left_flipper_y_min": 0.8,
+    "left_flipper_y_max": 0.9,
     "right_flipper_x_min": 0.7,
     "right_flipper_x_max": 0.75,
-    "right_flipper_y_min": 0.85,
-    "right_flipper_y_max": 0.92,
+    "right_flipper_y_min": 0.8,
+    "right_flipper_y_max": 0.9,
     "bumpers": [
         {
             "x": 0.15,
@@ -39,14 +38,14 @@
     "drop_targets": [
         {
             "x": 0.45,
-            "y": 0.10,
+            "y": 0.1,
             "width": 0.04,
             "height": 0.06,
             "value": 8000
         },
         {
             "x": 0.55,
-            "y": 0.10,
+            "y": 0.1,
             "width": 0.04,
             "height": 0.06,
             "value": 8000
@@ -76,6 +75,8 @@
         }
     ],
     "ramps": [],
+    "teleports": [],
+    "upper_deck": null,
     "upper_flippers": [],
     "rails": [
         {
@@ -169,6 +170,8 @@
             }
         }
     ],
+    "rail_x_offset": 0.0,
+    "rail_y_offset": 0.0,
     "physics": {
         "gravity": 2800.0,
         "friction": 0.01,
@@ -176,7 +179,7 @@
         "flipper_speed": 45.0,
         "flipper_resting_angle": -28.0,
         "flipper_stroke_angle": 55.0,
-        "flipper_length": 0.20,
+        "flipper_length": 0.2,
         "plunger_release_speed": 1800.0,
         "launch_angle": 0,
         "tilt_threshold": 9.0,
@@ -191,5 +194,6 @@
             "camera_pitch": 50,
             "camera_zoom": 1.7
         }
-    }
+    },
+    "last_preset": ""
 }

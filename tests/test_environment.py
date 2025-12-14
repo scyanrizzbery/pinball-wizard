@@ -71,10 +71,8 @@ class TestEnvironment(unittest.TestCase):
         # Mock vision returns 100
         obs, reward, terminated, truncated, info = self.env.step(ACTION_NOOP)
         
-        # Reward = log1p(100) * 0.1 = 4.615 * 0.1 = 0.4615
-        # Height reward (approx 0.005) + Survival (0.001)
-        # Total ~ 0.465 (actual 0.4967 due to float precision)
-        self.assertAlmostEqual(reward, 0.497, places=2) 
+        # Reward = log1p(100) * 0.106 + survival (0.005) + height (~0.005)
+        self.assertAlmostEqual(reward, 0.469, places=2)
         self.assertFalse(terminated)
         
         # Next step, score still 100

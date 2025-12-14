@@ -26,15 +26,21 @@ COLLISION_TYPE_MOTHERSHIP = 9
 
 # Mapping for logging
 COLLISION_LABELS = {
-    1: "ball",
-    2: "wall",
-    3: "flipper",
-    4: "bumper",
-    5: "drop_target",
-    6: "plunger_stop",
-    7: "left_plunger",
-    8: "rail",
-    9: "mothership"
+    COLLISION_TYPE_BALL: "ball",
+    COLLISION_TYPE_WALL: "wall",
+    COLLISION_TYPE_FLIPPER: "flipper",
+    COLLISION_TYPE_BUMPER: "bumper",
+    COLLISION_TYPE_DROP_TARGET: "drop_target",
+    COLLISION_TYPE_PLUNGER: "plunger_stop",
+    COLLISION_TYPE_LEFT_PLUNGER: "left_plunger",
+    COLLISION_TYPE_RAIL: "rail",
+    COLLISION_TYPE_MOTHERSHIP: "mothership",
+}
+
+SCORE_VALUES = {
+    COLLISION_TYPE_BUMPER: 10,
+    COLLISION_TYPE_DROP_TARGET: 500,
+    COLLISION_TYPE_MOTHERSHIP: 50
 }
 
 
@@ -111,12 +117,6 @@ class PymunkEngine(Physics):
 
         # Apply initial physics settings from config
         self._update_gravity()  # Set initial gravity based on tilt
-        
-        # Legacy attribute support (properties could be better but sticking to direct access for now where possible or redirecting)
-        # To avoid breaking extensive external access immediately, we might want properties or just update usages.
-        # Given the task is to "remove hasattr stuff in vision.py to a solid interface", using self.config explicit is better.
-        
-
         
         self.balls = []
         self.flippers = {}
@@ -211,13 +211,6 @@ class PymunkEngine(Physics):
     def _setup_collision_logging(self):
         """Setup collision handlers to log what ball hits and award scores"""
         # Score values for different features
-        SCORE_VALUES = {
-            COLLISION_TYPE_BUMPER: 10,
-            COLLISION_TYPE_DROP_TARGET: 500,
-
-            COLLISION_TYPE_MOTHERSHIP: 50
-        }
-        
         # Setup collision handler - API changed in pymunk 7.x
         handler = None
         try:
@@ -275,9 +268,6 @@ class PymunkEngine(Physics):
             type_a = shapes[0].collision_type
             type_b = shapes[1].collision_type
             
-            # log every collision for debugging
-            # logger.info(f"DEBUG: Collision {type_a} <-> {type_b}")
-
             if type_a == COLLISION_TYPE_BALL or type_b == COLLISION_TYPE_BALL:
                 other = type_b if type_a == COLLISION_TYPE_BALL else type_a
                 label = COLLISION_LABELS.get(other, f"unknown({other})")
@@ -290,7 +280,6 @@ class PymunkEngine(Physics):
                 score_value = SCORE_VALUES.get(other, 0)
                 
                 # Record event for RL and Sound
-
                 if score_value > 0:
                     # Combo detection - check if this is a scoring hit
                     current_time = self.simulation_time
@@ -467,15 +456,16 @@ class PymunkEngine(Physics):
                                 if len(self.drop_target_states) > 0 and all(not state for state in self.drop_target_states):
                                     # All drop targets hit! Trigger MULTIBALL!
                                     logger.info("🎯 All drop targets hit! MULTIBALL ACTIVATED! 🎉")
+                                    
+                                    # Calculate Bonus
+                                    bonus_score = 10000 * self.score_multiplier
+                                    self.score += int(bonus_score)
+                                    final_score += int(bonus_score) # Ensure it shows in the collision popup if needed
+                                    
                                     # Reset targets physically and physically (Defer to post-step to be safe)
                                     self.space.add_post_step_callback(self._reset_drop_targets_safe, None)
 
-                                    # Award bonus score (e.g., 10000 points for multiball activation)
-                                    bonus_score = 10000 * self.score_multiplier
-                                    self.score += int(bonus_score)
-                                    final_score += int(bonus_score)
-
-                                    # Add a new ball to plunger lane (multiball!), max 5 balls
+                                    # Award a new ball to plunger lane (multiball!), max 5 balls
                                     if len(self.balls) < 5:
                                         lane_x = self.width * 0.94
                                         # Random spacing to prevent overlap/explosion
@@ -1276,6 +1266,9 @@ class PymunkEngine(Physics):
         shape.elasticity = self.config.restitution
         shape.friction = self.config.friction
         shape.collision_type = COLLISION_TYPE_BALL
+        # Monkey-patch shape onto body for easier removal
+        # Use custom attribute name to avoid conflict with Pymunk's read-only 'shapes' property
+        body.custom_shapes = {shape}
         self.space.add(body, shape)
         self.balls.append(body)
         return body
@@ -1284,8 +1277,8 @@ class PymunkEngine(Physics):
         """Remove a ball from the physics space and tracking list."""
         if ball in self.balls:
             # Check if b has shapes attached (our custom monkey-patch)
-            if hasattr(ball, 'shapes'):
-                self.space.remove(ball, *ball.shapes)
+            if hasattr(ball, 'custom_shapes'):
+                self.space.remove(ball, *ball.custom_shapes)
             else:
                 # Fallback: remove body, but might leave phantom shapes?
                 # Pymunk doesn't easily let us find shapes for a body without iterating.
@@ -1633,14 +1626,15 @@ class PymunkEngine(Physics):
             left_lane_x = self.width * 0.15 # Approx left lane boundary
             
             for b in self.balls:
-                # Check if in left lane (x < boundary) and near bottom (y > 0.5 height)
-                if b.position.x < left_lane_x and b.position.y > self.height * 0.5:
+                # Check if in left lane (x < boundary) and NEAR BOTTOM (y > 0.9 height)
+                # Was 0.5, which caused false firing for balls stuck mid-lane (e.g. y=585)
+                if b.position.x < left_lane_x and b.position.y > self.height * 0.9:
                      if b.velocity.length < 100.0: # Stationary (increased threshold)
                          # Check cooldown
-                         current_time = time.time()
+                         current_time = self.simulation_time
                          if not hasattr(self, 'last_left_plunger_time'):
-                             self.last_left_plunger_time = 0
-                         
+                             self.last_left_plunger_time = -1e6
+
                          if current_time - self.last_left_plunger_time > 1.0:
                              logger.info(f"Auto-firing LEFT plunger (Kickback): Ball detected at {b.position}")
                              self.fire_left_plunger()
@@ -1657,7 +1651,7 @@ class PymunkEngine(Physics):
             self.drop_target_timer -= dt
 
 
-        
+
         # Configurable angles (degrees)
         # Use stored values or defaults
         rest_val = self.config.flipper_resting_angle
@@ -1912,8 +1906,8 @@ class PymunkEngine(Physics):
                     b.stuck_timer = 0.0
                 b.stuck_timer += dt
                 
-                # Trigger after 5 seconds
-                if b.stuck_timer > 5.0:
+                # Trigger after 10 seconds (User feedback: 5s was too fast)
+                if b.stuck_timer > 10.0:
                     if not getattr(b, 'stuck_event_sent', False):
                         logger.info(f"Stuck ball detected at {b.position}!")
                         self.events.append({
@@ -1946,8 +1940,9 @@ class PymunkEngine(Physics):
         # Simpler to just reset all balls to plunger to be safe.
         
         # Remove existing balls
-        for b in self.balls:
-            self.space.remove(b, *b.shapes)
+        # Use remove_ball to ensure clean removal (body + shapes)
+        for b in self.balls[:]: # Iterate copy
+            self.remove_ball(b)
         self.balls = []
         
         # Add new ball in plunger lane
