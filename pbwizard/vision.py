@@ -604,17 +604,17 @@ class SimulatedFrameCapture(FrameCapture):
         self.physics_engine = None
         self.current_seed = None
 
+        # CRITICAL: Initialize flipper_resting_angle BEFORE refresh_layouts()
+        # because refresh_layouts() calls _init_physics() at line 1367
+        # which uses this value for upper flippers at line 864
+        val = -36.0  # Default from config.json
+        if self.layout and hasattr(self.layout, 'physics_params'):
+            val = self.layout.physics_params.get('flipper_resting_angle', -36.0)
+        self.flipper_resting_angle = val
+
         self._load_available_layouts()
         if layout_config is None:
             self.refresh_layouts()
-
-        # CRITICAL: Initialize flipper_resting_angle BEFORE _init_physics()
-        # _init_physics() uses this value at line 862 for upper flippers
-        # If not set, will cause AttributeError and prevent AI from working
-        val = -30.0
-        if self.layout and hasattr(self.layout, 'physics_params'):
-            val = self.layout.physics_params.get('flipper_resting_angle', -30.0)
-        self.flipper_resting_angle = val
 
         # Physics Engine (Full Init)
         self._init_physics()
