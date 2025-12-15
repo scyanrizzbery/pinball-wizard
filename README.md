@@ -1,24 +1,25 @@
 # Pinball Wizard 🧙‍♂️
 
-A reinforcement learning agent for playing pinball, featuring a deterministic replay system, live 3D visualization, and a web-based layout editor.
+A reinforcement learning agent for playing pinball, featuring a deterministic replay system, live 3D visualization,
+and a web-based layout editor.
 
-- **Deterministic Replay System**: Automatically record and replay games with standard cryptographic hashing to verify high scores and shared replays.
-- **Layout Editor**: Built-in 3D editor to drag & drop rails, bumpers, and zones directly in the browser.
-- **Mothership Boss Battle**: Dynamic boss fights with destructible environments and multi-stage mechanics.
-- **3D Simulator**: Fully interactive 3D view with realistic physics (Pymunk), including tapered flippers and rubber bounce.
-- **Mobile & Foldable Support**: Responsive UI optimized for desktop and Galaxy Z Fold devices.
 - **Web Visualization**: Live web interface (Vue 3 + Three.js) to watch the agent "think" and play in real-time.
-- **High Score System**: Track your best games with visual celebrations, fireworks, and persistent history.
+- **3D Simulator**: Fully interactive 3D view with realistic physics (Pymunk), including tapered flippers and rubber bounce.
 - **Dynamic Physics Config**: Adjust gravity, friction, ball mass, and flipper mechanics on the fly.
+- **Layout Editor**: Built-in 3D editor to drag & drop rails and bumpers directly in the browser.
+- **Mobile & Foldable Support**: Responsive UI optimized for desktop and Galaxy Z Fold devices.
+- **Deterministic Replay System**: Automatically record and replay games with standard cryptographic hashing to verify high scores and shared replays.
+- **Mothership Boss Battle**: Dynamic boss fights with destructible environments and multi-stage mechanics.
+- **High Score System**: Track your best games with visual celebrations, fireworks, and persistent history.
 
 ## Desktop
 ![Desktop View](assets/screenshot_desktop.png)
 
-## Mobile
-![Mobile View](assets/screenshot_mobile.png)
-
 ## Training
 ![Training View](assets/screenshot_desktop_train.png)
+
+## Mobile
+![Mobile View](assets/screenshot_mobile.png)
 
 ## 🛠️ Installation
 
@@ -31,7 +32,7 @@ A reinforcement learning agent for playing pinball, featuring a deterministic re
 2.  **Using Docker (Recommended)**
     Ensure you have Docker and Docker Compose installed.
     ```bash
-    docker compose build
+    docker compose up
     ```
 
 3.  **Local Installation (Dev)**
@@ -43,9 +44,7 @@ A reinforcement learning agent for playing pinball, featuring a deterministic re
 
 ### 1. Manual Play Mode
 Test the physics and controls yourself without the AI.
-```bash
-docker compose run --rm -p 5000:5000 pinball-bot python main.py
-```
+
 *(Note: `main.py` defaults to manual play if no model is loaded)*
 
 - **Controls**:
@@ -57,18 +56,9 @@ docker compose run --rm -p 5000:5000 pinball-bot python main.py
 
 ### 2. Train the Agent (Simulation)
 Train the bot in the simulated environment. This runs the physics engine, vision system, and PPO agent loop.
-```bash
-docker compose run --rm -p 5000:5000 pinball-bot python train.py
-```
-- Open `http://localhost:5000` to watch the training live.
-- Metrics are logged to the console.
 
 ### 3. Hyperparameter Optimization (Optuna)
 Auto-tune the RL agent's learning parameters (learning rate, entropy, etc.) for better performance.
-```bash
-# Run optimization trial (uses GPU if available)
-docker compose run --rm -p 5000:5000 -p 8080:8080 pinball-bot python optimize.py
-```
 - **Real-time Progress**: The web UI (`http://localhost:5000`) visualizes the optimization trials in real-time.
 - **Optuna Dashboard**: View detailed trial statistics and parameter importance at `http://localhost:8080`.
 - **Apply Results**: The best hyperparameters are automatically saved to `frontend/public/hyperparams.json` and loaded by the UI for future training sessions.
@@ -119,8 +109,8 @@ Normalized vector (8 values):
 -   `target_1`, `target_2`, `target_3`, `target_4` (Drop target states)
 
 **Action Space (Discrete)**:
-6 possible actions at every step (~30Hz):
--   `NOOP`, `FLIP_LEFT`, `FLIP_RIGHT`, `FLIP_BOTH`, `NUDGE_LEFT`, `NUDGE_RIGHT`
+4 possible actions at every step (~30Hz):
+-   `NOOP`, `FLIP_LEFT`, `FLIP_RIGHT`, `FLIP_BOTH` 
 
 **Reward Function**:
 -   **Score**: +1.0 per 100 points.
@@ -137,7 +127,7 @@ docker-compose --profile test up
 ### E2E Tests (Cypress)
 ```bash
 # Run all E2E tests in Docker
-docker compose --profile e2e up cypress
+docker compose --profile e2e up
 ```
 
 ## ⚙️ Configuration
