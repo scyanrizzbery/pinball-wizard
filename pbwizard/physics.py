@@ -1554,29 +1554,40 @@ class PymunkEngine(Physics):
             lane_x = self.width * 0.75  # Plunger lane threshold
             ball = self.balls[0]
 
-            # Check if ball is in plunger lane and stationary
+            # Check if ball is in plunger lane
             if (ball.position.x > lane_x and
-                ball.position.y > self.height * 0.5 and
-                ball.velocity.length < 100.0):  # Ball is relatively stationary (increased threshold)
+                ball.position.y > self.height * 0.5):
 
-                # Auto-fire plunger if in resting state
-                # Check auto-plunge config (default True)
-                auto_plunge = getattr(self, 'auto_plunge_enabled', True)
-                if self.plunger_state == 'resting' and auto_plunge:
-                    # Check cooldown to prevent rapid re-triggering
-                    current_time = self.simulation_time
-                    if not hasattr(self, 'last_auto_plunger_time'):
-                        self.last_auto_plunger_time = 0
+                # Track how long ball has been in lane (time-based stability)
+                if not hasattr(self, 'plunger_seat_time'):
+                    self.plunger_seat_time = 0.0
+                
+                self.plunger_seat_time += dt
+                
+                # Check for settled (0.5s)
+                if self.plunger_seat_time > 0.5:
+                    # Auto-fire plunger if in resting state
+                    auto_plunge = getattr(self, 'auto_plunge_enabled', True)
+                    
+                    if self.plunger_state == 'resting':
+                        if auto_plunge:
+                            # Check cooldown
+                            current_time = self.simulation_time
+                            if not hasattr(self, 'last_auto_plunger_time'):
+                                self.last_auto_plunger_time = -5.0 # Allow immediate first fire
 
-                    if current_time - self.last_auto_plunger_time > 1.0:  # 1 second cooldown
-                        logger.info(f"Auto-firing plunger: Ball detected at {ball.position}")
-
-                        # Use standard plunger mechanic for consistency
-                        # This ensures launch_angle and wall collision logic is respected
-                        self.fire_plunger()
-                        logger.info(f"Auto-triggered plunger fire.")
-
-                        self.last_auto_plunger_time = current_time
+                            if current_time - self.last_auto_plunger_time > 1.0:
+                                logger.info(f"Auto-firing plunger: Ball seated for {self.plunger_seat_time:.2f}s. Config: {auto_plunge}")
+                                self.fire_plunger()
+                                self.last_auto_plunger_time = current_time
+                                self.plunger_seat_time = 0.0
+                        else:
+                            # Log only once every few seconds to avoid spam
+                            if self.plunger_seat_time % 2.0 < dt:
+                                logger.info(f"Ball in plunger lane ready, but Auto-Start DISABLED (cfg={auto_plunge}). Waiting for User Input.")
+            else:
+                # Ball left lane, reset timer
+                self.plunger_seat_time = 0.0
 
         # Multiball auto-launch: If there are balls already in play,
         # automatically launch any balls waiting in the plunger lane
@@ -1733,12 +1744,12 @@ class PymunkEngine(Physics):
             # For now, just the flag update is safe.
             if self.is_tilted:
                 active = False # Flippers disabled (forced down) during tilt
-                
-            if side in self.flippers:
-                self.flippers[side]['active'] = active
-            elif side == 'upper':
-                for f in self.flippers['upper']:
+            
+            if side == 'upper':
+                for f in self.flippers.get('upper', []):
                     f['active'] = active
+            elif side in self.flippers:
+                self.flippers[side]['active'] = active
 
     def get_state(self):
         # Return state dict for frontend

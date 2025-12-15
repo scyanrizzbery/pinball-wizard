@@ -51,7 +51,7 @@ class PhysicsConfig:
     combo_multiplier_enabled: bool = True
     
     # Auto-Play
-    auto_plunge_enabled: bool = False  # Updated from True to match config.json
+    auto_plunge_enabled: bool = True
     
     # Rails / Guides (Visual/Physics alignment)
     rail_x_offset: float = 0.0

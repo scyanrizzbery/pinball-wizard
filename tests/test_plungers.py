@@ -36,8 +36,8 @@ class TestPlungers(unittest.TestCase):
         # Height > 0.5 * height (> 100)
         
         # Add ball at (10, 180) - clearly in zone
-        # Add ball at (10, 180) - clearly in zone
-        self.engine.add_ball((10, 180))
+        # Add ball at (10, 185) - clearly in zone
+        self.engine.add_ball((10, 185))
         self.engine.space.step(0.016)
         ball = self.engine.balls[-1]
         # Zero velocity to simulate stationary

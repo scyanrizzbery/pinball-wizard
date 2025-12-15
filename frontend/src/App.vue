@@ -41,11 +41,10 @@
                         :socket="sockets.game"
                         :configSocket="sockets.config"
                         :hasUnsavedChanges="hasUnsavedChanges"
-                        @update-zone="handleZoneUpdate"
+                        :isEditMode="isEditMode"
                         @update-rail="handleRailUpdate"
                         @update-bumper="handleBumperUpdate"
                         @save-layout="saveChanges"
-                        @reset-zones="handleResetZones"
                         @toggle-view="toggleViewMode"
                         @toggle-fullscreen="toggleFullscreen"/>
 
@@ -71,7 +70,6 @@
                         @restart-game="startNewGame"
                         @update-rail="handleRailUpdate"
                         @update-bumper="handleBumperUpdate"
-                        @update-zone="handleZoneUpdate"
                         @save-layout="saveChanges"
                     />
                     <ComboDisplay

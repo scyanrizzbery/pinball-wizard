@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 from pbwizard.physics import PymunkEngine
-
+from pbwizard.high_score_manager import HighScoreManager
 
 logger = logging.getLogger(__name__)
 
@@ -597,6 +597,7 @@ class SimulatedFrameCapture(FrameCapture):
         self.replay_manager = ReplayManager()
         self.input_queue = [] # Queue for deterministic input handling
         self.cap = None
+        self.last_model = "unknown" # Default for high score logging
         
         self._saving_config = False  # Flag to prevent reload loop when saving
 
@@ -618,7 +619,8 @@ class SimulatedFrameCapture(FrameCapture):
 
         # Physics Engine (Full Init)
         self._init_physics()
-
+        self.game_history = []
+        
         self.balls = [] # list of dicts: {'pos': [x,y], 'vel': [vx,vy], 'radius': r, 'lost': False}
         self.frame = np.zeros((height, width, 3), dtype=np.uint8)
         self.lock = threading.Lock()
@@ -703,11 +705,26 @@ class SimulatedFrameCapture(FrameCapture):
             # Replay Endpoints
             self.socketio.on_event('load_replay', self.handle_load_replay, namespace='/game')
         
+        # High Score Manager
+        self.high_score_manager = HighScoreManager()
+
         # Load available layouts from disk
         self._load_available_layouts()
         
         # Auto-launch settings
-        self.auto_plunge_enabled = layout_config.get('auto_plunge_enabled', False) if layout_config else False
+        self.auto_plunge_enabled = layout_config.get('auto_plunge_enabled', True) if layout_config else True
+        
+        # Override with global config if present
+        try:
+             if os.path.exists("config.json"):
+                 with open("config.json", 'r') as f:
+                     global_config = json.load(f)
+                     if 'auto_plunge_enabled' in global_config:
+                         self.auto_plunge_enabled = global_config['auto_plunge_enabled']
+                         logger.info(f"Loaded auto_plunge_enabled from config.json: {self.auto_plunge_enabled}")
+        except Exception as e:
+             logger.warning(f"Failed to load auto_plunge_enabled from config.json: {e}")
+
         self.waiting_for_launch = False
 
 
@@ -942,6 +959,8 @@ class SimulatedFrameCapture(FrameCapture):
         config['current_layout_id'] = self.current_layout_id
         config['last_model'] = getattr(self, 'last_model', '')
         config['ai_difficulty'] = getattr(self, 'ai_difficulty', 'medium')
+        config['auto_plunge_enabled'] = getattr(self, 'auto_plunge_enabled', False)
+        config['auto_plunge_enabled'] = getattr(self, 'auto_plunge_enabled', False)
         
         return config
 
@@ -1001,6 +1020,11 @@ class SimulatedFrameCapture(FrameCapture):
         if 'tilt_threshold' in params:
              self.tilt_threshold = float(params['tilt_threshold'])
 
+        # Fix: Sync auto_plunge_enabled if present in params
+        if 'auto_plunge_enabled' in params:
+            self.auto_plunge_enabled = params['auto_plunge_enabled']
+            logger.info(f"Updated self.auto_plunge_enabled = {self.auto_plunge_enabled}")
+
     def load_layout(self, layout_name):
         """Load a layout by name (str) OR dictionary config."""
         if isinstance(layout_name, dict):
@@ -1031,7 +1055,7 @@ class SimulatedFrameCapture(FrameCapture):
                 self.layout.name = self.layout.config['name']
 
             # Track the layout ID (filename without extension)
-            self.current_layout_id = layout_name
+            self.set_last_layout(layout_name)
 
             # Reinitialize physics engine with new layout
             # This will also start a new game with a fresh seed
@@ -1443,7 +1467,73 @@ class SimulatedFrameCapture(FrameCapture):
         else:
             stats['game_history'] = []
 
+        # High Scores (Filtered by Layout)
+        if hasattr(self, 'high_score_manager'):
+             stats['high_scores'] = self.high_score_manager.get_scores(self.current_layout_id)
+        else:
+             stats['high_scores'] = []
+
         return stats
+
+    def set_last_layout(self, layout_id):
+        """Set the last used layout and persist it to config.json."""
+        self.current_layout_id = layout_id
+        logger.info(f"Setting last_layout to: {layout_id}")
+        
+        try:
+            config_path = "config.json"
+            config_data = {}
+            
+            # Load existing config if available
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, 'r') as f:
+                        config_data = json.load(f)
+                except Exception as e:
+                    logger.warning(f"Failed to read existing config.json: {e}")
+            
+            # Update last_layout
+            config_data['current_layout_id'] = layout_id
+            config_data['last_layout'] = layout_id # Legacy support
+            
+            # Write back
+            with open(config_path, 'w') as f:
+                json.dump(config_data, f, indent=4)
+                
+            logger.info(f"Persisted last_layout: {layout_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to persist last_layout: {e}")
+
+    def set_last_model(self, model_name):
+        """Set the last used model and persist it to config.json."""
+        self.last_model = model_name
+        logger.info(f"Setting last_model to: {model_name}")
+        
+        try:
+            config_path = "config.json"
+            config_data = {}
+            
+            # Load existing config if available
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, 'r') as f:
+                        config_data = json.load(f)
+                except json.JSONDecodeError:
+                    logger.warning("config.json is corrupted, creating new one")
+            
+            # Update last_model
+            config_data['last_model'] = model_name
+            
+            # Save back to file
+            with open(config_path, 'w') as f:
+                json.dump(config_data, f, indent=4)
+                
+            logger.info("✓ Persisted last_model to config.json")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save last_model to config: {e}")
+            return False
 
     def render(self):
         """Force a render of the current frame (for snapshots)."""
@@ -1540,6 +1630,19 @@ class SimulatedFrameCapture(FrameCapture):
                          # Use physics engine score directly to ensure we get the final score
                          self.last_score = self.physics_engine.score if self.physics_engine else 0
                          logger.info(f"Ball {self.current_ball} drained. GAME OVER. Final Score: {self.last_score}")
+
+                         # Save High Score
+                         if not self.replay_manager.is_playing:
+                              self.high_score_manager.add_score(self.current_layout_id, {
+                                  'score': self.last_score,
+                                  'layout': self.current_layout_id,
+                                  'model': self.last_model,
+                                  'hash': self.physics_engine.game_hash
+                              })
+                              # Update session high score if beaten
+                              h = self.high_score_manager.get_high_score(self.current_layout_id)
+                              if h > self.high_score:
+                                  self.high_score = h
         
         # Tick Replay Clock
         self.replay_manager.tick()

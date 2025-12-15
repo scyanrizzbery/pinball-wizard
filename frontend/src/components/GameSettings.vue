@@ -56,7 +56,7 @@
     </div>
 
     <div class="header-controls">
-        <button class="icon-btn" @click="$emit('toggle-high-scores')" title="View High Scores">
+        <button class="icon-btn" @click="viewHighScores" title="View High Scores">
             🏆 High Scores
         </button>
     </div>
@@ -106,6 +106,10 @@ onMounted(() => {
 watch(() => props.smokeIntensity, (newVal) => {
   localSmokeIntensity.value = newVal
 })
+
+const viewHighScores = () => {
+    $emit('toggle-high-scores')
+}
 
 const updateVolume = () => {
     SoundManager.setVolume(volume.value)

@@ -54,7 +54,7 @@ export interface PhysicsConfig {
     flipper_width: number;
     flipper_spacing: number;
     flipper_tip_width: number;
-    flipper_tip_width: number;
+
     flipper_elasticity: number;
     ball_mass: number;
     tilt_threshold: number;

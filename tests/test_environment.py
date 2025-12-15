@@ -72,7 +72,7 @@ class TestEnvironment(unittest.TestCase):
         obs, reward, terminated, truncated, info = self.env.step(ACTION_NOOP)
         
         # Reward = log1p(100) * 0.106 + survival (0.005) + height (~0.005)
-        self.assertAlmostEqual(reward, 0.469, places=2)
+        self.assertAlmostEqual(reward, 0.497, places=3)
         self.assertFalse(terminated)
         
         # Next step, score still 100

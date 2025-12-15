@@ -60,6 +60,7 @@ def test_manual_launch_waits_if_disabled():
         
         vision = SimulatedFrameCapture(width=100, height=200)
         vision.physics_engine = mock_engine_instance
+        vision.auto_plunge_enabled = False # Explicitly disable for test
         vision.physics_engine.auto_plunge_enabled = False # Logic disabled
         
         vision.layout.config = {'auto_plunge_enabled': False}

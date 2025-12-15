@@ -56,7 +56,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="(entry, index) in stats.high_scores" :key="index" :class="{ 'highlight': stats?.game_over && entry.score === stats.last_score && entry.timestamp === stats.hash }">
+                    <tr v-for="(entry, index) in stats.high_scores" :key="index" :class="{ 'highlight': stats?.game_over && entry.score === stats.last_score }">
                         <td>{{ index + 1 }}</td>
                         <td>{{ formatNumber(entry.score) }}</td>
                         <td>
@@ -110,19 +110,14 @@
     </div>
 
     <!-- Rail Editor Controls -->
-    <!-- Rail Editor Controls -->
     <div class="editor-controls" v-if="cameraMode === 'perspective' && isEditMode">
 
         <div v-if="isEditMode" class="edit-actions">
-            <button @click="deleteSelectedObject" :disabled="selectedRailIndex === -1 && selectedBumperIndex === -1">Delete Selected</button>
-            <div class="selected-info" v-if="selectedRailIndex !== -1">
-                Selected: {{ selectedRailIndex }}
-            </div>
-            
-            <div class="edit-buttons">
-                <button @click="addRail">+ Rail</button>
-                <button @click="addBumper">+ Bumper</button>
-            </div>
+            <button @click="addRail">+ Rail</button>
+            <button @click="addBumper">+ Bumper</button>
+            <button
+                @click="deleteSelectedObject"
+                :disabled="selectedRailIndex === -1 && selectedBumperIndex === -1">🗑️ Delete</button>
         </div>
     </div>
     
@@ -133,7 +128,7 @@
             :smokeIntensity="smokeIntensity"
             @update-smoke-intensity="(val: number) => smokeIntensity = val"
             @close="showSettings = false"
-            @toggle-high-scores="$emit('toggle-high-scores')"
+            @toggle-high-scores="toggleHighScores"
         />
     </div>
 
@@ -199,7 +194,7 @@ const emit = defineEmits([
     'restart-game',
     'update-rail',
     'update-bumper',
-    'reset-zones'
+    'close-high-scores'
 ])
 
 const container = ref<HTMLElement | null>(null)
@@ -293,6 +288,11 @@ const stopRestartCountdown = () => {
         autoRestartInterval = null
     }
     autoRestartTimer.value = 3 // Reset for next time
+}
+
+const toggleHighScores = () => {
+    showSettings.value = false
+    emit('toggle-high-scores')
 }
 
 // Computed properties for permanent debug panel
@@ -3014,12 +3014,22 @@ const updateCamera = () => {
     // Top-Down Orthographic-like view
     // Position high up on Z axis, looking down
     // Center of table is (0,0,0)
-    camera.position.set(0, 0, 5)
+    camera.position.set(0, 0, 1.8) // Reduced from 5 to 1.8 to fit table better
+    camera.zoom = 1.0 // Reset zoom
     camera.lookAt(0, 0, 0)
+    camera.updateProjectionMatrix()
+    
+    // Ensure controls target is reset so it doesn't drift
+    if (controls) {
+        controls.target.set(0, 0, 0)
+        controls.update()
+    }
+
     // Note: Don't override rotation after lookAt() - it sets the rotation for us
     // Looking down the Z-axis from +Z toward origin
     // mapY inverts physics Y (0=top, 1=bottom) to Three.js Y (+0.6=top, -0.6=bottom)
     // This creates the correct orientation when viewed from above
+    // (zoom reset handles "too large" issue if coming from zoomed-in perspective)
   } else {
     // Perspective View (Restore from config or default)
     if (physicsConfig.value && physicsConfig.value.camera_x !== undefined) {
@@ -3779,12 +3789,12 @@ const handleKeydown = (e) => {
 
 .editor-controls {
     position: absolute;
-    bottom: 4%;
-    right: 23%;
+    bottom: 10px;
+    justify-self: center;
     left: auto;
     z-index: 4000;
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     gap: 10px;
     background: rgba(0, 0, 0, 0.7);
     padding: 10px;
@@ -3826,8 +3836,9 @@ const handleKeydown = (e) => {
 
 .edit-actions {
     display: flex;
-    flex-direction: column;
-    gap: 5px;
+    flex-direction: row;
+    justify-content: space-evenly;
+    gap: 15px;
     pointer-events: auto;
 }
 

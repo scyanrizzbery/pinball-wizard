@@ -21,7 +21,7 @@
                     <div style="flex: 1;">
                         <div class="label">Model</div>
                         <select :value="selectedModel"
-                                @change="$emit('update:selectedModel', $event.target.value); $emit('load-model')"
+                                @change="$emit('update:selectedModel', ($event.target as HTMLSelectElement).value); $emit('load-model', ($event.target as HTMLSelectElement).value)"
                                 class="select-input" :disabled="stats.is_training">
                             <option v-for="model in models" :key="model.filename" :value="model.filename">
                                 {{ model.filename }} ({{ model.mod_time || model.hash }})
@@ -98,7 +98,7 @@
                             <button @click="$emit('toggle-fullscreen')" class="control-btn" style="flex: 1;">
                                 {{ isFullscreen ? '🚪 Exit Fullscreen' : '📺 Fullscreen' }}
                             </button>
-                            <button @click="$emit('toggle-view')" class="control-btn" style="flex: 1;">
+                            <button @click="$emit('toggle-view')" class="control-btn switch-view-btn" style="flex: 1;">
                                 {{ cameraMode === 'perspective' ? '📐 2D View' : '🎮 3D View' }}
                             </button>
                         </div>
@@ -759,7 +759,7 @@ const emit = defineEmits<{
   (e: 'update:selectedModel', value: string): void
   (e: 'update:selectedLayout', value: string): void
   (e: 'update:selectedPreset', value: string): void
-  (e: 'load-model'): void
+  (e: 'load-model', value: string): void
   (e: 'change-layout', id: string): void
   (e: 'update-difficulty', level: string): void
   (e: 'save-new-layout', name: string): void
@@ -865,7 +865,7 @@ const savePresetAs = async () => {
 
 const groupsExpanded = reactive<Record<string, boolean>>({
     global: true,
-    ball: false,
+    ball: true,
     flipper: false,
     mechanics: false,
     rewards: false,

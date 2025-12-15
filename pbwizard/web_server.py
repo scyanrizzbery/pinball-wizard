@@ -29,15 +29,18 @@ vision_system = None
 def log_history_event(event_type, message):
     """Log a non-game event to history."""
     if vision_system and hasattr(vision_system, 'game_history'):
-        vision_system.game_history.append({
-            'type': 'event',
-            'event_type': event_type,
-            'message': message,
-            'timestamp': time.time()
-        })
-        # Keep history size manageable
-        if len(vision_system.game_history) > 50:
-            vision_system.game_history.pop(0)
+        if isinstance(vision_system.game_history, list):
+            vision_system.game_history.append({
+                'type': 'event',
+                'event_type': event_type,
+                'message': message,
+                'timestamp': time.time()
+            })
+            # Keep history size manageable
+            if len(vision_system.game_history) > 50:
+                vision_system.game_history.pop(0)
+        else:
+            logger.warning(f"vision_system.game_history is not a list! Type: {type(vision_system.game_history)}")
 
 
 @app.route('/')
@@ -135,7 +138,9 @@ def stream_frames():
             else:
                 logger.warning("Vision system not initialized in stream_frames")
         except Exception as e:
+            import traceback
             logger.error(f"Error in stream_frames: {e}")
+            logger.error(traceback.format_exc())
 
         socketio.sleep(0.033)  # ~30 FPS
 
@@ -828,9 +833,12 @@ def handle_load_model(data):
 
     logger.info(f"Request to load model: {filename}")
     
-    # Update High Score Tracking Name
+    # Update High Score Tracking Name & Persist
     if hasattr(vision_system, 'capture'):
-        vision_system.capture.last_model = filename
+        if hasattr(vision_system.capture, 'set_last_model'):
+            vision_system.capture.set_last_model(filename)
+        else:
+             vision_system.capture.last_model = filename
         
     # Load into Agent
     if hasattr(vision_system, 'agent') and hasattr(vision_system.agent, 'load_model'):
@@ -838,21 +846,6 @@ def handle_load_model(data):
         if vision_system.agent.load_model(model_path):
              logger.info(f"Successfully loaded model: {filename}")
              socketio.emit('model_loaded', {'filename': filename}, namespace='/training')
-             
-             # Persist choice in config
-             try:
-                 config_path = "config.json"
-                 config_data = {}
-                 if os.path.exists(config_path):
-                     with open(config_path, 'r') as f:
-                        config_data = json.load(f)
-                 
-                 config_data['last_model'] = filename
-                 with open(config_path, 'w') as f:
-                     json.dump(config_data, f, indent=4)
-             except Exception as e:
-                 logger.error(f"Failed to save last_model to config: {e}")
-
         else:
              socketio.emit('error', {'message': f"Failed to load model {filename}"}, namespace='/training')
     else:

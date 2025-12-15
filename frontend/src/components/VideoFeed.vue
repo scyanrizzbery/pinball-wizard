@@ -43,64 +43,8 @@
         <div class="loading-text">CONNECTING...</div>
       </div>
       <img v-else id="video-stream" :src="videoSrc" alt="Pinball Game" ref="videoElement">
-      
-      <!-- Zone Editor Overlay (Polygon) -->
-      <div v-if="showZones" class="zone-overlay">
-        <svg viewBox="0 0 1 1" preserveAspectRatio="none" style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; pointer-events: none;">
-          <polygon v-for="(zone, index) in zones" :key="'zone-'+index"
-                   :points="zone.svgPoints" 
-                   class="zone-poly"
-                   :class="{ 'left-zone': zone.type === 'left', 'right-zone': zone.type === 'right' }"
-                   @mousedown="startDrag('zone', index, 'body', $event)"
-                   @touchstart="startDrag('zone', index, 'body', $event)" />
 
-          <!-- Rails -->
-          <line v-for="(rail, index) in rails" :key="'rail-'+index"
-                :x1="rail.screenP1.x" :y1="rail.screenP1.y"
-                :x2="rail.screenP2.x" :y2="rail.screenP2.y"
-                class="rail-line"
-                @mousedown="startDrag('rail', index, 'body', $event)"
-                @touchstart="startDrag('rail', index, 'body', $event)" />
-
-          <!-- Bumpers -->
-          <!-- Bumpers -->
-          <circle v-for="(bumper, index) in bumpers" :key="'bumper-'+index"
-                  :cx="bumper.screenPos.x" :cy="bumper.screenPos.y"
-                  r="0.04"
-                  class="bumper-circle"
-                  @mousedown="startDrag('bumper', index, 'body', $event)"
-                  @touchstart="startDrag('bumper', index, 'body', $event)" />
-
-          <!-- Drop Targets -->
-          <rect v-for="(target, index) in dropTargets" :key="'target-'+index"
-                  :x="target.screenRect.x" :y="target.screenRect.y"
-                  :width="target.screenRect.width" :height="target.screenRect.height"
-                  class="target-rect"
-                  @mousedown="startDrag('target', index, 'body', $event)"
-                  @touchstart="startDrag('target', index, 'body', $event)" />
-
-
-        </svg>
-
-        <!-- Handles for all zones -->
-        <template v-for="(zone, zIndex) in zones" :key="'zone-h-'+zIndex">
-          <div v-for="(point, pIndex) in zone.screenPoints" :key="'z-'+zIndex + '-' + pIndex"
-               class="handle"
-               :style="{ left: (point.x * 100) + '%', top: (point.y * 100) + '%' }"
-               @mousedown.stop="startDrag('zone', zIndex, pIndex, $event)"
-               @touchstart.stop="startDrag('zone', zIndex, pIndex, $event)">
-          </div>
-          
-          <!-- Delete Button (Center of zone) -->
-          <div class="delete-btn"
-               :style="{ 
-                 left: ((zone.screenPoints[0].x + zone.screenPoints[2].x)/2 * 100) + '%', 
-                 top: ((zone.screenPoints[0].y + zone.screenPoints[2].y)/2 * 100) + '%' 
-               }"
-               @click.stop="removeZone(zIndex)">
-            ×
-          </div>
-        </template>
+      <div class="zone-overlay">
 
         <!-- Handles for Rails -->
         <template v-for="(rail, rIndex) in rails" :key="'rail-h-'+rIndex">
@@ -119,9 +63,9 @@
 
           <!-- Delete Button (Center of rail) -->
           <div class="delete-btn"
-               :style="{ 
-                 left: ((rail.screenP1.x + rail.screenP2.x)/2 * 100) + '%', 
-                 top: ((rail.screenP1.y + rail.screenP2.y)/2 * 100) + '%' 
+               :style="{
+                 left: ((rail.screenP1.x + rail.screenP2.x)/2 * 100) + '%',
+                 top: ((rail.screenP1.y + rail.screenP2.y)/2 * 100) + '%'
                }"
                @click.stop="removeRail(rIndex)">
             ×
@@ -129,37 +73,26 @@
         </template>
 
 
-        
+
         <!-- Add Zone Controls -->
         <div class="add-controls">
-          <button @click="addZone('left')">+ Left Zone</button>
-          <button @click="addZone('right')">+ Right Zone</button>
-          <button @click="addRail">+ Rail</button>
-           <button @click="addBumper">+ Bumper</button>
-          <button @click="resetZones" class="reset-btn">Reset Zones</button>
         </div>
       </div>
     </div>
-    
-    <div class="video-controls">
-      <div class="controls-row">
-        <button @click="$emit('toggle-fullscreen')" class="fullscreen-btn" title="Playfield Full">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
-          </svg>
-        </button>
-        <button class="edit-btn" @click="showZones = !showZones" :class="{ active: showZones }">
-          {{ showZones ? 'Hide editor' : 'Edit' }}
-        </button>
-        <button @click="$emit('toggle-view')" class="switch-view-btn">
-          Switch to 3D
-        </button>
-      </div>
-      <div class="controls-group-right">
-        <button v-if="hasUnsavedChanges" @click="$emit('save-layout')" class="control-btn save-btn">
-          Save Layout
-        </button>
-      </div>
+
+      <!-- Rail Editor Controls -->
+    <div class="editor-controls" v-if="isEditMode">
+        <div class="controls-row">
+            <button @click="addRail">+ Rail</button>
+            <button @click="addBumper">+ Bumper</button>
+        </div>
+        <div class="controls-row">
+            <button @click="$emit('toggle-fullscreen')" class="fullscreen-btn" title="Playfield Full">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                </svg>
+            </button>
+        </div>
     </div>
   </div>
 </template>
@@ -177,17 +110,15 @@ interface Props {
   socket?: any
   configSocket?: any
   hasUnsavedChanges: boolean
+  isEditMode?: boolean
 }
 
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
-  (e: 'update-zone', zones: Zone[]): void
   (e: 'update-rail', rails: Rail[]): void
   (e: 'update-bumper', bumpers: Bumper[]): void
   (e: 'save-layout'): void
-  (e: 'reset-zones'): void
-  (e: 'toggle-view'): void
   (e: 'toggle-fullscreen'): void
 }>()
 
@@ -218,7 +149,6 @@ interface DragState {
 const videoElement = ref<HTMLImageElement | null>(null)
 const containerElement = ref<HTMLDivElement | null>(null)
 const lastNudgeTime = ref(props.nudgeEvent?.time || 0)
-const showZones = ref(false)
 const isShaking = ref(false)
 const dragging = ref<DragState | null>(null)
 
@@ -424,7 +354,7 @@ const getMousePos = (e: MouseEvent | TouchEvent) => {
 }
 
 const startDrag = (type: string, index: number, pointIndex: number | string, event: MouseEvent | TouchEvent) => {
-  if (!showZones.value && !['zone', 'rail', 'bumper', 'target'].includes(type)) return
+  if (!['rail', 'bumper', 'target'].includes(type)) return
   
   // Prevent default to stop scrolling/selection
   if (event.cancelable) event.preventDefault()
@@ -472,8 +402,7 @@ const handleDragMove = (event: MouseEvent | TouchEvent) => {
         zone.points[d.pointIndex].x = targetX
         zone.points[d.pointIndex].y = targetY
     }
-    emit('update-zone', newZones)
-    
+
   } else if (d.type === 'rail') {
     const newRails = JSON.parse(JSON.stringify(props.physics.rails || []))
     if (!newRails[d.index]) return
@@ -523,22 +452,6 @@ const handleDragEnd = () => {
     window.removeEventListener('touchend', handleDragEnd)
 }
 
-const addZone = (type: 'left' | 'right') => {
-  const newZones = JSON.parse(JSON.stringify(props.physics.zones || []))
-  const newZone = {
-    id: 'zone_' + Date.now(),
-    type: type,
-    points: [
-      {x: 0.4, y: 0.4},
-      {x: 0.6, y: 0.4},
-      {x: 0.6, y: 0.6},
-      {x: 0.4, y: 0.6}
-    ]
-  }
-  newZones.push(newZone)
-  emit('update-zone', newZones)
-}
-
 const addRail = () => {
   const newRails = JSON.parse(JSON.stringify(props.physics.rails || []))
   newRails.push({
@@ -557,22 +470,12 @@ const addBumper = () => {
     emit('update-bumper', newBumpers)
 }
 
-
-const removeZone = (index: number) => {
-  const newZones = JSON.parse(JSON.stringify(props.physics.zones))
-  newZones.splice(index, 1)
-  emit('update-zone', newZones)
-}
-
 const removeRail = (index: number) => {
   const newRails = JSON.parse(JSON.stringify(props.physics.rails))
   newRails.splice(index, 1)
   emit('update-rail', newRails)
 }
 
-const resetZones = () => {
-  emit('reset-zones')
-}
 </script>
 
 <style scoped>
@@ -848,32 +751,6 @@ img {
   background: rgba(0, 0, 0, 0.9);
 }
 
-.video-controls {
-  position: absolute;
-  bottom: 0;
-  left: 20px;
-  display: flex;
-  z-index: 2001;
-  justify-content: space-between; /* Space between fullscreen (left) and group (right) */
-  align-items: center;
-  background: rgba(0, 0, 0, 0.7);
-  padding: 10px;
-  border-radius: 5px;
-  pointer-events: auto; /* Ensure clickable */
-}
-
-.controls-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.controls-group-right {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
 .fullscreen-btn {
   background: rgba(0, 0, 0, 0.8);
   color: white;
@@ -919,22 +796,6 @@ img {
 .edit-btn.active {
   background: #4caf50;
   border-color: #4caf50;
-}
-
-/* Ensure switch-view-btn inside controls is static */
-.video-controls .switch-view-btn {
-  position: static;
-  background: rgba(0, 0, 0, 0.8); /* Darker background */
-  color: white;
-  border: 1px solid #777;
-  padding: 8px 12px; /* Larger hit area */
-  cursor: pointer;
-  border-radius: 4px;
-  font-size: 14px; /* Larger text */
-  white-space: nowrap;
-  flex-shrink: 0;
-  min-width: fit-content;
-  z-index: 1000; /* Ensure on top */
 }
 
 .loading-placeholder {
@@ -1088,5 +949,39 @@ img {
   0% { transform: scale(1); }
   50% { transform: scale(1.05); }
   100% { transform: scale(1); }
+}
+
+.editor-controls {
+    position: absolute;
+    bottom: 10px;
+    z-index: 4000;
+    display: flex;
+    justify-content: center;
+    justify-self: anchor-center;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 10px;
+    border-radius: 5px;
+    pointer-events: auto; /* Ensure clickable */
+}
+
+.controls-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap; /* Allow wrapping */
+    align-items: center;
+    justify-content: space-between; /* Space between fullscreen (left) and other buttons (right) */
+    pointer-events: auto; /* Ensure clickable */
+}
+
+.editor-controls button.active {
+    order: 1;
+    background: #4caf50;
+    border-color: #4caf50;
+}
+
+.editor-controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 </style>
