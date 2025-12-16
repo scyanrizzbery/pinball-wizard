@@ -1423,6 +1423,11 @@ class SimulatedFrameCapture(FrameCapture):
             logger.info("Simulation started in Headless Mode (Manual Stepping)")
 
 
+    def get_score(self):
+        """Return current score (for Environment integration)."""
+        # Ensure we return the synced score
+        return self.score
+
     def get_stats(self):
         """Return complete game statistics for frontend."""
         # Debug Log
@@ -2062,5 +2067,10 @@ class SimulatedFrameCapture(FrameCapture):
         elif not self.balls and not self.game_over:
              # Force spawn if stuck
              logger.info("Force spawn triggered.")
-             if self.physics_engine:
-                 self.physics_engine.add_ball(pos=(self.width * 0.94, self.height * 0.9))
+             self.physics_engine.add_ball(pos=(self.width * 0.94, self.height * 0.9))
+
+    def get_events(self):
+        """Get recent events from physics engine."""
+        if self.physics_engine and hasattr(self.physics_engine, 'get_events'):
+            return self.physics_engine.get_events()
+        return []

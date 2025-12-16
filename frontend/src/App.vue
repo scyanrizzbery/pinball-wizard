@@ -48,30 +48,33 @@
                         @toggle-view="toggleViewMode"
                         @toggle-fullscreen="toggleFullscreen"/>
 
-                    <Pinball3D
-                        v-if="viewMode === '3d'"
-                        :socket="sockets.game"
-                        :configSocket="sockets.config"
-                        :config="physics"
-                        :nudgeEvent="nudgeEvent"
-                        :stats="stats"
-                        :cameraMode="viewMode === '3d' ? 'perspective' : 'top-down'"
-                        :autoStartEnabled="toggles.autoStart"
-                        :showHighScores="showHighScores"
-                        :showFlipperZones="showFlipperZones"
-                        :connectionError="connectionError"
-                        :isFullscreen="isFullscreen"
-                        :isEditMode="isEditMode"
-                        @close-high-scores="showHighScores = false"
-                        @toggle-high-scores="showHighScores = !showHighScores"
-                        @toggle-view="toggleViewMode"
-                        @toggle-fullscreen="toggleFullscreen"
-                        @ship-destroyed="handleShipDestroyed"
-                        @restart-game="startNewGame"
-                        @update-rail="handleRailUpdate"
-                        @update-bumper="handleBumperUpdate"
-                        @save-layout="saveChanges"
-                    />
+                <Pinball3D 
+                    v-if="viewMode === '3d'"
+                    ref="pinballRef"
+                    :config="physics"
+                    :stats="stats"
+                    :socket="sockets.game"
+                    :config-socket="sockets.config"
+                    :camera-mode="cameraMode"
+                    :auto-start-enabled="toggles.autoStart"
+                    :show-flipper-zones="showFlipperZones"
+                    :connection-error="connectionError"
+                    :is-fullscreen="isFullscreen"
+                    :is-edit-mode="isEditMode"
+                    :show-high-scores="showHighScores"
+                    :nudgeEvent="nudgeEvent"
+                    :forceMatrix="isMatrixTesting"
+                    @toggle-fullscreen="toggleFullscreen"
+                    @toggle-high-scores="showHighScores = !showHighScores"
+                    @toggle-view="toggleViewMode"
+                    @ship-destroyed="handleShipDestroyed"
+                    @restart-game="startNewGame"
+                    @update-rail="onUpdateRail"
+                    @update-bumper="onUpdateBumper"
+                    @close-high-scores="showHighScores = false"
+                />
+
+
                     <ComboDisplay
                         :comboCount="stats.combo_count || 0"
                         :comboTimer="stats.combo_timer || 0"
@@ -126,6 +129,7 @@
                       :isFullscreen="isFullscreen"
                       :cameraMode="cameraMode"
                       :isEditMode="isEditMode"
+                      :isMatrixTesting="isMatrixTesting"
                       v-model:selected-model="selectedModel"
                       v-model:selected-layout="selectedLayout"
                       v-model:selected-preset="selectedPreset"
@@ -143,9 +147,15 @@
                       @toggle-fullscreen="toggleFullscreen"
                       @toggle-view="toggleCameraMode"
                       @toggle-edit-mode="toggleEditMode"
+                      @toggle-matrix-test="toggleMatrixTest"
                       @update:showFlipperZones="showFlipperZones = $event"
                       @save-new-layout="handleSaveNewLayout"
-                      @save-layout="handleSaveLayout"/>
+                      @save-layout="handleSaveLayout"
+                      @add-rail="() => pinballRef?.addRail()"
+                      @add-curve="() => pinballRef?.addCurve()"
+                      @add-bumper="() => pinballRef?.addBumper()"
+                      @delete-selected="() => pinballRef?.deleteSelectedObject()"
+            />
 
             <Logs :logs="logs"/>
 
@@ -423,6 +433,12 @@ const toggleFullscreen = () => {
     }
 }
 
+const isMatrixTesting = ref(false)
+const toggleMatrixTest = () => {
+    isMatrixTesting.value = !isMatrixTesting.value
+    addLog(`Matrix Test: ${isMatrixTesting.value ? 'STARTED' : 'STOPPED'}`)
+}
+
 const isTilted = computed(() => stats.is_tilted || false)
 
 const physics = reactive<any>({
@@ -638,6 +654,20 @@ const handleSaveNewLayout = (name: string) => {
 const handleSaveLayout = () => {
     console.log("Saving current layout")
     sockets.config.emit('save_layout')
+}
+
+// Handler updates from Pinball3D
+const onUpdateRail = (rails: any[]) => {
+    // console.log('Updating rails:', rails)
+    physics.rails = rails
+    // Send to backend immediately for persistence
+    sockets.config.emit('update_rails', rails)
+}
+
+const onUpdateBumper = (bumpers: any[]) => {
+    // console.log('Updating bumpers:', bumpers)
+    physics.bumpers = bumpers
+    sockets.config.emit('update_bumpers', bumpers)
 }
 
 const startTraining = (config: any) => {
@@ -934,7 +964,7 @@ onMounted(() => {
                         direction: (Math.random() > 0.5 ? 'left' : 'right'), 
                         time: Date.now(),
                         type: 'alien',
-                        strength: 5.0 // Much stronger visual application
+                        strength: 0.5 // Reduced visual application
                     }
                     
                     // 2. Trigger Physics Nudge (Free, massive force)

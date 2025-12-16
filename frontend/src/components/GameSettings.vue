@@ -53,6 +53,29 @@
           @input="updateSmokeIntensity"
         >
       </div>
+
+      <div class="control-group">
+        <label>Rail Glow: {{ Math.round(localRailGlow * 100) }}%</label>
+        <input
+          type="range"
+          min="0"
+          max="10"
+          step="0.1"
+          v-model.number="localRailGlow"
+          @input="updateRailGlow"
+        >
+      </div>
+      <div class="control-group">
+        <label>Glow Radius: {{ Math.round(localRailGlowRadius * 10) / 10 }}x</label>
+        <input
+          type="range"
+          min="0"
+          max="1.5"
+          step="0.05"
+          v-model.number="localRailGlowRadius"
+          @input="updateRailGlowRadius"
+        >
+      </div>
     </div>
 
     <div class="header-controls">
@@ -69,18 +92,25 @@ import { ref, onMounted, watch } from 'vue'
 import SoundManager from '../utils/SoundManager'
 
 const props = defineProps<{
-  smokeIntensity: number
+  smokeIntensity: number;
+  railGlowIntensity: number;
+  railGlowRadius: number;
 }>()
 
 const $emit = defineEmits<{
   (e: 'close'): void
   (e: 'update-smoke-intensity', value: number): void
+  (e: 'update-rail-glow', value: number): void
+  (e: 'update-rail-glow-radius', value: number): void
   (e: 'toggle-high-scores'): void
 }>()
 
 const volume = ref(0.5)
 const muted = ref(false)
+
 const localSmokeIntensity = ref(0.5)
+const localRailGlow = ref(1.0)
+const localRailGlowRadius = ref(0.5) // Default
 const selectedPreset = ref('medium')
 
 // Explicit type for presets values based on usage
@@ -101,10 +131,20 @@ onMounted(() => {
     muted.value = SoundManager.muted
     // Initialize visual settings
     localSmokeIntensity.value = props.smokeIntensity
+    localRailGlow.value = props.railGlowIntensity
+    localRailGlowRadius.value = props.railGlowRadius
 })
 
 watch(() => props.smokeIntensity, (newVal) => {
   localSmokeIntensity.value = newVal
+})
+
+watch(() => props.railGlowIntensity, (newVal) => {
+  localRailGlow.value = newVal
+})
+
+watch(() => props.railGlowRadius, (newVal) => {
+  localRailGlowRadius.value = newVal
 })
 
 const viewHighScores = () => {
@@ -122,6 +162,14 @@ const updateMute = () => {
 const updateSmokeIntensity = () => {
     $emit('update-smoke-intensity', localSmokeIntensity.value)
     // If manual adjustment doesn't match a preset, strictly speaking we are "custom", but for now keep last preset or ignore.
+}
+
+const updateRailGlow = () => {
+    $emit('update-rail-glow', localRailGlow.value)
+}
+
+const updateRailGlowRadius = () => {
+    $emit('update-rail-glow-radius', localRailGlowRadius.value)
 }
 
 const applyPreset = () => {

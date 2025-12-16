@@ -126,7 +126,11 @@
     <div v-if="showSettings" class="sound-settings-overlay">
         <GameSettings 
             :smokeIntensity="smokeIntensity"
+            :railGlowIntensity="railGlowIntensity"
+            :railGlowRadius="railGlowRadius"
             @update-smoke-intensity="(val: number) => smokeIntensity = val"
+            @update-rail-glow="(val: number) => railGlowIntensity = val"
+            @update-rail-glow-radius="(val: number) => railGlowRadius = val"
             @close="showSettings = false"
             @toggle-high-scores="toggleHighScores"
         />
@@ -148,6 +152,59 @@
         </div>
       </div>
     </div>
+
+    <!-- Matrix Intro Overlay -->
+    <div v-if="matrixIntroVisible" class="matrix-intro-overlay" :class="{ 'is-fullscreen': isOverlayFullscreen }">
+        
+        <!-- Terminal / Glitch Mode -->
+        <div v-if="currentFailScreen === 'terminal'" class="matrix-terminal">
+            <div v-for="(line, i) in matrixTerminalLines" :key="i" class="terminal-line" :class="{ 'glitch-text': matrixGlitchActive }">
+                {{ line }}
+            </div>
+        </div>
+
+        <!-- BSOD Mode -->
+        <div v-else-if="currentFailScreen === 'bsod'" class="bsod-screen">
+            <div class="bsod-content">
+                <p class="bsod-header">A fatal exception 0E has occurred at 0028:C0034B23 in VXD VMM(01) + 000034B23. The current application will be terminated.</p>
+                <p>Press any key to terminate the current application.</p>
+                <p>Press CTRL+ALT+DEL again to restart your computer. You will lose any unsaved information in all applications.</p>
+            </div>
+        </div>
+
+        <!-- Red Hat Mode -->
+        <div v-else-if="currentFailScreen === 'redhat'" class="linux-screen">
+            <div class="linux-content">
+                <p>Red Hat Linux release 9 (Shrike)</p>
+                <p>Kernel 2.4.20-8 on an i686</p>
+                <br>
+                <p>[<span style="color: #00ff00">OK</span>] Mounting local filesystems: </p>
+                <p>[<span style="color: #00ff00">OK</span>] Checking root filesystem</p>
+                <p>[<span style="color: #ff0000">FAILED</span>] Mounting /proc filesystem</p>
+                <p>INIT: Switching to runlevel: 3</p>
+                <p>INIT: Sending processes the TERM signal</p>
+                <p>Kernel panic - not syncing: Attempted to kill init!</p>
+            </div>
+        </div>
+
+        <!-- BSD Mode -->
+        <div v-else-if="currentFailScreen === 'bsd'" class="linux-screen">
+            <div class="linux-content">
+                <p>FreeBSD/amd64 Bootstrap Loader, Revision 1.1</p>
+                <p>Loading /boot/defaults/loader.conf</p>
+                <p>/boot/kernel/kernel text=0x13c36f0 data=0x156eb8 syms=[0x8+0x1406c8+0x8+0x15da49]</p>
+                <br>
+                <p>Fatal trap 12: page fault while in kernel mode</p>
+                <p>cpuid = 0; apic id = 00</p>
+                <p>fault virtual address = 0xdeadbeef</p>
+                <p>fault code = supervisor read data, page not present</p>
+                <p>instruction pointer = 0x20:0xc095f333</p>
+                <p>stack pointer = 0x28:0xe6c34b68</p>
+                <p>Automatic reboot in 15 seconds - press a key on the console to abort</p>
+            </div>
+        </div>
+
+    </div>
   </div>
 </template>
 
@@ -157,6 +214,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import SoundManager from '../utils/SoundManager'
 import GameSettings from './GameSettings.vue'
+import { MatrixShader } from '../utils/MatrixShader'
 import type { PhysicsConfig, GameStats, Point } from '../types'
 import ReplayIndicator from "@/components/ReplayIndicator.vue";
 
@@ -178,12 +236,34 @@ const props = withDefaults(defineProps<{
     isFullscreen?: boolean;
     isEditMode?: boolean; // NEW: controlled from App.vue
     showHighScores?: boolean;
+    forceMatrix?: boolean;
 }>(), {
     cameraMode: 'perspective',
     autoStartEnabled: false,
     showFlipperZones: false,
     connectionError: false,
     isFullscreen: false
+})
+
+// Safe Theme Detection (Computed)
+// Prevents mutation of props.config and avoids state leakage between layouts
+const currentTheme = computed(() => {
+    if (!props.config) return null
+    
+    // 1. Explicit theme in config (if backend provided it)
+    if (props.config.theme) return props.config.theme
+    
+    // 2. Fallback: Auto-detect from layout ID/Name
+    let layoutId = props.config.current_layout_id
+    if (!layoutId && props.config.name) {
+        layoutId = props.config.name.toLowerCase().replace(/ /g, '_')
+    }
+    
+    if (layoutId && (layoutId.includes('mario') || layoutId === 'super_mario')) {
+        return 'mario'
+    }
+    
+    return null
 })
 
 const emit = defineEmits([
@@ -200,6 +280,7 @@ const emit = defineEmits([
 const container = ref<HTMLElement | null>(null)
 let scene: THREE.Scene, camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, renderer: THREE.WebGLRenderer, controls: OrbitControls
 let resizeObserver: ResizeObserver
+const floorMesh = ref<THREE.Mesh | null>(null)
 // let socket // Use props.socket
 // Interactive objects container type
 interface InteractiveObjects {
@@ -215,6 +296,7 @@ interface InteractiveObjects {
 let balls: THREE.Mesh[] = [] // Array of mesh objects
 let flippers: InteractiveObjects = { left: null, right: null, upper: [], dropTargets: [], bumpers: [] }
 let tableGroup: THREE.Group
+let railsGroup: THREE.Group
 let ballGeo: THREE.SphereGeometry, ballMat: THREE.MeshStandardMaterial
 let zoneMeshes: THREE.Mesh[] = [] // Store zone meshes for show/hide
 
@@ -222,6 +304,7 @@ let zoneMeshes: THREE.Mesh[] = [] // Store zone meshes for show/hide
 let ballGlows: any[] = []
 let ballTrails: { mesh: THREE.Mesh, positions: THREE.Vector3[] }[] = [] // { mesh: THREE.Mesh, positions: THREE.Vector3[] }
 let ballParticles: any[] = []
+let mushrooms: any[] = [] // Active mushroom power-ups
 
 // Physics Config (to sync dimensions)
 let physicsConfig = ref<PhysicsConfig | null>(null)
@@ -232,9 +315,56 @@ let lastFlipperValues = {
     tipWidth: null as number | null
 }
 const cameraDebug = ref({ x: 0, y: 0, z: 0 })
+// Shared Materials
+const sharedRailGlowMat = new THREE.MeshBasicMaterial({
+    color: 0x00ffff, // Pure Cyan Glow
+    transparent: true,
+    opacity: 0.6, // Default (1.5 intensity -> 0.6 opacity)
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.FrontSide
+})
+
+const sharedRailCoreMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+})
+
 const showDebug = ref(false)
 const showSettings = ref(false)
 const smokeIntensity = ref(0.5)
+const railGlowIntensity = ref(1.5) // Default high glow
+const railGlowRadius = ref(0.5) // Default moderate radius
+
+const updateRailMaterial = () => {
+    // scale opacity by radius to prevent "super bright tight lines"
+    // Heuristic: As radius gets smaller, we lower opacity to soften it.
+    // As radius gets bigger, we increase opacity (up to a limit) to keep it visible.
+    
+    // Formula: Intensity is the main dial (0-10).
+    // Radius (0-1.5) scales the density.
+    
+    // Base opacity from intensity (0-10 mapped to 0-0.8)
+    let baseOp = railGlowIntensity.value * 0.08
+    
+    // Radius factor: If radius is small (<0.5), dampen heavily.
+    // If radius is large (>1.0), boost slightly or keep flat.
+    // Let's use linear scaling for simplicity: 
+    // effective_opacity = baseOp * radius
+    // Normalized to 1.0 radius being "standard".
+    
+    const radiusFactor = Math.max(0.2, railGlowRadius.value) // Clamp min to avoid 0 opacity if radius is tiny but non-zero
+    
+    sharedRailGlowMat.opacity = Math.min(1.0, baseOp * radiusFactor)
+}
+
+watch(railGlowIntensity, updateRailMaterial)
+watch(railGlowRadius, (newVal) => {
+    updateRailMaterial()
+    if (props.config && props.config.rails) {
+        createRails(props.config.rails)
+    }
+})
+
 let debugTimeout: ReturnType<typeof setTimeout> | null = null
 
 // Auto-Restart Timer State
@@ -268,6 +398,16 @@ watch(() => props.isEditMode, (newVal: boolean, oldVal: boolean) => {
         updateRailHandles()
     }
 })
+
+// Watch for Score/Ball updates to update 3D Scoreboard
+watch(() => props.stats, (newStats) => {
+    if (!newStats || !tableGroup || !tableGroup.userData.updateScoreboard) return
+    
+    // Call the update function stored on the mesh user data
+    // Use balls_remaining if available, else balls (lives)
+    const ballCount = newStats.balls_remaining !== undefined ? newStats.balls_remaining : (newStats.balls || 0)
+    tableGroup.userData.updateScoreboard(newStats.score || 0, ballCount, newStats.high_score || 0)
+}, { deep: true })
 
 const startRestartCountdown = () => {
     if (autoRestartInterval) clearInterval(autoRestartInterval)
@@ -306,13 +446,61 @@ const rendererSize = computed(() => {
   }
 })
 
+const getMushroomTexture = () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 64
+    canvas.height = 64
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return new THREE.CanvasTexture(canvas)
+
+    // Background (Transparent)
+    ctx.clearRect(0, 0, 64, 64)
+
+    // Stalk (White/Tan)
+    ctx.fillStyle = '#f8dcb4' 
+    ctx.beginPath()
+    ctx.roundRect(22, 32, 20, 30, 5)
+    ctx.fill()
+    // Eyes
+    ctx.fillStyle = '#000000'
+    ctx.fillRect(26, 38, 4, 8)
+    ctx.fillRect(34, 38, 4, 8)
+
+    // Cap (Red) - Semi-circle
+    ctx.fillStyle = '#e60012'
+    ctx.beginPath()
+    ctx.arc(32, 32, 28, Math.PI, 0) // Top half
+    ctx.fill()
+    
+    // Spots (White)
+    ctx.fillStyle = '#ffffff'
+    // Top Middle
+    ctx.beginPath()
+    ctx.arc(32, 16, 8, 0, Math.PI * 2)
+    ctx.fill()
+    // Left Side
+    ctx.beginPath()
+    ctx.arc(8, 36, 8, 0, Math.PI * 2)
+    ctx.fill()
+    // Right Side
+    ctx.beginPath()
+    ctx.arc(56, 36, 8, 0, Math.PI * 2)
+    ctx.fill()
+
+    const texture = new THREE.CanvasTexture(canvas)
+    // Pixel Art settings
+    texture.magFilter = THREE.NearestFilter
+    texture.minFilter = THREE.NearestFilter
+    texture.colorSpace = THREE.SRGBColorSpace
+    return texture
+  }
+
 const containerSize = computed(() => {
   if (!container.value) return 'N/A'
   return `${container.value.clientWidth}x${container.value.clientHeight}`
 })
 
 const activeBallCount = ref(0)
-
 // Computed: Check if replay is active
 const isReplayActive = computed(() => props.stats?.is_replay)
 
@@ -337,7 +525,55 @@ const selectedType = ref(null) // 'rail' or 'bumper'
 const isDragging = ref(false)
 const dragPoint = ref(null) // 'p1', 'p2', or 'body'
 const dragStartPos = new THREE.Vector2()
-const dragState: { initialP1: Point | null, initialP2: Point | null, initialPos: Point | null } = { initialP1: null, initialP2: null, initialPos: null }
+const dragState: { 
+    initialP1: Point | null, 
+    initialP2: Point | null, 
+    initialC1: Point | null, 
+    initialC2: Point | null, 
+    initialPos: Point | null 
+} = { 
+    initialP1: null, 
+    initialP2: null, 
+    initialC1: null, 
+    initialC2: null, 
+    initialPos: null 
+}
+const connectedDragStates = new Map<number, any>()
+const connectedDragIndices = ref<number[]>([])
+
+const findConnectedRails = (rootIndex: number): number[] => {
+    if (!props.config.rails) return [rootIndex]
+    
+    const visited = new Set<number>()
+    const queue = [rootIndex]
+    visited.add(rootIndex)
+    
+    const isConn = (p1: Point, p2: Point) => {
+        const dx = p1.x - p2.x
+        const dy = p1.y - p2.y
+        return (dx*dx + dy*dy) < 0.0001 // ~0.01 unit threshold distance
+    }
+    
+    while (queue.length > 0) {
+        const currIdx = queue.shift()!
+        const curr = props.config.rails[currIdx]
+        if (!curr) continue
+        
+        props.config.rails.forEach((other, idx) => {
+            if (visited.has(idx)) return
+            
+            // Check all 4 combos of endpoints
+            if (isConn(curr.p1, other.p1) || isConn(curr.p1, other.p2) ||
+                isConn(curr.p2, other.p1) || isConn(curr.p2, other.p2)) {
+                visited.add(idx)
+                queue.push(idx)
+            }
+        })
+    }
+    
+    return Array.from(visited)
+}
+
 const raycaster = new THREE.Raycaster()
 const mouse = new THREE.Vector2()
 const railHandles: THREE.Mesh[] = [] // Array of mesh handles
@@ -359,6 +595,19 @@ const addRail = () => {
         p2: { x: 0.6, y: 0.6 }
     }
     // props.configSocket.emit('create_rail', newRail)
+    const newRails = [...(props.config.rails || [])]
+    newRails.push(newRail)
+    emit('update-rail', newRails)
+}
+
+const addCurve = () => {
+    // Add a curved rail (Bézier)
+    const newRail = {
+        p1: { x: 0.3, y: 0.3 },
+        p2: { x: 0.7, y: 0.7 },
+        c1: { x: 0.3, y: 0.6 }, // Control Point 1
+        c2: { x: 0.7, y: 0.4 }  // Control Point 2
+    }
     const newRails = [...(props.config.rails || [])]
     newRails.push(newRail)
     emit('update-rail', newRails)
@@ -405,20 +654,165 @@ const updateRailHandles = () => {
         const p1 = mapToWorld(rail.p1.x, rail.p1.y)
         const p2 = mapToWorld(rail.p2.x, rail.p2.y)
         
-        const createHandle = (pos: {x: number, y: number}, pointName: string) => {
+        const createHandle = (pos: {x: number, y: number}, pointName: string, color: number = 0x00ff00) => {
             const geometry = new THREE.SphereGeometry(0.02, 16, 16)
             const material = new THREE.MeshBasicMaterial({ 
-                color: index === selectedRailIndex.value ? 0xff0000 : 0x00ff00 
+                color: index === selectedRailIndex.value ? 0xff0000 : color 
             })
             const mesh = new THREE.Mesh(geometry, material)
             mesh.position.set(pos.x, pos.y, 0.05) // Slightly above rail
             mesh.userData = { railIndex: index, point: pointName, isHandle: true }
             scene.add(mesh)
             railHandles.push(mesh)
+            return mesh
         }
         
         createHandle(p1, 'p1')
         createHandle(p2, 'p2')
+
+        // If curved, add control point handles and guide lines
+        if (rail.c1 && rail.c2) {
+             const c1 = mapToWorld(rail.c1.x, rail.c1.y)
+             const c2 = mapToWorld(rail.c2.x, rail.c2.y)
+             
+             createHandle(c1, 'c1', 0x00ffff) // Cyan for controls
+             createHandle(c2, 'c2', 0x00ffff)
+             
+             // Draw Guide Lines (P1->C1, P2->C2)
+             const material = new THREE.LineBasicMaterial({ color: 0x555555, depthTest: false })
+             
+             // P1 -> C1
+             const points1 = [new THREE.Vector3(p1.x, p1.y, 0.05), new THREE.Vector3(c1.x, c1.y, 0.05)]
+             const geo1 = new THREE.BufferGeometry().setFromPoints(points1)
+             const line1 = new THREE.Line(geo1, material)
+             line1.userData = { railIndex: index, point: 'guide', isHandle: false }
+             scene.add(line1)
+             railHandles.push(line1 as any)
+
+             // P2 -> C2
+             const points2 = [new THREE.Vector3(p2.x, p2.y, 0.05), new THREE.Vector3(c2.x, c2.y, 0.05)]
+             const geo2 = new THREE.BufferGeometry().setFromPoints(points2)
+             const line2 = new THREE.Line(geo2, material)
+             line2.userData = { railIndex: index, point: 'guide', isHandle: false }
+             scene.add(line2)
+             railHandles.push(line2 as any)
+        } else {
+             // Straight rail: Add Midpoint Handle for creating curves
+             const midX = (p1.x + p2.x) / 2
+             const midY = (p1.y + p2.y) / 2
+             
+             // Handle for Midpoint
+             const geometry = new THREE.SphereGeometry(0.015, 16, 16) // Slightly smaller
+             const material = new THREE.MeshBasicMaterial({ color: 0xffff00 }) // Yellow
+             const mesh = new THREE.Mesh(geometry, material)
+             mesh.position.set(midX, midY, 0.05)
+             mesh.userData = { railIndex: index, point: 'midpoint', isHandle: true }
+             
+             scene.add(mesh)
+             railHandles.push(mesh)
+        }
+
+        // --- Add (+) Segment Handles (Only for Selected Rail) ---
+        if (index === selectedRailIndex.value) {
+            // Helper to create icon handle
+            const createIconHandle = (pos: {x: number, y: number}, type: 'plus' | 'minus') => {
+                const group = new THREE.Group()
+                group.position.set(pos.x, pos.y, 0.05)
+                
+                // Background Sphere
+                // Background Button (Cylinder/Coin) for better Icon alignment
+                const bgGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.005, 32)
+                const color = type === 'plus' ? 0x0088ff : 0xff0000 
+                const bgMat = new THREE.MeshBasicMaterial({ color: color })
+                const bgMesh = new THREE.Mesh(bgGeo, bgMat)
+                bgMesh.rotation.x = Math.PI / 2
+                group.add(bgMesh)
+                
+                // Icon Geometry (White) - Place on top of cylinder face
+                const iconMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
+                // Cylinder half-height is 0.0025. Place slightly above.
+                const iconZ = 0.003
+                
+                if (type === 'plus') {
+                    // Horizontal bar
+                    const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.004, 0.002), iconMat)
+                    hBar.position.z = iconZ
+                    group.add(hBar)
+                    // Vertical bar
+                    const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.016, 0.002), iconMat)
+                    vBar.position.z = iconZ
+                    group.add(vBar)
+                } else {
+                    // Minus: Horizontal bar
+                    const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.004, 0.002), iconMat)
+                    hBar.position.z = iconZ
+                    group.add(hBar)
+                }
+                
+                scene.add(group)
+                
+                // Important: Add GROUP to railHandles for cleanup (scene.remove)
+                railHandles.push(group as any)
+                
+                return group
+            }
+
+            const createPlusHandle = (pos: {x: number, y: number}, endType: 'p1' | 'p2') => {
+                 // Calculate direction for placement
+                 // Simply place them "outwards" from the endpoints
+                 // D = P2 - P1 (direction of rail)
+                 const dx = p2.x - p1.x
+                 const dy = p2.y - p1.y
+                 const len = Math.sqrt(dx*dx + dy*dy) || 1
+                 const udx = dx / len
+                 const udy = dy / len
+                 
+                 // Offset: 0.05 units away
+                 const offset = 0.05
+                 
+                 const hx = endType === 'p2' ? pos.x + udx * offset : pos.x - udx * offset
+                 const hy = endType === 'p2' ? pos.y + udy * offset : pos.y - udy * offset
+                 
+                 const group = createIconHandle({x: hx, y: hy}, 'plus')
+                 
+                 // Apply userData to all children and add them to raycast list
+                 const handleType = endType === 'p2' ? 'add_segment_p2' : 'add_segment_p1'
+                 const uData = { railIndex: index, point: handleType, isHandle: true }
+                 
+                 group.userData = uData 
+                 group.children.forEach(child => {
+                     child.userData = uData
+                     railHandles.push(child as THREE.Mesh)
+                 })
+            }
+            createPlusHandle(p1, 'p1')
+            createPlusHandle(p2, 'p2')
+
+            // --- Add (-) Delete Handle ---
+            // Place near midpoint
+            const mx = (p1.x + p2.x) / 2
+            const my = (p1.y + p2.y) / 2
+            
+            // Offset perpendicular to rail direction
+            const dx = p2.x - p1.x
+            const dy = p2.y - p1.y
+            const len = Math.sqrt(dx*dx + dy*dy) || 1
+            const nx = -dy / len
+            const ny = dx / len
+            
+            const rx = mx + nx * 0.04
+            const ry = my + ny * 0.04
+            
+
+            
+            const group = createIconHandle({x: rx, y: ry}, 'minus')
+            const uData = { railIndex: index, point: 'remove_rail', isHandle: true }
+            
+            group.children.forEach(child => {
+                 child.userData = uData
+                 railHandles.push(child as THREE.Mesh)
+            })
+        }
     })
 }
 
@@ -447,6 +841,86 @@ const mapFromWorld = (wx: number, wy: number) => {
 // Drag & Drop logic removed (replaced by buttons)
 const onDrop = () => {}
 
+// Helper to update visual mesh for a rail after data change
+const updateRailVisuals = (index: number) => {
+    const rail = props.config.rails[index]
+    const railMesh = railMeshes[index]
+    if (!rail || !railMesh) return
+
+    // Recalculate position/rotation similar to createTable
+    const nOffsetX = Number(props.config.rail_x_offset || 0)
+    const nOffsetY = Number(props.config.rail_y_offset || 0)
+    const lengthScale = Number(props.config.guide_length_scale || 1.0)
+    
+    // Use the UPDATED rail data directly
+    const r1x = rail.p1.x + nOffsetX
+    const r1y = rail.p1.y + nOffsetY
+    const r2x = rail.p2.x + nOffsetX
+    const r2y = rail.p2.y + nOffsetY
+
+    // Map 3D
+    let x1 = mapX(r1x), y1 = mapY(r1y)
+    const x2 = mapX(r2x), y2 = mapY(r2y)
+    
+    let dx = x2 - x1
+    let dy = y2 - y1
+    const length = Math.sqrt(dx * dx + dy * dy)
+    
+    if (length > 0 && Math.abs(lengthScale - 1.0) > 0.001) {
+        const scaledLen = length * lengthScale
+        const ux = dx / length, uy = dy / length
+        x1 = x2 - ux * scaledLen
+        y1 = y2 - uy * scaledLen
+    }
+    
+    if (rail.c1 && rail.c2) {
+        // --- CURVED RAIL UPDATE ---
+        const c1x = mapX(rail.c1.x + nOffsetX)
+        const c1y = mapY(rail.c1.y + nOffsetY)
+        const c2x = mapX(rail.c2.x + nOffsetX)
+        const c2y = mapY(rail.c2.y + nOffsetY)
+        
+        const curve = new THREE.CubicBezierCurve3(
+            new THREE.Vector3(x1, y1, 0.02), // railHeight/2 (0.04/2)
+            new THREE.Vector3(c1x, c1y, 0.02),
+            new THREE.Vector3(c2x, c2y, 0.02),
+            new THREE.Vector3(x2, y2, 0.02)
+        )
+        
+        // Update Geometry
+        if (railMesh.geometry) railMesh.geometry.dispose()
+        railMesh.geometry = new THREE.TubeGeometry(curve, 20, 0.008, 8, false)
+        
+        // Reset position/rotation (Tube is absolute coords)
+        railMesh.position.set(0, 0, 0)
+        railMesh.rotation.set(0, 0, 0)
+
+    } else {
+        // --- STRAIGHT RAIL UPDATE ---
+        railMesh.position.set((x1 + x2) / 2, (y1 + y2) / 2, railMesh.position.z)
+        railMesh.rotation.z = Math.atan2(y2 - y1, x2 - x1)
+        
+        // Update Scale X to match new length (since we rotated geometry Z 90deg, X is length)
+        // We need initial length or just assume geometry was unit? 
+        // No, geometry has fixed length.
+        if ((railMesh.geometry as any).parameters) {
+             const initLen = (railMesh.geometry as any).parameters.height // Cylinder height is the length
+             railMesh.scale.x = length / initLen
+        }
+    }
+    
+    // Update 2D Rail
+    const rail2D = railMesh.userData.rail2D
+    if (rail2D) {
+       rail2D.position.set((x1 + x2) / 2, (y1 + y2) / 2, rail2D.position.z)
+       rail2D.rotation.z = Math.atan2(y2 - y1, x2 - x1)
+       if (rail2D.geometry.parameters) {
+            const initLen2D = rail2D.geometry.parameters.width
+            rail2D.scale.x = length / initLen2D
+       }
+    }
+}
+
 const onMouseDown = (event: MouseEvent) => {
     // console.log("Container MouseDown", event.button)
     // Resume Audio Context on first interaction
@@ -470,13 +944,75 @@ const onMouseDown = (event: MouseEvent) => {
     raycaster.setFromCamera(mouse, camera)
     
     // Check handles first
-    const intersects = raycaster.intersectObjects(railHandles)
+    // Check handles (points)
+    // Filter out guide lines which are visual only
+    const intersects = raycaster.intersectObjects(railHandles).filter(res => res.object.userData.point !== 'guide')
+    
     if (intersects.length > 0) {
         const hit = intersects[0].object
         selectedRailIndex.value = hit.userData.railIndex
         selectedType.value = 'rail'
         selectedBumperIndex.value = -1
         
+        // Check for "Remove Rail" handle
+        if (hit.userData.point === 'remove_rail') {
+            const idx = hit.userData.railIndex
+            if (idx >= 0 && idx < props.config.rails.length) {
+                const newRails = [...props.config.rails]
+                newRails.splice(idx, 1)
+                
+                selectedRailIndex.value = -1 // Deselect
+                selectedType.value = null
+                
+                emit('update-rail', newRails)
+            }
+            return
+        }
+
+        // Check for "Add Segment" handles
+        if (hit.userData.point === 'add_segment_p1' || hit.userData.point === 'add_segment_p2') {
+             // Create New Rail
+             const parentRail = props.config.rails[hit.userData.railIndex]
+             if (!parentRail) return
+             
+             // Offset for new segment (normalized coordinates)
+             const newLen = 0.1
+             
+             let newRail;
+             
+             if (hit.userData.point === 'add_segment_p2') {
+                 // Extend from P2 [P1 -> P2] -> [P2 -> P2+offset]
+                 const dx = parentRail.p2.x - parentRail.p1.x
+                 const dy = parentRail.p2.y - parentRail.p1.y
+                 const len = Math.sqrt(dx*dx + dy*dy) || 1
+                 const ux = dx/len
+                 const uy = dy/len
+                 
+                 newRail = {
+                     p1: { x: parentRail.p2.x, y: parentRail.p2.y },
+                     p2: { x: parentRail.p2.x + ux * newLen, y: parentRail.p2.y + uy * newLen }
+                 }
+             } else {
+                 // Extend from P1 [P1-offset -> P1] -> [P1 -> P2]
+                 const dx = parentRail.p2.x - parentRail.p1.x
+                 const dy = parentRail.p2.y - parentRail.p1.y
+                 const len = Math.sqrt(dx*dx + dy*dy) || 1
+                 const ux = dx/len
+                 const uy = dy/len
+                 
+                 newRail = {
+                     p1: { x: parentRail.p1.x - ux * newLen, y: parentRail.p1.y - uy * newLen },
+                     p2: { x: parentRail.p1.x, y: parentRail.p1.y }
+                 }
+             }
+             
+             const newRails = [...props.config.rails, newRail]
+             selectedRailIndex.value = newRails.length - 1
+             selectedType.value = 'rail'
+             emit('update-rail', newRails)
+             return
+        }
+
         // Enable drag
         dragPoint.value = hit.userData.point
         isDragging.value = true
@@ -492,8 +1028,21 @@ const onMouseDown = (event: MouseEvent) => {
             dragStartPos.y = norm.y
             
             const rail = props.config.rails[selectedRailIndex.value]
-            dragState.initialP1 = { ...rail.p1 }
-            dragState.initialP2 = { ...rail.p2 }
+            if (rail) {
+                // Initialize single rail drag state (for endpoints)
+                dragState.initialP1 = { ...rail.p1 }
+                dragState.initialP2 = { ...rail.p2 }
+                if (rail.c1) dragState.initialC1 = { ...rail.c1 }
+                if (rail.c2) dragState.initialC2 = { ...rail.c2 }
+                
+                // Clear connected drag state
+                connectedDragIndices.value = []
+                connectedDragStates.clear()
+            } else {
+                console.warn('[Pinball3D] Drag Start: Invalid rail index', selectedRailIndex.value)
+                isDragging.value = false
+                return
+            }
         }
         
         updateRailHandles() // To update selection color
@@ -513,7 +1062,6 @@ const onMouseDown = (event: MouseEvent) => {
         isDragging.value = true
         
         // Setup drag plane
-        // Setup drag plane
         dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), bodyIntersects[0].point)
         const target = new THREE.Vector3()
         raycaster.ray.intersectPlane(dragPlane, target)
@@ -523,9 +1071,24 @@ const onMouseDown = (event: MouseEvent) => {
             dragStartPos.x = norm.x
             dragStartPos.y = norm.y
             
-            const rail = props.config.rails[selectedRailIndex.value]
-            dragState.initialP1 = { ...rail.p1 }
-            dragState.initialP2 = { ...rail.p2 }
+            // --- CONNECTED RAIL LOGIC ---
+            // Find connected rails
+            const connected = findConnectedRails(selectedRailIndex.value)
+            connectedDragIndices.value = connected
+            connectedDragStates.clear()
+            
+            connected.forEach(idx => {
+                const r = props.config.rails[idx]
+                if (r) {
+                    const state = {
+                        p1: { ...r.p1 },
+                        p2: { ...r.p2 },
+                        c1: r.c1 ? { ...r.c1 } : null,
+                        c2: r.c2 ? { ...r.c2 } : null
+                    }
+                    connectedDragStates.set(idx, state)
+                }
+            })
         }
         
         updateRailHandles()
@@ -625,145 +1188,68 @@ const onMouseMove = (event: MouseEvent) => {
         const normPos = mapFromWorld(target.x, target.y)
         
         // Update local config
-        // Update local config
         if (selectedType.value === 'rail') {
             const rail = props.config.rails[selectedRailIndex.value]
             if (rail) {
-                if (dragPoint.value === 'body' && dragState.initialP1 && dragState.initialP2) {
-                    // Calculate delta
+                if (dragPoint.value === 'body') {
+                    // --- MULTI RAIL DRAG ---
                     const dx = normPos.x - dragStartPos.x
                     const dy = normPos.y - dragStartPos.y
                     
-                    // Apply to initial positions
-                    rail.p1.x = dragState.initialP1.x + dx
-                    rail.p1.y = dragState.initialP1.y + dy
-                    rail.p2.x = dragState.initialP2.x + dx
-                    rail.p2.y = dragState.initialP2.y + dy
+                    connectedDragIndices.value.forEach(idx => {
+                         const r = props.config.rails[idx]
+                         const initState = connectedDragStates.get(idx)
+                         if (r && initState) {
+                             r.p1.x = initState.p1.x + dx
+                             r.p1.y = initState.p1.y + dy
+                             r.p2.x = initState.p2.x + dx
+                             r.p2.y = initState.p2.y + dy
+                             
+                             if (r.c1 && initState.c1) {
+                                 r.c1.x = initState.c1.x + dx
+                                 r.c1.y = initState.c1.y + dy
+                             }
+                             if (r.c2 && initState.c2) {
+                                 r.c2.x = initState.c2.x + dx
+                                 r.c2.y = initState.c2.y + dy
+                             }
+                             updateRailVisuals(idx)
+                         }
+                    })
+
+                } else if (dragPoint.value === 'midpoint') {
+                    // Convert straight rail to curved rail
+                    if (!rail.c1) rail.c1 = { x: normPos.x, y: normPos.y }
+                    if (!rail.c2) rail.c2 = { x: normPos.x, y: normPos.y }
+                    rail.c1.x = normPos.x; rail.c1.y = normPos.y; 
+                    rail.c2.x = normPos.x; rail.c2.y = normPos.y; 
+                    
+                    updateRailVisuals(selectedRailIndex.value) 
                 } else {
-                    // Handle dragging
-                    rail[dragPoint.value].x = normPos.x
-                    rail[dragPoint.value].y = normPos.y
+                    // Handle single point dragging
+                    if (rail[dragPoint.value]) {
+                        rail[dragPoint.value].x = normPos.x
+                        rail[dragPoint.value].y = normPos.y
+                        updateRailVisuals(selectedRailIndex.value)
+                    }
                 }
                 
                 updateRailHandles()
-                
-                // Update 3D Rail Mesh Visualization
-                // const railMesh = railMeshes[selectedRailIndex.value] // This might be unreliable if indices shifted? 
-                // Better to use the stored reference if possible, but rail object in props.config is just data.
-                // We stored user data in railMesh.userData.railIndex?
-                // railMeshes should correspond to config.rails index IF no filtering happened.
-                
-                const railMesh = railMeshes[selectedRailIndex.value]
-                if (railMesh) {
-                     // Recalculate position/rotation similar to createTable
-                     const nOffsetX = Number(props.config.rail_x_offset || 0)
-                     const nOffsetY = Number(props.config.rail_y_offset || 0)
-                     const lengthScale = Number(props.config.guide_length_scale || 1.0)
-                     
-                     // Use the UPDATED rail data directly
-                     const r1x = rail.p1.x + nOffsetX
-                     const r1y = rail.p1.y + nOffsetY
-                     const r2x = rail.p2.x + nOffsetX
-                     const r2y = rail.p2.y + nOffsetY
-
-                     // Map 3D
-                     let x1 = mapX(r1x), y1 = mapY(r1y)
-                     const x2 = mapX(r2x), y2 = mapY(r2y)
-                     
-                     let dx = x2 - x1
-                     let dy = y2 - y1
-                     const length = Math.sqrt(dx * dx + dy * dy)
-                     
-                     if (length > 0 && Math.abs(lengthScale - 1.0) > 0.001) {
-                         const scaledLen = length * lengthScale
-                         const ux = dx / length, uy = dy / length
-                         x1 = x2 - ux * scaledLen
-                         y1 = y2 - uy * scaledLen
-                     }
-                     
-                     // Update Mesh Position
-                     railMesh.position.set((x1 + x2) / 2, (y1 + y2) / 2, railMesh.position.z)
-                     railMesh.rotation.z = Math.atan2(y2 - y1, x2 - x1)
-                     
-                     // Update Geometry Length? 
-                     // Cylinder height (length) is immutable without rebuilding geometry or scaling.
-                     // Scaling Y axis matches length (Cylinder is Y-up by default, but we rotated it? 
-                     // Wait, in createTable we did railGeo.rotateZ(Math.PI/2), so length is along X axis now?
-                     // No, original cylinder is Y-up. rotateZ(90) makes it X-axis aligned.
-                     // But we rotate the MESH by `angle`.
-                     // Actually, usually we scale the mesh in the length axis.
-                     
-                     // Let's assume we need to scale Y (original length axis) or check implementation.
-                     // In createTable: new CylinderGeometry(r, r, length). rotateZ(PI/2).
-                     // So length is along X.
-                     
-                     // We can just Scale X to match new length / old length?
-                     // But initial length is baked into geometry.
-                     // Safer to just Update Scale?
-                     // Initial length was passed to constructor.
-                     // If we want to change length, we scaling the mesh on the axis of length.
-                     // Since we rotated geometry Z 90deg, the "height" of cylinder (Y) is now aligned with X local.
-                     
-                     // BUT, scaling cylinder scales radius too if we are not careful? 
-                     // No, scaling the Mesh scales the local axes.
-                     // If Cylinder was created with length L_init.
-                     // We rotated geometry so L is along X.
-                     // We want new length L_new.
-                     // scale.x = L_new / L_init.
-                     
-                     // Problem: We don't know L_init easily without storing it.
-                     // BUT, we can just dispose and recreate geometry? Expensive for drag?
-                     // Maybe just scale?
-                     // Let's just update position/rotation for now. The length change might be noticeable looking distorted if we scale.
-                     // But scaling X only affects length if aligned.
-                     // Radius is Y and Z (after rotation).
-                     
-                     // Let's rely on Rebuild on MouseUp for perfect geometry.
-                     // For dragging, just positioning the center/rotation is 90% of visual feedback.
-                     // Scaling is bonus.
-                     
-                     // Actually, if we just move P1/P2, length changes.
-                     // If we don't scale, the rail will look detached from points.
-                     // Let's try to set scale.
-                     // We need L_init. Geometry.parameters.height?
-                     if ((railMesh.geometry as any).parameters) {
-                         const initLen = (railMesh.geometry as any).parameters.height // Cylinder height is the length
-                         railMesh.scale.x = length / initLen
-                         // Note: rotateZ(PI/2) makes Y become X?
-                         // Cylinder is created along Y. rotateZ(PI/2) moves Y to negative X?
-                         // verify: Y (up) -> rotate Z 90 -> X (left).
-                         // So X scale should control length.
-                     }
-                     
-                     // Update 2D Rail
-                     const rail2D = railMesh.userData.rail2D
-                     if (rail2D) {
-                        rail2D.position.set((x1 + x2) / 2, (y1 + y2) / 2, rail2D.position.z)
-                        rail2D.rotation.z = Math.atan2(y2 - y1, x2 - x1)
-                        // rail2D is PlaneGeometry(length, width). Created X-aligned I think?
-                        // PlaneGeometry(width, height).
-                        // In createTable: PlaneGeometry(length, rail2DWidth). Defaults to XY plane. 
-                        // So X is length.
-                        if (rail2D.geometry.parameters) {
-                             const initLen2D = rail2D.geometry.parameters.width
-                             rail2D.scale.x = length / initLen2D
-                        }
-                     }
-                }
             }
         } else if (selectedType.value === 'bumper') {
             const bumper = props.config.bumpers[selectedBumperIndex.value]
             if (bumper && dragState.initialPos) {
                 const dx = normPos.x - dragStartPos.x
                 const dy = normPos.y - dragStartPos.y
-                
                 bumper.x = dragState.initialPos.x + dx
                 bumper.y = dragState.initialPos.y + dy
                 
-                // Update mesh position
                 const mesh = bumperMeshes[selectedBumperIndex.value]
                 if (mesh) {
-                    mesh.position.set(mapX(bumper.x), mapY(bumper.y), 0.025)
+                     // Recalc collision geometry visuals if needed? 
+                     // Bumpers are groups, usually we assume model space 0,0 and move group.
+                     const world = mapToWorld(bumper.x, bumper.y)
+                     mesh.position.set(world.x, world.y, mesh.position.z)
                 }
             }
         }
@@ -867,6 +1353,152 @@ const cancelRelaunch = () => {
     stuckBallDialog.value = false
 }
 
+// --- Mario Theme Textures ---
+const getQuestionBlockTexture = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new THREE.Texture();
+
+    // Background (Gold/Orange)
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillRect(0, 0, 128, 128);
+    
+    // Inner Box (Lighter)
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillRect(8, 8, 112, 112);
+    
+    // Question Mark (Brown/Shadow)
+    ctx.fillStyle = '#aa5500';
+    ctx.font = 'bold 80px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', 64, 64);
+    
+    // Bolts
+    ctx.fillStyle = '#aa5500';
+    ctx.fillRect(12, 12, 10, 10);
+    ctx.fillRect(106, 12, 10, 10);
+    ctx.fillRect(12, 106, 10, 10);
+    ctx.fillRect(106, 106, 10, 10);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+};
+
+const getBrickBlockTexture = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new THREE.Texture();
+
+    // Base Brown
+    ctx.fillStyle = '#b84e00'; // Darker Rust
+    ctx.fillRect(0, 0, 128, 128);
+
+    // Brick Pattern
+    ctx.fillStyle = '#ff8822'; // Lighter Orange-Brown
+    // Top Row
+    ctx.fillRect(4, 4, 58, 28);
+    ctx.fillRect(66, 4, 58, 28);
+    // Middle Row
+    ctx.fillRect(4, 36, 28, 28);
+    ctx.fillRect(36, 36, 56, 28);
+    ctx.fillRect(96, 36, 28, 28);
+    // Bottom Row
+    ctx.fillRect(4, 68, 58, 28);
+    ctx.fillRect(66, 68, 58, 28);
+    // Very Bottom
+    ctx.fillRect(4, 100, 28, 24);
+    ctx.fillRect(36, 100, 56, 24);
+    ctx.fillRect(96, 100, 28, 24);
+
+    // Mortar lines are the gaps left behind
+    
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    // Nearest filter for pixel look
+    tex.minFilter = THREE.NearestFilter;
+    tex.magFilter = THREE.NearestFilter;
+    return tex;
+};
+
+const getKoopaShellTexture = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new THREE.Texture();
+
+    // Green Shell
+    ctx.fillStyle = '#00aa00';
+    ctx.fillRect(0, 0, 128, 128);
+    
+    // Hexagon plates pattern
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(64, 10);
+    ctx.lineTo(110, 40);
+    ctx.lineTo(110, 88);
+    ctx.lineTo(64, 118);
+    ctx.lineTo(18, 88);
+    ctx.lineTo(18, 40);
+    ctx.closePath();
+    ctx.stroke();
+    
+    // Center point
+    ctx.beginPath();
+    ctx.arc(64, 64, 5, 0, Math.PI*2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+};
+
+const getCoinTexture = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new THREE.Texture();
+
+    // Gold Coin
+    ctx.fillStyle = '#ffcc00';
+    ctx.beginPath();
+    ctx.ellipse(32, 32, 28, 30, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Shine / Highlight
+    ctx.fillStyle = '#ffffaa';
+    ctx.beginPath();
+    ctx.ellipse(24, 24, 8, 12, -0.5, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Border
+    ctx.strokeStyle = '#aa5500';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(32, 32, 28, 30, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner Line
+    ctx.strokeStyle = '#aa5500';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(32, 32, 20, 22, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+};
+
 // Watch for config changes from parent
 // Watch moved to after createTable definition
 
@@ -899,6 +1531,9 @@ const createTable = (config: PhysicsConfig | null = null) => {
   
   tableGroup = new THREE.Group()
   scene.add(tableGroup)
+
+    railsGroup = new THREE.Group()
+    tableGroup.add(railsGroup)
   railMeshes.length = 0
   bumperMeshes.length = 0
   
@@ -909,6 +1544,7 @@ const createTable = (config: PhysicsConfig | null = null) => {
   ballGlows = []
   ballTrails = []
   ballParticles = []
+  coins = [] // Clear coins
 
   // Initialize Texture Loader
   const textureLoader = new THREE.TextureLoader()
@@ -926,12 +1562,22 @@ const createTable = (config: PhysicsConfig | null = null) => {
     emissive: 0x222222, 
     emissiveIntensity: 0.1
   })
+
+
+  // Coin Resources (Mario Theme)
+  const coinTex = getCoinTexture()
+  coinMat = new THREE.MeshBasicMaterial({ 
+      map: coinTex,
+      transparent: true,
+      side: THREE.DoubleSide
+  })
+  
   flippers = { left: null, right: null, upper: [], dropTargets: [], bumpers: [] }
   zoneMeshes = [] // Clear zone meshes array
 
 // Floor - Brighter playfield with Texture Support
-  const floorGeo = new THREE.PlaneGeometry(0.6, 1.2)
-  
+  // Extended Floor to match Apron (Total Height 1.44)
+  // Top: 0.6, Bottom: -0.84. Center: -0.12.
   // Determine layout ID for texture lookup
   let layoutId = null
   if (config) {
@@ -940,8 +1586,33 @@ const createTable = (config: PhysicsConfig | null = null) => {
       } else if (config.name) {
           layoutId = config.name.toLowerCase().replace(/ /g, '_')
       }
+      
+      // DEBUG: Theme State
+      console.log('[createTable] Theme:', config.theme)
+      console.log('[createTable] Layout ID:', layoutId)
+      
+      // Fallback: Force Mario theme if layout seems to be Mario
+      // Also check config.theme here to set isMario correctly
   }
 
+  // Use computed theme to avoid mutation and leakage
+  const isMario = currentTheme.value === 'mario'
+
+  // Floor Geometry
+  // Standard Extended: Top: 0.6, Bottom: -0.84. Center: -0.12. Height: 1.44
+  // Mario Fixed: Top: 0.6, Bottom: -0.6 (Playfield only) + Separate Apron
+  let floorGeo
+  let floorY
+  
+  if (isMario) {
+      // Shorter floor, stops at apron bar
+      floorGeo = new THREE.PlaneGeometry(0.6, 1.2)
+      floorY = 0
+  } else {
+      // Standard extended floor
+      floorGeo = new THREE.PlaneGeometry(0.6, 1.44)
+      floorY = -0.12
+  }
 
   let floorMat
   
@@ -976,7 +1647,26 @@ const createTable = (config: PhysicsConfig | null = null) => {
           }
       )
       texture.colorSpace = THREE.SRGBColorSpace
+
+      // Adjust texture repeat to cover new longer floor correctly?
+      // Usually texture is designed for playfield (1.2 height).
+      // If we stretch it to 1.44, it might distort.
+      // But usually apron covers the bottom part.
       
+      // Fix for Close Encounters: The generated image is practically square (1:1) but the table is 1:2.4.
+      // This causes the art to look squished horizontally (tall/thin).
+      // We need to "zoom in" horizontally by showing only a slice of the texture width.
+      // If we show 0.5 of the texture width mapped to the full table width, the pixels appear 2x wider.
+      if (layoutId === 'close_encounters') {
+          // Center the texture
+          texture.center.set(0.5, 0.5)
+          // Scale it.
+          // repeat.x < 1 zooms in horizontally (stretches horizontal pixels).
+          // repeat.y = 1 keeps vertical as is.
+          texture.repeat.set(0.6, 1.0) 
+          // 0.6 is a guess. If image is 1:1 and table is 1:2 ~ 0.5 ratio
+      }
+
       floorMat = new THREE.MeshStandardMaterial({
         map: texture,
         roughness: 0.4,
@@ -996,15 +1686,25 @@ const createTable = (config: PhysicsConfig | null = null) => {
   }
 
   const floor = new THREE.Mesh(floorGeo, floorMat)
+  floorMesh.value = floor
   floor.receiveShadow = true
+  // FIX Z-FIGHTING: Raise floor slightly above cabinet top (which is at Z=0)
+  floor.position.set(0, floorY, 0.005) 
   tableGroup.add(floor)
+
+  // Mario Special: Add Black Apron Mesh if needed
+  if (isMario) {
+      const apronGeo = new THREE.PlaneGeometry(0.6, 0.24)
+      const apronMat = new THREE.MeshBasicMaterial({ color: 0x000000 })
+      const apron = new THREE.Mesh(apronGeo, apronMat)
+      // Center at -0.72 (Start -0.6, End -0.84)
+      apron.position.set(0, -0.72, 0.005)
+      tableGroup.add(apron)
+  }
 
   // Walls - Brushed Metal Texture
   // Walls - Dynamic or Default Brushed Metal
   let wallTexturePath = '/textures/wall_texture.png'
-  if (layoutId === 'lisa_frank') {
-      wallTexturePath = '/textures/lisa_frank_wall.png'
-  }
   const wallTexture = textureLoader.load(wallTexturePath)
   wallTexture.colorSpace = THREE.SRGBColorSpace
   wallTexture.wrapS = THREE.RepeatWrapping
@@ -1021,20 +1721,390 @@ const createTable = (config: PhysicsConfig | null = null) => {
   })
   const wallHeight = 0.1
   
+  // Adjusted Walls to wrap around extended Apron
+  // Table Top Y = 0.6  (mapY(0.0))
+  // Table Bottom Y = -0.84 (mapY(1.2)) -> Length 1.44
+  // Center Y = (0.6 + -0.84) / 2 = -0.12
+  const wallLength = 1.44
+  const wallCenterY = -0.12
+
   // Left Wall
-  const w1 = new THREE.Mesh(new THREE.BoxGeometry(0.02, 1.2, wallHeight), wallMat)
-  w1.position.set(-0.31, 0, wallHeight/2)
+  const w1 = new THREE.Mesh(new THREE.BoxGeometry(0.02, wallLength, wallHeight), wallMat)
+  w1.position.set(-0.31, wallCenterY, wallHeight/2)
   tableGroup.add(w1)
   
   // Right Wall
-  const w2 = new THREE.Mesh(new THREE.BoxGeometry(0.02, 1.2, wallHeight), wallMat)
-  w2.position.set(0.31, 0, wallHeight/2)
+  const w2 = new THREE.Mesh(new THREE.BoxGeometry(0.02, wallLength, wallHeight), wallMat)
+  w2.position.set(0.31, wallCenterY, wallHeight/2)
   tableGroup.add(w2)
   
   // Top Wall
   const w3 = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.02, wallHeight), wallMat)
   w3.position.set(0, 0.61, wallHeight/2)
   tableGroup.add(w3)
+
+  // Bottom Wall (Completing the perimeter)
+  // Side walls end at -0.84. Center this at -0.85 (0.02 thick) to cap.
+  const w4 = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.02, wallHeight), wallMat)
+  w4.position.set(0, -0.85, wallHeight/2)
+  tableGroup.add(w4)
+
+  // --- Deep Cabinet (Main Body) ---
+  // A large box below the playfield to give it weight and realism.
+  // Dimensions match the full outer perimeter (Walls + Floor).
+  // Width: 0.64 (0.6 floor + 0.02*2 walls)
+  // Length: 1.48 (1.44 floor + 0.02*2 walls)
+  // Depth: 1/4 of previous (0.5 / 4 = 0.125)
+  // Material: Same as walls
+  
+  const cabinetHeight = 0.125
+  const cabinetGeo = new THREE.BoxGeometry(0.64, 1.48, cabinetHeight)
+  
+  // Use plain black material for Cabinet and Backbox (User requested no texture)
+  const cabinetMat = new THREE.MeshStandardMaterial({
+      color: 0x050505, // Almost black
+      roughness: 0.8,
+      metalness: 0.1
+      // No map
+  })
+  
+  const cabinet = new THREE.Mesh(cabinetGeo, cabinetMat)
+  
+  // Floor is at Z=0. Cabinet top should be at Z=0.
+  // So Center Z = -cabinetHeight / 2
+  
+  cabinet.position.set(0, -0.12, -cabinetHeight / 2)
+  tableGroup.add(cabinet)
+
+  // --- Wedge Head Backbox ---
+  // Sitting at the back of the machine, standing up.
+  // Inverted Trapezoid: Wider at top.
+  // Bottom Width: 0.65 (slightly wider than cabinet)
+  // Top Width: 0.75
+  // Height: 0.7 * (2/3) ≈ 0.47
+  // Depth: 0.25 (thickness)
+  
+  const bbShape = new THREE.Shape()
+  const bbBottomW = 0.65 / 2
+  const bbTopW = 0.75 / 2
+  const bbH = 0.56 // Increased height (~20%)
+  
+  // Draw Trapezoid (Front Face)
+  bbShape.moveTo(-bbBottomW, 0)
+  bbShape.lineTo(bbBottomW, 0)
+  bbShape.lineTo(bbTopW, bbH)
+  bbShape.lineTo(-bbTopW, bbH)
+  bbShape.lineTo(-bbBottomW, 0)
+  
+  const bbGeo = new THREE.ExtrudeGeometry(bbShape, {
+      depth: 0.25,
+      bevelEnabled: true,
+      bevelThickness: 0.01,
+      bevelSize: 0.01,
+      bevelSegments: 2
+  })
+  
+  const bbMesh = new THREE.Mesh(bbGeo, cabinetMat) // Use plain black
+  
+  // Correction: UP (+Z) and Tilt Back (+Y)
+  bbMesh.rotation.x = Math.PI / 2 - 0.1 
+  
+  // Position
+  // Origin (Z=0) is Back. End (Z=depth) is Front.
+  // Front Face approx Y=0.62.
+  // Origin Y = 0.62 + depth.
+  // Raise Z to 0.1 to sit on top of walls (Flush with cabinet "rails").
+  
+  bbMesh.position.set(0, 0.62 + 0.25, 0.1)
+  tableGroup.add(bbMesh)
+  
+  // --- ScoreBoard Texture Logic ---
+  const sbCanvas = document.createElement('canvas')
+  sbCanvas.width = 512
+  sbCanvas.height = 256
+  const sbCtx = sbCanvas.getContext('2d')
+  const sbTexture = new THREE.CanvasTexture(sbCanvas)
+  sbTexture.colorSpace = THREE.SRGBColorSpace
+
+  let backglassImage = null
+  // layoutId is already defined at top of createTable
+
+  if (config) {
+      if (config.current_layout_id) {
+          layoutId = config.current_layout_id
+      } else if (config.name) {
+          layoutId = config.name.toLowerCase().replace(/ /g, '_')
+      }
+      console.log('DEBUG: Backglass Logic - Config name:', config.name, 'Layout ID:', layoutId)
+  }
+
+  if (layoutId) {
+       const img = new Image()
+       const url = `/textures/${layoutId}_backglass.png`
+       console.log('DEBUG: Attempting to load backglass:', url)
+       img.src = url
+       img.onload = () => {
+           console.log(`DEBUG: SUCCESS Loaded backglass for: ${layoutId}`)
+           backglassImage = img
+           drawScoreboard(props.stats?.score || 0, props.stats?.balls || 3, props.stats?.high_score || 0)
+       }
+       img.onerror = (e) => {
+           console.error(`DEBUG: FAILED to load backglass for: ${layoutId}`, e)
+       }
+  }
+
+  const drawScoreboard = (score: number, ball: number, highScore: number = 0) => {
+      if (!sbCtx) return
+      
+      // Background
+      if (backglassImage) {
+          try {
+            sbCtx.drawImage(backglassImage, 0, 0, 512, 256)
+            // Add semi-transparent overlay for readability if needed, 
+            // or just rely on text shadow/boxes.
+            // Let's add slight darken for text areas
+          } catch (e) {
+              sbCtx.fillStyle = '#000000' 
+              sbCtx.fillRect(0, 0, 512, 256)
+          }
+      } else {
+          sbCtx.fillStyle = '#000000' 
+          sbCtx.fillRect(0, 0, 512, 256)
+      }
+      
+      sbCtx.shadowColor = '#000000'
+      sbCtx.shadowBlur = 4 // Sharper shadow for readability against art
+      sbCtx.shadowOffsetX = 2
+      sbCtx.shadowOffsetY = 2
+      
+      // --- Styled Text Helper ---
+      const drawDigitalText = (label, value, x, y, width = 180, align = 'left', color = '#ffaa00') => {
+          // Background Box dimensions
+          const boxW = width
+          const boxH = 60 // Significantly reduced height (was 80)
+          
+          let boxX = x
+          if (align === 'right') boxX = x - boxW
+          if (align === 'center') boxX = x - boxW / 2
+          
+          // Draw semi-transparent background "glass" for the display
+          sbCtx.fillStyle = 'rgba(0, 0, 0, 0.5)' // Even more transparent
+          sbCtx.strokeStyle = '#555'
+          sbCtx.lineWidth = 1
+          // Round rect simulation
+          sbCtx.fillRect(boxX, y, boxW, boxH)
+          sbCtx.strokeRect(boxX, y, boxW, boxH)
+          
+          sbCtx.textAlign = align === 'center' ? 'center' : 'left'
+          if (align === 'right') sbCtx.textAlign = 'right'
+          
+          // Label
+          sbCtx.shadowBlur = 0
+          sbCtx.fillStyle = '#cc8800'
+          sbCtx.font = 'bold 12px "Courier New", monospace' // Tiny label
+          // Position relative to box
+          let labelX = x + 10 
+          if (align === 'right') labelX = x - 10
+          if (align === 'center') labelX = x
+          
+          sbCtx.fillText(label, labelX, y + 18)
+          
+          // Value (Glowing Digital Look)
+          sbCtx.shadowColor = color
+          sbCtx.shadowBlur = 8 // tighter glow
+          sbCtx.fillStyle = '#ffffff' // White core
+          sbCtx.font = 'bold 28px "Courier New", monospace' // Much smaller value (was 36)
+          
+          let valX = x + 10
+          if (align === 'right') valX = x - 10
+          if (align === 'center') valX = x
+          
+          sbCtx.fillText(value, valX, y + 45)
+      }
+
+      // 1. Main Score - Top Left
+      // Moved UP to 40. Box height 60 ends at 100.
+      const scoreStr = Math.floor(score).toLocaleString()
+      drawDigitalText("SCORE", scoreStr, 20, 40, 180, 'left', '#ffaa00')
+      
+      // 2. High Score - Bottom Left
+      // Moved DOWN to 180. Box height 60 ends at 240.
+      const highScoreStr = Math.floor(highScore).toLocaleString()
+      drawDigitalText("HIGH SCORE", highScoreStr, 20, 180, 180, 'left', '#ff4400')
+      
+      // 3. Balls - Bottom Right
+      // Moved DOWN to 180.
+      const boxW = 120 // Smaller box
+      const boxH = 60
+      const bx = 370 // Shifted right
+      const by = 180
+      
+      sbCtx.fillStyle = 'rgba(0, 0, 0, 0.5)'
+      sbCtx.strokeStyle = '#555'
+      sbCtx.lineWidth = 1
+      sbCtx.fillRect(bx, by, boxW, boxH)
+      sbCtx.strokeRect(bx, by, boxW, boxH)
+      
+      sbCtx.shadowBlur = 0
+      sbCtx.fillStyle = '#cc8800'
+      sbCtx.textAlign = 'center'
+      sbCtx.font = 'bold 12px "Courier New", monospace'
+      sbCtx.fillText("BALLS", bx + boxW/2, by + 18)
+      
+      // Ball Icons
+      const ballRadius = 8 // Tiny balls
+      const ballSpacing = 25
+      // Center the balls in the box
+      const totalW = (ball - 1) * ballSpacing
+      const startX = bx + boxW/2 - totalW/2
+      const startY = by + 40
+      
+      for (let i = 0; i < ball; i++) {
+          sbCtx.shadowBlur = 3
+          sbCtx.shadowColor = '#ffffff'
+          sbCtx.beginPath()
+          sbCtx.arc(startX + (i * ballSpacing), startY, ballRadius, 0, Math.PI * 2)
+          sbCtx.fillStyle = '#e0e0e0' 
+          sbCtx.fill()
+          // Shine
+          sbCtx.shadowBlur = 0
+          sbCtx.beginPath()
+          sbCtx.arc(startX + (i * ballSpacing) - 2, startY - 2, ballRadius/3, 0, Math.PI * 2)
+          sbCtx.fillStyle = '#ffffff'
+          sbCtx.fill()
+      }
+      
+      // Force texture update
+      sbTexture.needsUpdate = true
+  }
+  
+  // Initial Draw
+  drawScoreboard(0, 3, 0)
+  
+  // Force redraw after a moment to ensure fonts load
+  setTimeout(() => drawScoreboard(0, 3, 0), 500)
+
+  // Add Backglass (Dynamic Scoreboard)
+  const glassGeo = new THREE.PlaneGeometry(0.65, 0.48) // Increased screen height
+  
+  // Use MeshBasicMaterial with DoubleSide for maximum visibility
+  const glassMat = new THREE.MeshBasicMaterial({ 
+      map: sbTexture,
+      color: 0xffffff,
+      side: THREE.DoubleSide
+  })
+  const glass = new THREE.Mesh(glassGeo, glassMat)
+  glass.receiveShadow = false // Prevent shadow artifacts
+  glass.castShadow = false
+  
+  // Position on the face
+  bbMesh.add(glass)
+  // bbMesh Extrusion depth is 0.25 (Front Face).
+  // Increase gap to avoid Z-fighting/Moiré
+  glass.position.set(0, bbH / 2, 0.27)
+
+  // ADDED: Real Light Source for "Incandescent" feel
+  // Reduced intensity to prevent glare on playfield
+  const headLight = new THREE.PointLight(0xffaa00, 0.6, 2.0)
+  headLight.position.set(0, bbH / 2, 0.5) 
+  bbMesh.add(headLight)
+  
+  // --- Steel Legs ---
+  // L-Bracket Legs extending to floor.
+  // Floor assumed approx Z = -0.8 (75-80cm height)
+  // Legs overlap cabinet corners.
+  
+  const legMat = new THREE.MeshStandardMaterial({
+      color: 0xeeeeee,
+      metalness: 1.0,
+      roughness: 0.2
+  })
+  
+  const legShape = new THREE.Shape()
+  const legW = 0.06 // 6cm wide flange
+  const legT = 0.004 // 4mm thick
+  
+  // "Inner Corner" at 0,0. Extends OUTWARDS.
+  legShape.moveTo(0, 0)
+  legShape.lineTo(legW, 0)
+  legShape.lineTo(legW, legT)
+  legShape.lineTo(legT, legT)
+  legShape.lineTo(legT, legW)
+  legShape.lineTo(0, legW)
+  legShape.lineTo(0, 0)
+  
+  // Extrude length: 0.8m
+  const legGeo = new THREE.ExtrudeGeometry(legShape, {
+      depth: 0.8,
+      bevelEnabled: false
+  })
+  
+  // Helper to place leg
+  const createLeg = (x: number, y: number, rotZ: number) => {
+      const leg = new THREE.Mesh(legGeo, legMat)
+      // Geometry is drawn in XY plane, depth in Z.
+      // 0 to 0.8 Z.
+      // We want Top of Leg at Z=0 (approx). Bottom at -0.8.
+      // But Extrude goes 0 -> +depth.
+      // So we rotate geometry or mesh? 
+      // If we leave basic orientation:
+      // Mesh at Z=-0.8. shape 0->0.8 goes slightly past 0?
+      // Actually standard Extrude goes +Z.
+      
+      // We want leg to go DOWN.
+      // If we put mesh at Z=0, it goes UP.
+      // So Position at Z=-0.8. It goes UP to 0. Perfect.
+      
+      leg.position.set(x, y, -0.8)
+      leg.rotation.z = rotZ
+      return leg
+  }
+  
+  // Corner Positions (Cabinet Outer Bounds)
+  // Width 0.64 -> x +/- 0.32
+  // Length 1.48 (Center -0.12) -> Top 0.62, Bottom -0.86
+  // Leg Thickness Offset to wrap AROUND
+  const lOff = legT 
+  
+  // Front Left (-0.32, -0.86)
+  // Needs to wrap corner. Shape is +X, +Y.
+  // Rot 0 aligns with cabinet corner.
+  // Offset to push Inner Corner to Cabinet Corner.
+  const legFL = createLeg(-0.32 - lOff, -0.86 - lOff, 0)
+  tableGroup.add(legFL)
+  
+  // Front Right (0.32, -0.86)
+  // Rot 90 (PI/2). Matches +X -> +Y.
+  const legFR = createLeg(0.32 + lOff, -0.86 - lOff, Math.PI / 2)
+  tableGroup.add(legFR)
+  
+  // Back Right (0.32, 0.62)
+  // Rot 180 (PI). Matches +X -> -X.
+  const legBR = createLeg(0.32 + lOff, 0.62 + lOff, Math.PI)
+  tableGroup.add(legBR)
+  
+  // Back Left (-0.32, 0.62)
+  // Rot -90 (-PI/2). Matches +X -> -Y.
+  const legBL = createLeg(-0.32 - lOff, 0.62 + lOff, -Math.PI / 2)
+  tableGroup.add(legBL)
+  
+  // Watch for stats updates to redraw scoreboard
+  // We attach this to a specific watcher or just general stats watcher.
+  // We can add a specialized watcher right here if we want, or use the global one.
+  // But strictly `createTable` runs once (mostly). We recreate texture.
+  
+  // Store the draw function globally in component scope?
+  // Or just rely on the fact that we can't easily export this closure?
+  // Solution: Store the update function on the mesh or tableGroup userData so we can call it?
+  // Or better, define `drawScoreboard` outside `createTable`?
+  // Let's attach it to tableGroup.userData for now, and have the main watcher call it.
+  
+  tableGroup.userData.updateScoreboard = drawScoreboard
+
+  
+  // Wait, Shape is 0 to 0.7. Center is 0.35.
+
+
 
   // --- Dynamic Features from Config ---
   if (config) {
@@ -1072,6 +2142,56 @@ const createTable = (config: PhysicsConfig | null = null) => {
 
     // Bumpers - Close Encounters UFO style (larger and more visible)
     if (config.bumpers) {
+      // MARIO THEME: Question Blocks
+      if (isMario) {
+          const qBlockTex = getQuestionBlockTexture();
+          const qBlockGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
+          const qBlockMat = new THREE.MeshStandardMaterial({
+              map: qBlockTex,
+              roughness: 0.3,
+              metalness: 0.1
+          });
+
+          config.bumpers.forEach((b, i) => {
+             const bumperGroup = new THREE.Group();
+             
+             // Visual Box
+             const block = new THREE.Mesh(qBlockGeo, qBlockMat);
+             // Center is at 0,0,0. Lift it so bottom is at z=0?
+             // Or float it? Mario blocks float.
+             // Bumper physics assumes z=0 for collision?
+             // Let's float it at z=0.04 (center) so it's 0.01 to 0.07 off ground.
+             block.position.z = 0.03; 
+             block.castShadow = true;
+             
+             // Add a slow rotation animation? handled in animate?
+             // For now just static
+             
+             bumperGroup.add(block);
+             
+             // Shadow/Floor decal?
+             const shadowGeo = new THREE.PlaneGeometry(0.06, 0.06);
+             const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
+             const shadow = new THREE.Mesh(shadowGeo, shadowMat);
+             shadow.position.z = 0.001;
+             bumperGroup.add(shadow);
+             
+             bumperGroup.position.set(mapX(b.x), mapY(b.y), 0);
+             
+             bumperGroup.userData = {
+                 bumperIndex: i,
+                 type: 'bumper',
+                 isMarioBlock: true, // Tag for potential animation
+                 blockMesh: block,
+                 isActive: false,
+                 originalPos: new THREE.Vector3(mapX(b.x), mapY(b.y), 0)
+             };
+             
+             tableGroup.add(bumperGroup);
+             flippers.bumpers.push(bumperGroup);
+             bumperMeshes.push(bumperGroup);
+          });
+      } else {
       // UFO dome geometry - larger and flatter
       const domeGeo = new THREE.SphereGeometry(0.035, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2.5)
       // UFO base ring geometry - thicker and more visible
@@ -1188,6 +2308,7 @@ const createTable = (config: PhysicsConfig | null = null) => {
          flippers.bumpers.push(bumperGroup)
          bumperMeshes.push(bumperGroup)
       })
+      }
     }
 
 
@@ -1362,8 +2483,36 @@ const createTable = (config: PhysicsConfig | null = null) => {
     if (config.drop_targets) {
       flippers.dropTargets = [] // Initialize array
 
-      // Rainbow Colors
-      const dropTargetColors = [0xff0000, 0xffaa00, 0xffff00, 0x00ff00, 0x00ffff, 0x0000ff, 0xff00ff]
+      if (isMario) {
+         // MARIO THEME: Brick Blocks
+         const brickTex = getBrickBlockTexture()
+         const brickMat = new THREE.MeshStandardMaterial({
+             map: brickTex,
+             roughness: 0.8,
+             metalness: 0
+         })
+
+         config.drop_targets.forEach((t) => {
+            const w = t.width
+            const h = 0.04 
+            const d = t.height 
+
+            // Box Geometry
+            const geometry = new THREE.BoxGeometry(w, d, h)
+            const target = new THREE.Mesh(geometry, brickMat)
+            
+            // Align position
+            target.position.set(mapX(t.x + t.width/2), mapY(t.y + t.height/2), h/2)
+            target.castShadow = true
+            target.receiveShadow = true
+            
+            tableGroup.add(target)
+            flippers.dropTargets.push(target)
+         })
+
+      } else {
+      // Themed Colors (Close Encounters: Neon Orange & Cyan)
+      const dropTargetColors = [0xffaa00, 0x00ffff] // Alternate Orange/Cyan
 
       // 2D representation for top-down view
       // We can reuse the same geometry logic for 2D if we just scale Z to flat
@@ -1383,10 +2532,10 @@ const createTable = (config: PhysicsConfig | null = null) => {
         const targetMat = new THREE.MeshStandardMaterial({
           map: dropTargetTexture,
           color: targetColor,
-          roughness: 0.2,
+          roughness: 0.1, // Shiny plastic
           metalness: 0.6,
           emissive: targetColor,
-          emissiveIntensity: 0.4
+          emissiveIntensity: 0.8 // Strong glow
         })
 
         // Simple Box for Drop Target
@@ -1424,6 +2573,7 @@ const createTable = (config: PhysicsConfig | null = null) => {
         tableGroup.add(target2D)
         flippers.dropTargets.push(target)
       })
+      }
     }
 
     // Rails - Chrome-finished guide tubes
@@ -1432,118 +2582,99 @@ const createTable = (config: PhysicsConfig | null = null) => {
       const railHeight = 0.04 // Height above playfield
       const rail2DWidth = 0.016 // Width for 2D representation (2x radius for visibility)
 
-      // Rail material - chrome finish
-      const railMat = new THREE.MeshStandardMaterial({
-        color: 0xcccccc,
-        roughness: 0.2,
-        metalness: 0.9,
-        emissive: 0x444444,
-        emissiveIntensity: 0.2
+      // Rail material - Pure Neon Core (Flat, no metal)
+      const railMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff, // Pure White Plasma Core
+      })
+      
+      // Rail Glow Material (Fake Bloom)
+      const railGlowMat = new THREE.MeshBasicMaterial({
+        color: 0x00ffff, // Pure Cyan Glow
+        transparent: true,
+        opacity: 0.4,
+        blending: THREE.AdditiveBlending, // Additive for light-like effect
+        depthWrite: false, // Don't occlude
+        side: THREE.FrontSide
       })
 
       // 2D rail material for top-down view
       const rail2DMat = new THREE.MeshBasicMaterial({
-        color: 0xcccccc,
+        color: 0x00ffff,
         side: THREE.DoubleSide
       })
 
-      config.rails.forEach((rail, index) => {
-        const normOffsetX = Number(config.rail_x_offset || 0)
-        const normOffsetY = Number(config.rail_y_offset || 0)
-        const lengthScale = Number(config.guide_length_scale || 1.0)
-        
-        // Apply global offsets to raw coordinates
-        const r1x = rail.p1.x + normOffsetX
-        const r1y = rail.p1.y + normOffsetY
-        const r2x = rail.p2.x + normOffsetX
-        const r2y = rail.p2.y + normOffsetY
-        
-        // Calculate start and end positions in 3D space
-        let x1 = mapX(r1x)
-        let y1 = mapY(r1y)
-        const x2 = mapX(r2x)
-        const y2 = mapY(r2y)
-
-        // Calculate distance between points
-        let dx = x2 - x1
-        let dy = y2 - y1
-        const length = Math.sqrt(dx * dx + dy * dy)
-        
-        // Apply Length Scale (P1 moves towards P2)
-        if (length > 0 && Math.abs(lengthScale - 1.0) > 0.001) {
-             const scaledLen = length * lengthScale
-             const ux = dx / length
-             const uy = dy / length
-             
-             x1 = x2 - ux * scaledLen
-             y1 = y2 - uy * scaledLen
-             
-             // Recalc dx, dy
-             dx = x2 - x1
-             dy = y2 - y1
-        }
-
-        // Create 3D cylinder geometry for the rail
-        const railGeo = new THREE.CylinderGeometry(railRadius, railRadius, length, 16)
-
-        // Rotate cylinder to be horizontal (cylinders default to vertical along Y-axis)
-        railGeo.rotateZ(Math.PI / 2)
-
-        const railMesh = new THREE.Mesh(railGeo, railMat)
-
-        // Position at midpoint between p1 and p2
-        railMesh.position.set(
-          (x1 + x2) / 2,
-          (y1 + y2) / 2,
-          railHeight / 2
-        )
-
-        // Rotate to align with the rail direction
-        const angle = Math.atan2(dy, dx)
-        railMesh.rotation.z = angle
-
-        railMesh.castShadow = true
-        railMesh.receiveShadow = true
-
-        // Create 2D representation for top-down view (flat rectangle on floor)
-        const rail2DGeo = new THREE.PlaneGeometry(length, rail2DWidth)
-        const rail2D = new THREE.Mesh(rail2DGeo, rail2DMat)
-
-        // Position at same location as 3D rail but on the floor
-        rail2D.position.set(
-          (x1 + x2) / 2,
-          (y1 + y2) / 2,
-          0.001 // Just above floor to prevent z-fighting
-        )
-
-        // Rotate to align with rail direction
-        rail2D.rotation.z = angle
-
-        // Initially hidden (will be shown in 2D mode)
-        rail2D.visible = false
-
-        // Store rail metadata for editing
-        railMesh.userData = {
-          railIndex: index,
-          type: 'rail',
-          p1: rail.p1,
-          p2: rail.p2,
-          rail2D: rail2D  // Store reference to 2D representation
-        }
-
-        rail2D.userData = {
-          railIndex: index,
-          type: 'rail',
-          p1: rail.p1,
-          p2: rail.p2,
-          rail3D: railMesh  // Store reference to 3D representation
-        }
-
-        tableGroup.add(railMesh)
-        tableGroup.add(rail2D)
-        railMeshes.push(railMesh)
-      })
+      createRails(config.rails)
     }
+
+    // --- Apron (Visual Bottom Cover) ---
+
+    // --- Apron (Visual Bottom Cover) ---
+    // Covers the drain area below the flippers
+    // "Farther down" -> Start Y 0.98 (More gap from flippers)
+    // "Full Width" -> mapX(1.0)
+    // "Height of walls" -> depth 0.1 (matching wallHeight)
+    
+    const apronShape = new THREE.Shape()
+    const apronStartY = 0.98
+    const apronEndY = 1.2
+    
+    // Start Top-Left
+    apronShape.moveTo(mapX(0.0), mapY(apronStartY)) 
+    // Line to Top-Right (Full Width)
+    apronShape.lineTo(mapX(1.0), mapY(apronStartY)) 
+    // Line to Bottom-Right
+    apronShape.lineTo(mapX(1.0), mapY(apronEndY))
+    // Line to Bottom-Left
+    apronShape.lineTo(mapX(0.0), mapY(apronEndY))
+    // Close
+    apronShape.lineTo(mapX(0.0), mapY(apronStartY))
+
+    // Cutout for Drain
+    const drainHole = new THREE.Path()
+    drainHole.moveTo(mapX(0.42), mapY(1.0))
+    drainHole.lineTo(mapX(0.58), mapY(1.0))
+    drainHole.lineTo(mapX(0.55), mapY(1.15)) // Tapered
+    drainHole.lineTo(mapX(0.45), mapY(1.15))
+    drainHole.lineTo(mapX(0.42), mapY(1.0))
+    apronShape.holes.push(drainHole)
+
+    const apronGeo = new THREE.ExtrudeGeometry(apronShape, { 
+      depth: 0.1, // Match wallHeight
+      bevelEnabled: true,
+      bevelThickness: 0.005,
+      bevelSize: 0.005,
+      bevelSegments: 2
+    })
+    
+    // Apron Material
+    const apronMat = new THREE.MeshStandardMaterial({
+      color: 0x111111, // Dark plastic/glass
+      roughness: 0.6, // Matte to reduce glare
+      metalness: 0.1, // Dielectric (Glass-like)
+      emissive: 0x000000,
+      transparent: true,
+      opacity: 0.4 // More see-through
+    })
+
+    const apron = new THREE.Mesh(apronGeo, apronMat)
+    apron.position.z = 0.0
+    tableGroup.add(apron)
+
+    // Instruction Cards (White/Yellow rectangles on Apron)
+    // Adjust Z to sit on top of new 0.1 height. 
+    // 0.1 + bevel (~0.005) + clearance
+    const cardZ = 0.106 
+    
+    const cardGeo = new THREE.PlaneGeometry(0.12, 0.15) // Taller cards for bigger apron
+    const cardMat = new THREE.MeshBasicMaterial({ color: 0xffffdd, side: THREE.DoubleSide })
+    
+    const leftCard = new THREE.Mesh(cardGeo, cardMat)
+    leftCard.position.set(mapX(0.20), mapY(1.09), cardZ) 
+    tableGroup.add(leftCard)
+    
+    const rightCard = new THREE.Mesh(cardGeo, cardMat)
+    rightCard.position.set(mapX(0.80), mapY(1.09), cardZ)
+    tableGroup.add(rightCard)
   }
   // Flippers
   // Flippers
@@ -1838,20 +2969,57 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
 
   // Visual settings based on combo
   let emitRate = 0 // Particles per frame
-  let pColor = 0x888888
-  let pOpacity = 0.4
-  let pSize = 0.01
-  let pGrowth = 1.05 // Expansion rate
-  let pLifeDecay = 0.01 // Base decay (Slow and lingering)
+  let pColor = 0xAAAAAA // Lighter grey for mist
+  let pOpacity = 0.15 // Lower opacity for see-through mist
+  let pSize = 0.04 // Larger size for soft mist
+  let pGrowth = 1.03 // Slower expansion
+  let pLifeDecay = 0.008 // Lingers longer
   let pType = 'smoke' // smoke, sparkle, fire
 
   if (combo < 10) {
-      // Basic Silver - No effects
-      material.color.setHex(0xcccccc)
-      material.emissive.setHex(0x000000)
-      material.emissiveIntensity = 0
-      if (glow.material) glow.material.opacity = 0
-      emitRate = 0
+      if (currentTheme.value === 'mario') {
+         // MARIO DEFAULT - Koopa Shell
+         if (!material.userData.isShell) {
+             const shellTex = getKoopaShellTexture();
+             material.map = shellTex;
+             material.color.setHex(0xffffff); // Use texture
+             material.emissive.setHex(0x001100); 
+             material.emissiveIntensity = 0.2;
+             material.metalness = 0.1;
+             material.roughness = 0.6;
+             material.userData.isShell = true;
+         }
+         
+         // Star Mode (Multiball)
+         const activeBalls = props.stats?.balls || 1;
+         if (activeBalls > 1 || balls.length > 1) {
+             const time = Date.now() * 0.005;
+             const hue = time % 1.0;
+             const rainbow = new THREE.Color().setHSL(hue, 1.0, 0.5);
+             
+             material.emissive.copy(rainbow);
+             material.emissiveIntensity = 1.0;
+             material.color.copy(rainbow);
+             
+             if (glow.material) {
+                 glow.material.opacity = 0.8;
+                 glow.material.color.copy(rainbow);
+             }
+             
+             // Rainbow Trail
+             pColor = rainbow.getHex();
+             emitRate = 2.0;
+             pSize = 0.06;
+         }
+         
+      } else {
+        // Basic Silver - No effects
+        material.color.setHex(0xcccccc)
+        material.emissive.setHex(0x000000)
+        material.emissiveIntensity = 0
+        if (glow.material) glow.material.opacity = 0
+        emitRate = 0
+      }
   } else if (combo < 20) {
       // Level 1: Gold / Orange
       material.color.setHex(0xffaa00) // Gold
@@ -1863,12 +3031,12 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
       }
       
       emitRate = 0.2
-      pColor = 0xaaaaaa
-      pSize = 0.012
+      pColor = 0xcccccc
+      pSize = 0.045
       pType = 'smoke'
-      pOpacity = 0.03 * (0.2 + scoreMultiplier * 0.8)
-      pLifeDecay = 0.02
-      pGrowth = 1.015
+      pOpacity = 0.1
+      pLifeDecay = 0.01
+      pGrowth = 1.025
   } else if (combo < 40) {
       // Level 2: TikTok Tech (Technicolor Glitch)
       // Cycle between Cyan and Magenta rapidly
@@ -1901,7 +3069,7 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
       emitRate = 0.6
       pColor = emitColor
       pOpacity = 0.08
-      pSize = 0.018
+      pSize = 0.05
       pGrowth = 1.02
       pLifeDecay = 0.015
       
@@ -1923,10 +3091,10 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
       // Psychadelic trails
       emitRate = 1.5
       const trailHue = (hue + 0.5) % 1.0 // Complementary color smoke
-      pColor = new THREE.Color().setHSL(trailHue, 1.0, 0.5).getHex()
-      pOpacity = 0.15
-      pSize = 0.025
-      pGrowth = 1.04
+      pColor = new THREE.Color().setHSL(trailHue, 1.0, 0.7).getHex() // Lighter color
+      pOpacity = 0.12
+      pSize = 0.06
+      pGrowth = 1.03
       pLifeDecay = 0.01
   }
   
@@ -1959,6 +3127,155 @@ const updateBallAppearance = (ball, glow, pGroup, combo, ballPos, prevPos) => {
           animateParticleSystem(pGroup)
       }
   }
+}
+
+// --- Extracted Rail Creation Logic ---
+const createRails = (rails: any[]) => {
+    if (!rails) return
+    
+    // Clear existing rails
+    if (railsGroup) {
+        railsGroup.clear()
+        if (tableGroup) tableGroup.remove(railsGroup)
+    }
+    
+    railsGroup = new THREE.Group()
+    if (tableGroup) tableGroup.add(railsGroup)
+
+    const railRadius = 0.008
+    const railHeight = 0.05
+    // Rail material - Pure Neon Core (Flat, no metal)
+    // REFACTOR: Use shared material for color cycling
+    const railMat = sharedRailCoreMat
+
+    const rail2DWidth = 0.015
+    const rail2DMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }) // Cyan for 2D
+
+    rails.forEach((rail, index) => {
+        // Calculate world coordinates
+        // Apply Offset if defined
+        const normOffsetX = Number(props.config.rail_x_offset || 0)
+        const normOffsetY = Number(props.config.rail_y_offset || 0)
+        const lengthScale = Number(props.config.guide_length_scale || 1.0)
+        
+        // Define Glow Material locally if not found
+        // const railGlowMat = new THREE.MeshBasicMaterial({ ... })
+        // REFACTOR: Use shared material for slider control
+        const railGlowMat = sharedRailGlowMat
+
+        let x1 = mapX(rail.p1.x + normOffsetX)
+        let y1 = mapY(rail.p1.y + normOffsetY)
+        let x2 = mapX(rail.p2.x + normOffsetX)
+        let y2 = mapY(rail.p2.y + normOffsetY)
+
+        let dx = x2 - x1
+        let dy = y2 - y1
+        const length = Math.sqrt(dx * dx + dy * dy)
+        let railMesh, rail2D
+
+        if (rail.c1 && rail.c2) {
+             // --- CURVED RAIL (Cubic Bezier) ---
+             const c1x = mapX(rail.c1.x + normOffsetX)
+             const c1y = mapY(rail.c1.y + normOffsetY)
+             const c2x = mapX(rail.c2.x + normOffsetX)
+             const c2y = mapY(rail.c2.y + normOffsetY)
+             
+             // Create Curve
+             const curve = new THREE.CubicBezierCurve3(
+                 new THREE.Vector3(x1, y1, railHeight / 2),
+                 new THREE.Vector3(c1x, c1y, railHeight / 2),
+                 new THREE.Vector3(c2x, c2y, railHeight / 2),
+                 new THREE.Vector3(x2, y2, railHeight / 2)
+             )
+             
+             // 3D Tube Geometry
+             const tubeGeo = new THREE.TubeGeometry(curve, 20, railRadius, 8, false)
+             railMesh = new THREE.Mesh(tubeGeo, railMat)
+             railMesh.castShadow = true
+             railMesh.receiveShadow = true
+             
+             // GLOW MESH (Tube)
+             const glowTubeGeo = new THREE.TubeGeometry(curve, 20, railRadius * railGlowRadius.value, 8, false)
+             const glowMesh = new THREE.Mesh(glowTubeGeo, railGlowMat)
+             railMesh.add(glowMesh) // Attach to main rail
+             
+             // 2D Representation (Projected on Floor)
+             const curve2D = new THREE.CubicBezierCurve3(
+                 new THREE.Vector3(x1, y1, 0.001),
+                 new THREE.Vector3(c1x, c1y, 0.001),
+                 new THREE.Vector3(c2x, c2y, 0.001),
+                 new THREE.Vector3(x2, y2, 0.001)
+             )
+             const tube2DGeo = new THREE.TubeGeometry(curve2D, 20, rail2DWidth/2, 8, false)
+             rail2D = new THREE.Mesh(tube2DGeo, rail2DMat)
+             rail2D.visible = false
+
+        } else {
+            // --- STRAIGHT RAIL (Legacy Cylinder) ---
+            if (length > 0 && Math.abs(lengthScale - 1.0) > 0.001) {
+                 const scaledLen = length * lengthScale
+                 const ux = dx / length
+                 const uy = dy / length
+                 
+                 x1 = x2 - ux * scaledLen
+                 y1 = y2 - uy * scaledLen
+                 
+                 dx = x2 - x1
+                 dy = y2 - y1
+            }
+    
+            const railGeo = new THREE.CylinderGeometry(railRadius, railRadius, length, 16)
+            railGeo.rotateZ(Math.PI / 2) // Standardize orientation
+            
+            railMesh = new THREE.Mesh(railGeo, railMat)
+            
+            
+            // GLOW MESH (Cylinder)
+            const glowRailGeo = new THREE.CylinderGeometry(railRadius * railGlowRadius.value, railRadius * railGlowRadius.value, length, 16)
+            glowRailGeo.rotateZ(Math.PI / 2) // Match orientation
+            
+            const glowMesh = new THREE.Mesh(glowRailGeo, railGlowMat)
+            railMesh.add(glowMesh)
+            
+            // Position set later
+            railMesh.position.set((x1 + x2) / 2, (y1 + y2) / 2, railHeight / 2)
+            
+            const angle = Math.atan2(dy, dx)
+            railMesh.rotation.z = angle
+            railMesh.castShadow = true
+            railMesh.receiveShadow = true
+    
+            const rail2DGeo = new THREE.PlaneGeometry(length, rail2DWidth)
+            rail2D = new THREE.Mesh(rail2DGeo, rail2DMat)
+            rail2D.position.set((x1 + x2) / 2, (y1 + y2) / 2, 0.001)
+            rail2D.rotation.z = angle
+            rail2D.visible = false
+        }
+
+        railMesh.userData = {
+          railIndex: index,
+          type: 'rail',
+          p1: rail.p1,
+          p2: rail.p2,
+          c1: rail.c1, 
+          c2: rail.c2,
+          rail2D: rail2D
+        }
+
+        rail2D.userData = {
+          railIndex: index,
+          type: 'rail',
+          p1: rail.p1,
+          p2: rail.p2,
+          c1: rail.c1,
+          c2: rail.c2,
+          rail3D: railMesh
+        }
+
+        tableGroup.add(railMesh)
+        tableGroup.add(rail2D)
+        railMeshes.push(railMesh)
+    })
 }
 
 // Global particle geometry (reused)
@@ -2146,6 +3463,28 @@ const updateFlippers = (state) => {
 let animationId: number
 const animate = () => {
   animationId = requestAnimationFrame(animate)
+  
+    // --- Rail Color Cycling (Neon Rainbow) ---
+    // Cycle every 5 seconds (5000ms)
+    // HSL: Hue 0-1
+    const now = Date.now() // Assuming 'now' refers to current time
+    const cycleSpeed = 0.0002
+    const hue = (now * cycleSpeed) % 1.0
+    // Assuming sharedRailGlowMat is defined elsewhere and accessible
+    if (typeof sharedRailGlowMat !== 'undefined' && sharedRailGlowMat.color) {
+        sharedRailGlowMat.color.setHSL(hue, 1.0, 0.5)
+    }
+    if (typeof sharedRailCoreMat !== 'undefined' && sharedRailCoreMat.color) {
+        // Core is very bright (almost white) but tinted with the color
+        sharedRailCoreMat.color.setHSL(hue, 1.0, 0.9)
+    }
+    
+    // Also update 2D rails color so they match (if visible)
+    // Note: iterating all meshes every frame might be overkill, but 2D rails are few.
+    // Better: shared material? 
+    // Actually, `createRails` uses `rail2DMat`. We can make that shared or update it here.
+    // For now, let's keep it simple: just the glow cycles.
+
   if (renderer && scene && camera) {
     // Apply shake offset to camera position (temporarily)
     const basePos = { x: 0, y: -1.5, z: 2.5 } // Default position, should track actual camera pos if moved
@@ -2157,6 +3496,26 @@ const animate = () => {
     const originalX = camera.position.x
     camera.position.x += shakeOffset.x
     
+    // MARIO SHELL SPIN
+    if (currentTheme.value === 'mario' && balls) {
+        const spin = Date.now() * 0.02
+        balls.forEach(b => {
+             if (b) {
+                 // Force upright spin (sliding shell look)
+                 b.rotation.set(0, 0, -spin)
+             }
+        })
+        animateMushrooms() // Update Power-Ups
+    }
+
+    // Animate Matrix Shader
+    if (floorMesh.value && floorMesh.value.userData.isMatrix) {
+        const mat = floorMesh.value.material as THREE.ShaderMaterial;
+        if (mat.uniforms && mat.uniforms.time) {
+            mat.uniforms.time.value += 0.05;
+        }
+    }
+
     // Animate UFO bumper lights continuously
     animateUFOLights()
     
@@ -2176,6 +3535,9 @@ const animate = () => {
     // Animate Sparks
     animateSparks()
 
+    // Animate Coins
+    animateCoins()
+
     // Render scene
     // Render scene
     renderer.render(scene, camera)
@@ -2183,6 +3545,256 @@ const animate = () => {
     camera.position.x = originalX // Restore
   }
 }
+
+// --- Matrix Mode Watcher ---
+watch([() => props.stats?.combo_count, () => props.forceMatrix], ([count, force]) => {
+    if (!floorMesh.value) return;
+    const currentCount = count || 0;
+    
+    // Trigger if combo is high OR debug force is active
+    const shouldActivate = currentCount >= 100 || force === true;
+
+    if (shouldActivate) {
+        if (!floorMesh.value.userData.isMatrix) {
+            // Save original material if not saved
+            if (!floorMesh.value.userData.originalMat) {
+                floorMesh.value.userData.originalMat = floorMesh.value.material;
+            }
+            
+            // Create Matrix Shader Material
+            const mat = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    resolution: { value: new THREE.Vector2(1, 1) }, // Aspect ratio
+                    color: { value: new THREE.Color(0x00ff00) }
+                },
+                vertexShader: MatrixShader.vertexShader,
+                fragmentShader: MatrixShader.fragmentShader
+            });
+            
+            // Store it for later restoration
+            floorMesh.value.userData.matrixMat = mat;
+            
+            // Apply it initially
+            floorMesh.value.material = mat;
+            floorMesh.value.userData.isMatrix = true;
+            
+            // Activate Matrix Sound Mode
+            SoundManager.setMatrixMode(true);
+            const constructPromise = SoundManager.playModemSequence();
+            
+            // Trigger Visual Intro
+            playMatrixIntro(constructPromise);
+        }
+    } else {
+        // Reset if condition lost
+        if (floorMesh.value.userData.isMatrix) {
+            // Restore original material
+            if (floorMesh.value.userData.originalMat) {
+                floorMesh.value.material = floorMesh.value.userData.originalMat;
+            }
+            floorMesh.value.userData.isMatrix = false;
+            
+            // Deactivate Matrix Sound Mode
+            SoundManager.setMatrixMode(false);
+            stopMatrixIntro();
+        }
+    }
+});
+
+// --- Matrix Intro Logic ---
+const matrixIntroVisible = ref(false);
+const currentFailScreen = ref('terminal'); // 'terminal', 'bsod', 'redhat', 'bsd'
+const isOverlayFullscreen = ref(false);
+const matrixTerminalLines = ref<string[]>([]);
+const matrixGlitchActive = ref(false);
+let matrixIntroTimer: ReturnType<typeof setTimeout> | null = null;
+let matrixGlitchInterval: ReturnType<typeof setInterval> | null = null;
+
+const playMatrixIntro = async (constructPromise?: Promise<void>) => {
+    matrixIntroVisible.value = true;
+    currentFailScreen.value = 'terminal';
+    isOverlayFullscreen.value = false;
+    matrixGlitchActive.value = false;
+    matrixTerminalLines.value = [];
+
+    // Audio done signal
+    let audioFinished = false;
+    if (constructPromise) {
+        constructPromise.then(() => { audioFinished = true; });
+    } else {
+        audioFinished = true; // Fallback if no promise
+    }
+
+    // Helper: Wait for ms, but stop early if audio finishes
+    const interruptibleWait = (ms: number) => new Promise<void>(resolve => {
+        if (audioFinished) { resolve(); return; }
+        
+        const checkInterval = 100;
+        let elapsed = 0;
+        const timer = setInterval(() => {
+            elapsed += checkInterval;
+            if (audioFinished || elapsed >= ms) {
+                clearInterval(timer);
+                resolve();
+            }
+        }, checkInterval);
+    });
+
+    const typeLine = (text: string, delay: number) => new Promise<void>(resolve => {
+        if (text) {
+             matrixTerminalLines.value.push(text);
+             if (matrixTerminalLines.value.length > 20) matrixTerminalLines.value.shift();
+        }
+        // Use interruptible wait for the delay too, so we rush text if audio finishes
+        interruptibleWait(delay).then(resolve);
+    });
+
+    // --- PHASE 1: DIALUP / FAIL PARADE ---
+    // Start with some terminal text waiting for connection
+    await typeLine("> INITIALIZING CONNECTION...", 500);
+    await typeLine("> DIALING 555-0690...", 2000); // Extended wait
+    await typeLine("> RINGING...", 2500); 
+    await typeLine("> CONNECTING...", 2000); 
+    await typeLine("> NEGOTIATING BAUD RATE...", 2000); 
+    await typeLine("> VERIFYING ENCRYPTION KEYS...", 2000); 
+    await typeLine("> ESTABLISHING SECURE LINK...", 1500);
+
+    // SWITCH TO FULLSCREEN (Hacking in)
+    isOverlayFullscreen.value = true;
+
+    // If audio is not done, start Fail Parade (now happens later in the sequence)
+    if (!audioFinished) {
+        currentFailScreen.value = 'bsod';
+        await interruptibleWait(3500); // Extended fail screen time
+    }
+    
+    if (!audioFinished) {
+        currentFailScreen.value = 'redhat';
+        await interruptibleWait(3500);
+    }
+
+    if (!audioFinished) {
+        currentFailScreen.value = 'bsd';
+        await interruptibleWait(3500);
+    }
+    
+    // Resume Terminal for final handshake
+    currentFailScreen.value = 'terminal';
+    if (!audioFinished) {
+        await typeLine("> HANDSHAKE COMPLETE", 500);
+        await typeLine("> LOGGING IN AS: NEO", 500);
+        await typeLine("> PASSWORD: **********", 300);
+    }
+
+    // FILLER: CORE DUMP until Audio Ends (Fills the gap before Construct)
+    while (!audioFinished) {
+        const sector = Math.floor(Math.random() * 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+        matrixTerminalLines.value.push(`> DUMPING PHYSICAL MEMORY: 0x${sector}`);
+        if (matrixTerminalLines.value.length > 20) matrixTerminalLines.value.shift();
+        await interruptibleWait(100);
+    }
+
+    // Ensure we wait for Audio trigger here (if it hasn't finished yet)
+    if (constructPromise) {
+        await constructPromise;
+    }
+    
+    // --- PHASE 2: THE CONSTRUCT (White Room) ---
+    // At this point, Construct Audio has started.
+    currentFailScreen.value = 'terminal';
+    await typeLine("> UPLOADING CONSTRUCT...", 100);
+    
+    if (floorMesh.value) {
+        // Flash to white
+        floorMesh.value.material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    }
+    
+    // MULTIBALL TRIGGER: Spawn 3 balls for the Construct
+    for (let i = 0; i < 3; i++) {
+        if (props.socket) {
+            console.log(`[Matrix] Spawning Ball ${i+1}...`);
+            props.socket.emit('relaunch_ball');
+        }
+        await new Promise(r => setTimeout(r, 400)); // Stagger launches
+    }
+    
+    // Hold White Room for a bit
+    await new Promise(r => setTimeout(r, 4000));
+
+    // --- PHASE 3: SYSTEM FAILURE / GLITCH ---
+    await typeLine("!!! SYSTEM FAILURE !!!", 500);
+    await typeLine("Segmentation fault (core dumped)", 200);
+    
+    startMatrixGlitch();
+    
+    // Hold Glitch for 8s
+    await new Promise(r => setTimeout(r, 8000));
+
+    // --- PHASE 4: ENTER MATRIX ---
+    matrixIntroVisible.value = false;
+    isOverlayFullscreen.value = false;
+    stopMatrixGlitch();
+    
+    // THE CONSTRUCT (White Room) persists for 10 seconds
+    await new Promise(r => setTimeout(r, 10000));
+
+    // --- PHASE 5: REVERT TO NORMAL ---
+    if (floorMesh.value && floorMesh.value.userData.originalMat) {
+        floorMesh.value.material = floorMesh.value.userData.originalMat;
+        floorMesh.value.userData.isMatrix = false;
+    }
+    
+    SoundManager.setMatrixMode(false);
+    stopMatrixIntro();
+};
+
+const startMatrixGlitch = () => {
+    matrixGlitchActive.value = true;
+    matrixGlitchInterval = setInterval(() => {
+        const hex = Array(8).fill(0).map(() => Math.floor(Math.random() * 255).toString(16).padStart(2, '0')).join(' ');
+        const addr = "0x" + Math.floor(Math.random() * 0xFFFFFFFF).toString(16).padStart(8, '0');
+        matrixTerminalLines.value.push(`${addr}: ${hex} ${hex}`);
+        if (matrixTerminalLines.value.length > 25) matrixTerminalLines.value.shift();
+    }, 50);
+};
+
+const stopMatrixIntro = () => {
+    matrixIntroVisible.value = false;
+    currentFailScreen.value = 'terminal';
+    isOverlayFullscreen.value = false;
+    stopMatrixGlitch();
+    if (matrixIntroTimer) clearTimeout(matrixIntroTimer);
+};
+
+const stopMatrixGlitch = () => {
+    matrixGlitchActive.value = false;
+    if (matrixGlitchInterval) clearInterval(matrixGlitchInterval);
+};
+
+// --- Watcher for Rails ---
+// Ensure 3D view updates when rails are modified (e.g. after drag-and-drop or undo)
+watch(() => props.config?.rails, (newRails) => {
+    if (newRails) {
+        // Remove existing rail meshes
+        railMeshes.forEach(mesh => {
+            if (mesh.parent) mesh.parent.remove(mesh)
+            if (mesh.geometry) mesh.geometry.dispose()
+        })
+        railMeshes.length = 0
+        
+        // Remove existing rail handles
+        clearRailHandles()
+        
+        // Rebuild
+        createRails(newRails)
+        
+        // Re-create handles if in edit mode
+        if (props.isEditMode) {
+            updateRailHandles()
+        }
+    }
+}, { deep: true })
 
 // Spark System
 const triggerSparks = (pos) => {
@@ -2258,6 +3870,233 @@ const triggerSparks = (pos) => {
         p.material.color.setHex(0xffffaa) // Reset color
     }
 }
+
+// COIN LOGIC
+let coins = []
+let coinMat = null
+const coinGeo = new THREE.PlaneGeometry(0.12, 0.12) // Slightly larger than bumper
+
+const spawnCoin = (pos) => {
+    if (!coinMat) return
+
+    const coin = new THREE.Mesh(coinGeo, coinMat)
+    coin.position.copy(pos)
+    
+    // Random initial rotation (facig camera mostly)
+    coin.rotation.x = Math.PI / 2 // Flat? No, upright facing camera.
+    // In top-down (Z up), upright means standing on X axis?
+    // Actually in 3D, let's make it spin on Z axis (flat) or upright?
+    // Mario coins spin on vertical axis. In our Z-up world, that's Z.
+    // But they face the camera.
+    // Let's make them face +Y (back of table) or camera? 
+    // Camera is at -1.5 Y. 
+    coin.rotation.x = Math.PI / 4 // Angled up
+    
+    coin.userData = {
+        velocity: new THREE.Vector3(0, 0, 0.08), // Pop up fast
+        life: 1.0,
+        spinSpeed: 0.2
+    }
+    
+    tableGroup.add(coin)
+    coins.push(coin)
+}
+
+const animateCoins = () => {
+    if (!coins.length) return
+    
+    // Removing items while iterating is tricky, filter afterwards
+    coins.forEach(c => {
+         c.position.add(c.userData.velocity)
+         c.userData.velocity.z -= 0.003 // Gravity
+         
+         c.rotation.z += c.userData.spinSpeed
+         
+         c.userData.life -= 0.02
+         if (c.userData.life < 0) {
+             c.visible = false
+         } else if (c.userData.life < 0.3) {
+             c.material.opacity = c.userData.life * 3.3
+         } else {
+             c.material.opacity = 1.0
+         }
+    })
+    
+    // Cleanup
+    const active = coins.filter(c => c.visible)
+    const dead = coins.filter(c => !c.visible)
+    
+    dead.forEach(d => {
+        tableGroup.remove(d)
+        // geometry is shared, material is shared. OK.
+    })
+    
+    coins = active
+}
+
+const playCoinSound = () => {
+    try {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext
+        if (!AudioContext) return
+        
+        const audioContext = new AudioContext()
+        const gainNode = audioContext.createGain()
+        gainNode.connect(audioContext.destination)
+        gainNode.gain.value = 0.01 // Soft volume
+        
+        const oscillator = audioContext.createOscillator()
+        oscillator.connect(gainNode)
+        oscillator.type = "square"
+        
+        // Correct Interval (B -> E)
+        // B5
+        oscillator.frequency.setValueAtTime(987.77, audioContext.currentTime)
+        // E6
+        oscillator.frequency.setValueAtTime(1318.51, audioContext.currentTime + 0.08)
+        
+        oscillator.start()
+        oscillator.stop(audioContext.currentTime + 0.8)
+    } catch (e) {
+        console.warn('Audio play failed', e)
+    }
+}
+
+const playBreakSound = () => {
+    try {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext
+        if (!AudioContext) return
+        
+        const ctx = new AudioContext()
+        
+        // Noise Buffer
+        const bufferSize = ctx.sampleRate * 0.1 // 100ms
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+        const data = buffer.getChannelData(0)
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1
+        }
+        
+        const noise = ctx.createBufferSource()
+        noise.buffer = buffer
+        
+        // Lowpass Filter for "Thud/Crush"
+        const filter = ctx.createBiquadFilter()
+        filter.type = 'lowpass'
+        filter.frequency.setValueAtTime(1000, ctx.currentTime)
+        filter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1)
+        
+        const gain = ctx.createGain()
+        gain.gain.setValueAtTime(0.3, ctx.currentTime)
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1)
+        
+        noise.connect(filter)
+        filter.connect(gain)
+        gain.connect(ctx.destination)
+        
+        noise.start()
+    } catch (e) {
+        console.warn('Audio play failed', e)
+    }
+}
+
+
+const playPowerUpSound = () => {
+    try {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext
+        if (!AudioContext) return
+        
+        const ctx = new AudioContext()
+        const gain = ctx.createGain()
+        gain.connect(ctx.destination)
+        gain.gain.value = 0.05
+
+        const now = ctx.currentTime
+        const notes = [440, 554.37, 659.25, 880, 1108.73, 1318.51] // A major arpeggio
+        
+        notes.forEach((freq, i) => {
+            const osc = ctx.createOscillator()
+            osc.connect(gain)
+            osc.type = 'square'
+            osc.frequency.setValueAtTime(freq, now + i * 0.08)
+            osc.start(now + i * 0.08)
+            osc.stop(now + i * 0.08 + 0.1)
+        })
+    } catch(e) {
+        console.warn('Audio play failed', e)
+    }
+}
+
+const spawnMushroom = (pos: THREE.Vector3) => {
+    const tex = getMushroomTexture()
+    const mat = new THREE.SpriteMaterial({ map: tex })
+    const sprite = new THREE.Sprite(mat)
+    sprite.position.copy(pos)
+    sprite.scale.set(0.08, 0.08, 1) // Size of a ball roughly
+    
+    // Initial velocity
+    sprite.userData = {
+        velocity: new THREE.Vector3((Math.random() - 0.5) * 0.05, -0.05, 0), // Fall down, drift slightly
+        life: 5.0, // 5 seconds to grab
+        active: true
+    }
+    
+    tableGroup.add(sprite)
+    mushrooms.push(sprite)
+}
+
+const animateMushrooms = () => {
+    // Iterate backwards to safe remove
+    for (let i = mushrooms.length - 1; i >= 0; i--) {
+        const m = mushrooms[i]
+        
+        // Move
+        m.position.add(m.userData.velocity)
+        // Gravity? No, just drift down
+        
+        // Bounds check (remove if off screen)
+        if (m.position.y < -1.0) {
+            tableGroup.remove(m)
+            mushrooms.splice(i, 1)
+            continue
+        }
+        
+        // Collision with Ball
+        let hit = false
+        balls.forEach(ball => {
+            if (hit) return
+            const dist = m.position.distanceTo(ball.position)
+            if (dist < 0.1) {
+                // COLLECTED!
+                hit = true
+                playPowerUpSound()
+                
+                // Grow Effect (Visual Only)
+                if (!ball.userData.originalScale) {
+                    ball.userData.originalScale = ball.scale.clone()
+                }
+                
+                // Scale up
+                // Double size = Scale 2 of original.
+                // Assuming original is approx 1,1,1
+                ball.scale.copy(ball.userData.originalScale).multiplyScalar(2.0)
+                
+                // Set reset timer
+                if (ball.userData.growTimer) clearTimeout(ball.userData.growTimer)
+                ball.userData.growTimer = setTimeout(() => {
+                    if (ball && ball.userData.originalScale) {
+                        ball.scale.copy(ball.userData.originalScale)
+                    }
+                }, 10000) // 10 Seconds
+            }
+        })
+        
+        if (hit) {
+            tableGroup.remove(m)
+            mushrooms.splice(i, 1)
+        }
+    }
+}
+
 
 // Animation loop addition for sparks
 const animateSparks = () => {
@@ -2338,6 +4177,23 @@ const animateUFOLights = () => {
       // Not hit, ensure normal scale
       bumperGroup.scale.set(1, 1, 1)
     }
+
+    // MARIO COIN TRIGGER
+    if (isActive && !bumperGroup.userData.wasActive) {
+        if (currentTheme.value === 'mario') {
+             // Spawn Coin above bumper
+             const spawnPos = bumperGroup.position.clone()
+             spawnPos.z += 0.1 
+             spawnCoin(spawnPos)
+             playCoinSound()
+             
+             // 10% Chance for Mushroom
+             if (Math.random() < 0.1) {
+                 spawnMushroom(spawnPos)
+             }
+        }
+    }
+    bumperGroup.userData.wasActive = isActive
 
     // Light blinking animation
     if (lights && lightColors) {
@@ -2613,7 +4469,17 @@ const initThree = () => {
       if (i < dropTargetStates.length) {
         const newVisible = dropTargetStates[i]
         if (mesh.visible !== newVisible) {
-          // console.log(`[updateDropTargets] Target ${i}: ${mesh.visible} -> ${newVisible}`)
+          // Trigger Break Sound on Disappear (Mario only)
+           if (currentTheme.value === 'mario' && !newVisible && mesh.visible) {
+               playBreakSound()
+               
+               // Optional: Add brick particles?
+               const pos = mesh.position.clone()
+               if (ballParticles[0]) {
+                   // Brown/Red brick debris
+                   spawnParticles(ballParticles[0], 10, pos, pos, 0xA0522D, 1.0, 0.05, 1.02, 0.05)
+               }
+           }
         }
         mesh.visible = newVisible
         // console.log(`[updateDropTargets] Target ${i} mesh.visible is now:`, mesh.visible, 'position:', mesh.position)
@@ -3288,28 +5154,27 @@ let shakeFrame = 0
 const triggerShake = (eventData) => {
   // console.log('Pinball3D: triggerShake called', eventData)
   
-  // Default values
-  let intensity = 0.2
-  let maxFrames = 10
+  // Defaul values (Softer Shake)
+  let intensity = 0.05 // Reduced from 0.2
+  let maxFrames = 5    // Reduced from 10
   let dir = 1
   let isAlien = false
   
   // Handle different input forms
-  // Handle different input forms
   if (typeof eventData === 'string') {
       dir = eventData.toLowerCase() === 'left' ? -1 : 1
   } else if (eventData && typeof eventData === 'object') {
-      // Handle server event (intensity, direction object) or local prop (direction string)
+     // ... (keep existing logic but scale down overrides if needed)
       if (eventData.direction && typeof eventData.direction === 'string') {
           dir = eventData.direction.toLowerCase() === 'left' ? -1 : 1
       }
       
       if (eventData.type === 'alien' || (eventData.intensity && eventData.intensity > 1.0)) {
           isAlien = true
-          intensity = eventData.strength || eventData.intensity || 1.0 
-          maxFrames = 60 
+          intensity = (eventData.strength || eventData.intensity || 1.0) * 0.5 // Scale down alien too
+          maxFrames = 20 
       } else if (eventData.intensity) {
-          intensity = eventData.intensity
+          intensity = eventData.intensity * 0.25 // Scale incoming intensity
       }
   }
 
@@ -3319,20 +5184,27 @@ const triggerShake = (eventData) => {
   const shake = () => {
     if (frame >= maxFrames) {
       shakeOffset.x = 0
-      shakeOffset.y = 0 // Reset Y too
+      shakeOffset.y = 0 
       return
     }
     
-    // Oscillate
-    const decay = 1 - (frame / maxFrames)
+    // Smooth Sine Wave Oscillation
+    // Frame 0..maxFrames -> 0..PI
+    const progress = frame / maxFrames
+    const decay = 1 - progress
+    const wave = Math.sin(progress * Math.PI * 2) // One full sine wave? Or dampening spring?
+    // Let's do simple alternating push
+    const offset = (frame % 2 === 0 ? 1 : -1) * intensity * decay * dir
     
+    // Just overwrite existing simplistic logic
     if (isAlien) {
-        // Chaotic shake x/y
         shakeOffset.x = (Math.random() - 0.5) * intensity * decay
         shakeOffset.y = (Math.random() - 0.5) * intensity * decay
     } else {
-        // Standard horizontal shake
-        shakeOffset.x = Math.sin(frame * 1.5) * intensity * decay * dir
+        shakeOffset.x = offset
+        shakeOffset.y = 0
+        // Add slight vertical bump for realism
+        shakeOffset.y = Math.abs(offset) * 0.2
     }
     
     frame++
@@ -3340,6 +5212,7 @@ const triggerShake = (eventData) => {
   }
   shake()
 }
+
 
 // Confetti for High Score
 let fireworksInterval: ReturnType<typeof setInterval> | null = null
@@ -3674,6 +5547,13 @@ const handleKeydown = (e) => {
     }, 2000)
   }
 }
+// Expose methods for parent component to access via template refs
+defineExpose({
+    addRail,
+    addCurve,
+    addBumper,
+    deleteSelectedObject
+})
 </script>
 
 <style scoped>
@@ -4219,5 +6099,123 @@ const handleKeydown = (e) => {
 
 .close-overlay-btn:hover {
     background: rgba(255, 255, 255, 0.4);
+}
+
+/* Matrix Intro */
+.matrix-intro-overlay {
+    position: absolute; /* Specific to Playfield Container */
+    top: 0; 
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0); /* Transparent */
+    pointer-events: none; /* Allow clicking through */
+    color: #00ff00;
+    font-family: 'Courier New', monospace;
+    padding: 20px;
+    z-index: 9999;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* Center Vertically in Playfield */
+    align-items: center;     /* Center Horizontally in Playfield */
+}
+
+.matrix-intro-overlay.is-fullscreen {
+    position: fixed; /* Switch to Viewport Fullscreen */
+    width: 100vw;
+    height: 100vh;
+}
+
+.matrix-terminal {
+    width: 90%;
+    max-width: 800px;
+    text-align: center; /* Center text lines */
+}
+
+.terminal-line {
+    white-space: pre-wrap;
+    text-shadow: 0 0 5px #00ff00;
+    margin-bottom: 5px;
+    font-size: clamp(14px, 2.5vw, 24px); /* Responsive Font */
+    line-height: 1.2;
+}
+
+.glitch-text {
+    color: #aaffaa;
+    text-shadow: 2px 0 #ff0000, -2px 0 #0000ff;
+    animation: glitch-skew 0.1s infinite;
+}
+
+@keyframes glitch-skew {
+    0% { transform: skew(0deg); }
+    20% { transform: skew(-10deg); }
+    40% { transform: skew(10deg); }
+    60% { transform: skew(-5deg); }
+    80% { transform: skew(5deg); }
+    100% { transform: skew(0deg); }
+}
+
+/* Fail Screens */
+.bsod-screen {
+    position: fixed; /* Covers specific Viewport/App */
+    top: 0; left: 0; 
+    width: 100vw; 
+    height: 100vh;
+    background: rgba(0, 0, 170, 0.4); /* High Transparency Blue */
+    color: white;
+    font-family: 'Lucida Console', 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    z-index: 10000;
+    text-shadow: 0 0 5px rgba(255,255,255,0.5);
+}
+
+.bsod-content {
+    max-width: 800px;
+    width: fit-content;
+    font-size: clamp(16px, 2vw, 24px);
+    line-height: 1.5;
+    background: rgba(0,0,170, 0.2); /* Slight box highlight */
+    padding: 20px;
+    border-radius: 10px;
+}
+
+.bsod-header {
+    margin-bottom: 20px;
+    background: rgba(170, 0, 0, 0.5); /* Red highlight on blue */
+    padding: 5px;
+    display: inline-block;
+}
+
+.linux-screen {
+    position: fixed; /* Covers specific Viewport/App */
+    top: 0; left: 0; 
+    width: 100vw; 
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.4); /* High Transparency Black */
+    color: #cccccc;
+    font-family: 'Courier New', monospace;
+    padding: 20px;
+    z-index: 10000;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* Center vertically */
+    align-items: center;     /* Center horizontally */
+}
+
+.linux-content {
+    font-size: clamp(14px, 1.8vw, 20px);
+    line-height: 1.3;
+    width: fit-content; /* Shrink to content */
+    min-width: 300px;
+    max-width: 900px;
+    text-align: left;   /* Keep boot text left aligned */
+    text-shadow: 1px 1px 2px black;
 }
 </style>

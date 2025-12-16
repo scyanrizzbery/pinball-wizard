@@ -456,6 +456,17 @@ class PinballEnv(gym.Env):
             obs[1] = np.clip(ball_pos[1] / height, 0.0, 1.0)
         obs[2] = np.clip(vx / width, -1.0, 1.0)
         obs[3] = np.clip(vy / height, -1.0, 1.0)
+        
+        # Add Drop Targets
+        target_states = []
+        if hasattr(self.vision, 'drop_target_states'):
+             target_states = self.vision.drop_target_states
+        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'drop_target_states'):
+             target_states = self.vision.capture.drop_target_states
+             
+        for i in range(4):
+            if i < len(target_states):
+                obs[4 + i] = 1.0 if target_states[i] else 0.0
         return obs
 
     def _update_score(self, frame):

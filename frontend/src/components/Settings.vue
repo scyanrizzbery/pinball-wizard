@@ -102,14 +102,21 @@
                                 {{ cameraMode === 'perspective' ? '📐 2D View' : '🎮 3D View' }}
                             </button>
                         </div>
+                        <div style="margin-top: 5px;">
+                             <button @click="$emit('toggle-matrix-test')" class="control-btn" :class="{ active: isMatrixTesting }" style="width: 100%;">
+                                {{ isMatrixTesting ? '🛑 Stop Matrix Test' : '🟢 Test Matrix Effect' }}
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="control-group">
                     <div style="flex: 1;">
                         <div class="label">Editor</div>
-                        <button @click="$emit('toggle-edit-mode')" class="control-btn" :class="{ active: isEditMode }">
+                        <button @click="$emit('toggle-edit-mode')" class="control-btn" :class="{ active: isEditMode }" style="margin-bottom: 8px;">
                             {{ isEditMode ? '✅ Done Editing' : '✏️ Edit Rails' }}
                         </button>
+                        
+
                     </div>
                 </div>
             </div>
@@ -704,10 +711,12 @@
                         @click="resetTrainingDefaults"
                         style="width: 50%; background-color: #f39c12;"
                         :disabled="stats.is_training">
-                    ↺ Reset Defaults
+                    ↺ Defaults
                 </button>
             </div>
         </div>
+
+
 
     </div>
 </template>
@@ -732,6 +741,7 @@ interface Props {
     isFullscreen?: boolean
     cameraMode?: string
     isEditMode?: boolean
+    isMatrixTesting?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -744,7 +754,8 @@ const props = withDefaults(defineProps<Props>(), {
         drop_target_hit: 1.0,
         rail_hit: 0.5
     }),
-    showFlipperZones: true
+    showFlipperZones: true,
+    isMatrixTesting: false
 })
 
 const emit = defineEmits<{
@@ -771,6 +782,11 @@ const emit = defineEmits<{
   (e: 'toggle-fullscreen'): void
   (e: 'toggle-view'): void
   (e: 'toggle-edit-mode'): void
+  (e: 'toggle-matrix-test'): void
+  (e: 'add-rail'): void
+  (e: 'add-curve'): void
+  (e: 'add-bumper'): void
+  (e: 'delete-selected'): void
 }>()
 
 

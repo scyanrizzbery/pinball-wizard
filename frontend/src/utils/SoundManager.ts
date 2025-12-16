@@ -17,6 +17,10 @@ class SoundManager {
     lastComboMilestone!: number;
     musicalScales!: MusicalScale[];
     alienResponseCallback?: () => void;
+    matrixMode: boolean = false;
+    dtmfRows: number[] = [697, 770, 852, 941];
+    dtmfCols: number[] = [1209, 1336, 1477];
+    currentMatrixSource: AudioBufferSourceNode | null = null;
 
     constructor() {
         try {
@@ -163,6 +167,24 @@ class SoundManager {
 
     toggle(enabled: boolean) {
         this.enabled = enabled;
+    }
+
+    setMatrixMode(enabled: boolean) {
+        this.matrixMode = enabled;
+        if (!enabled) {
+            this.stopMatrixSounds();
+        }
+    }
+
+    stopMatrixSounds() {
+        if (this.currentMatrixSource) {
+            try {
+                this.currentMatrixSource.stop();
+            } catch (e) {
+                // Ignore if already stopped
+            }
+            this.currentMatrixSource = null;
+        }
     }
 
     // Helper to create an oscillator with envelope
@@ -557,6 +579,11 @@ class SoundManager {
     }
 
     playBumper(pitch = 1.0) {
+        if (this.matrixMode) {
+            this.playRandomDTMF();
+            return;
+        }
+
         // Fix for "sporadic" notes: Drop the 2.0 threshold.
         // Use the same 1.05 threshold as flippers so entire scales play.
         const scale = this.getCurrentScale();
@@ -603,7 +630,7 @@ class SoundManager {
 
     playLaunch(pitch = 1.0) {
         if (pitch >= 2.0) {
-            this.playGuitar(40.0 * pitch, 1.5, 0.6); // Long low note
+            this.playGuitar(40.0 * pitch, 1.5, 0.8); // Long low note, normalized vol
         } else {
             // Open Hat + Kick
             this.playHiHat(true, 0.8, pitch);
@@ -798,57 +825,178 @@ class SoundManager {
         // Determine which callback to use
         const callbackToUse = onResponseCallback || this.alienResponseCallback;
 
-        // Trigger callback (for UI shake/nudge)
         if (callbackToUse) {
-            const delay = (currentTime - t) * 1000;
-            console.log(`[SoundManager] Scheduling alien response callback in ${delay.toFixed(0)}ms`);
             setTimeout(() => {
-                if (navigator.vibrate) {
-                    navigator.vibrate([200, 100, 500, 100, 1000]); // Intense pattern
-                }
+                // ALIEN RESPONSE: The Brown Note / Horn
+                // Two detuned sawtooths + sub sine + noise
+                const osc1 = this.ctx.createOscillator();
+                const osc2 = this.ctx.createOscillator();
+                const subOsc = this.ctx.createOscillator();
+                const noise = this.ctx.createBufferSource();
 
-                try {
+                // Frequencies - Raised to D2 (approx 73.4Hz) to reduce low-end distortion
+                const freq = 73.4;
+
+                osc1.type = 'sawtooth';
+                osc2.type = 'sawtooth';
+                subOsc.type = 'sine';
+
+                osc1.frequency.value = freq;
+                osc2.frequency.value = freq * 1.01; // Detune
+                subOsc.frequency.value = freq / 2; // Sub-octave
+
+                // Noise buffer
+                const bSize = this.ctx.sampleRate * 2.0; // 2 seconds
+                const bBuf = this.ctx.createBuffer(1, bSize, this.ctx.sampleRate);
+                const bData = bBuf.getChannelData(0);
+                for (let i = 0; i < bSize; i++) bData[i] = Math.random() * 2 - 1;
+                noise.buffer = bBuf;
+
+                // Mix Gain - Reduce overall gain slightly
+                const mixGain = this.ctx.createGain();
+                mixGain.gain.setValueAtTime(0, currentTime);
+                mixGain.gain.linearRampToValueAtTime(0.8, currentTime + 0.1); // Attack (Reduced from 1.0)
+                mixGain.gain.setValueAtTime(0.8, currentTime + 2.0 - 0.5);
+                mixGain.gain.exponentialRampToValueAtTime(0.01, currentTime + 2.0);
+
+                // Lowpass Filter for the "Foghorn" sound
+                const lpf = this.ctx.createBiquadFilter();
+                lpf.type = 'lowpass';
+                lpf.frequency.setValueAtTime(200, currentTime);
+                lpf.frequency.linearRampToValueAtTime(600, currentTime + 1.0); // Open up
+
+                // Distortion for crunch - Reduce drive (was 400)
+                const dist = this.ctx.createWaveShaper();
+                dist.curve = this.makeDistortionCurve(100) as any;
+
+                osc1.connect(lpf);
+                osc2.connect(lpf);
+                subOsc.connect(lpf);
+                noise.connect(lpf);
+
+                lpf.connect(dist);
+                dist.connect(mixGain);
+                mixGain.connect(this.masterGain);
+
+                osc1.start(currentTime);
+                osc2.start(currentTime);
+                subOsc.start(currentTime);
+                noise.start(currentTime);
+
+                osc1.stop(currentTime + 2.0);
+                osc2.stop(currentTime + 2.0);
+                subOsc.stop(currentTime + 2.0);
+                // noise.stop(currentTime + 2.0); 
+
+                // Execute logic callback slightly before sound ends
+                setTimeout(() => {
                     callbackToUse();
-                } catch (e) {
-                    console.error('[SoundManager] Error in alien response callback:', e);
-                }
-            }, delay); // Convert encoded time offset to ms
-        } else {
-            console.warn('[SoundManager] No callback provided for alien response');
+                }, (2.0 * 0.5) * 1000);
+
+            }, (currentTime - t) * 1000); // Wait for sequence to finish
         }
+    }
 
-        // Play alien bass blast
-        // Multiple oscillators for thickness
-        const freqs = [55.0, 55.5, 110.0]; // A1 and A2, slightly detuned
+    // --- DTMF Helpers ---
 
-        freqs.forEach((freq, i) => {
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            const filter = this.ctx.createBiquadFilter(); // Filter to darken the sawtooth
+    playDTMFPair(rowFreq: number, colFreq: number, duration: number = 0.1) {
+        if (!this.enabled) return;
+        this.resume();
+        const t = this.ctx.currentTime;
 
-            osc.type = 'sawtooth'; // Rich harmonic content
-            osc.frequency.setValueAtTime(freq, currentTime);
+        const osc1 = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        osc1.frequency.value = rowFreq;
+        osc2.frequency.value = colFreq;
 
-            filter.type = 'lowpass';
-            filter.frequency.setValueAtTime(300, currentTime); // Cut off high buzz
-            filter.Q.value = 1;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.1, t);
 
-            // Heavy envelope - EXTENDED DURATION
-            const vol = i === 2 ? 0.4 : 0.6; // Lower octave louder
-            gain.gain.setValueAtTime(0, currentTime);
-            gain.gain.exponentialRampToValueAtTime(vol, currentTime + 0.1); // Punchy attack
-            gain.gain.setValueAtTime(vol, currentTime + blastDuration - 0.5);
-            gain.gain.exponentialRampToValueAtTime(0.01, currentTime + blastDuration + 2.0); // Longer fade out
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(this.masterGain);
 
-            osc.connect(filter);
-            filter.connect(gain);
-            gain.connect(this.masterGain);
+        osc1.start(t);
+        osc2.start(t);
+        osc1.stop(t + duration);
+        osc2.stop(t + duration);
+    }
 
-            osc.start(currentTime);
-            osc.stop(currentTime + blastDuration + 2.0);
+    playRandomDTMF() {
+        // Use local constants to avoid HMR state issues with class properties
+        const dtmfRows = [697, 770, 852, 941];
+        const dtmfCols = [1209, 1336, 1477];
+
+        const r = dtmfRows[Math.floor(Math.random() * dtmfRows.length)];
+        const c = dtmfCols[Math.floor(Math.random() * dtmfCols.length)];
+        this.playDTMFPair(r, c, 0.15); // Slightly longer than dial sequence for impact
+    }
+
+    // --- Matrix Modem Sequence ---
+    playModemSequence(): Promise<void> {
+        if (!this.enabled) return Promise.resolve();
+        this.resume();
+
+        // Stop any existing matrix sound
+        this.stopMatrixSounds();
+
+        return new Promise((resolve) => {
+            // Play the recorded dial-up sound for authenticity
+            fetch('/sounds/dialup.ogg')
+                .then(response => response.arrayBuffer())
+                .then(arrayBuffer => this.ctx.decodeAudioData(arrayBuffer))
+                .then(audioBuffer => {
+                    const source = this.ctx.createBufferSource();
+                    source.buffer = audioBuffer;
+                    this.currentMatrixSource = source;
+
+                    const gain = this.ctx.createGain();
+                    gain.gain.value = 0.5; // Balanced with other sounds
+
+                    source.connect(gain);
+                    gain.connect(this.masterGain);
+
+                    // When the sound hits the "connected" silence or finishes
+                    source.onended = () => {
+                        // Trigger AOL Voice Greetings
+                        this.speakAOLGreeting();
+                        resolve();
+                    };
+
+                    source.start();
+                })
+                .catch(e => {
+                    console.error("Error playing dialup sound:", e);
+                    resolve(); // Resolve anyway so we don't block
+                });
         });
+    }
 
-        console.log('🛸 Close Encounters full sequence played (human + alien bass blast)!');
+    // Replacement for AOL Voice: Play construct.ogg
+    speakAOLGreeting() {
+        if (!this.enabled) return;
+        this.resume();
+
+        // Stop any existing matrix sound (e.g. modem if it didn't finish cleanly, which it should have)
+        this.stopMatrixSounds();
+
+        fetch('/sounds/construct.ogg')
+            .then(response => response.arrayBuffer())
+            .then(arrayBuffer => this.ctx.decodeAudioData(arrayBuffer))
+            .then(audioBuffer => {
+                const source = this.ctx.createBufferSource();
+                source.buffer = audioBuffer;
+                this.currentMatrixSource = source;
+
+                const gain = this.ctx.createGain();
+                gain.gain.value = 5.0; // Boosted source
+
+                source.connect(gain);
+                gain.connect(this.masterGain);
+
+                source.start();
+            })
+            .catch(e => console.error("Error playing construct sound:", e));
     }
 
     // Play a celebratory jingle when reaching a combo milestone

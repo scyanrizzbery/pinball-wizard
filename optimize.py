@@ -1,6 +1,13 @@
-import os
-import argparse
 import sys
+import os
+
+# Create a flag to allow eventlet patching before other imports
+# We only patch if we are the MANAGER (not a worker)
+if "--worker" not in sys.argv:
+    import eventlet
+    eventlet.monkey_patch()
+
+import argparse
 import logging
 import time
 import json
@@ -138,6 +145,18 @@ def create_env(trial=None, socketio=None):
             self.capture = capture
         def update(self): pass
         def get_stats(self): return {}
+        def get_events(self): 
+            if hasattr(self.capture, 'get_events'):
+                return self.capture.get_events()
+            return []
+        def get_score(self):
+            if hasattr(self.capture, 'get_score'):
+                return self.capture.get_score()
+            return 0
+        def get_ball_status(self):
+            if hasattr(self.capture, 'get_ball_status'):
+                return self.capture.get_ball_status()
+            return None
 
     vision_wrapper = TrainingVisionWrapper(cap)
     
@@ -240,8 +259,6 @@ if __name__ == "__main__":
         run_worker(study_name, storage_name, n_trials=25) # Each worker does chunk
     else:
         # MANAGER MODE: Eventlet + UI + Subprocesses
-        import eventlet
-        eventlet.monkey_patch()
         from pbwizard import web_server
         import threading
         import subprocess
@@ -298,10 +315,6 @@ if __name__ == "__main__":
                 for key, value in study.best_trial.params.items():
                     logger.info(f"    {key}: {value}")
                 
-                # Save best params to file
-                with open('hyperparams.json', 'w') as f:
-                    json.dump(study.best_trial.params, f, indent=4)
-                # Also save to frontend if needed (legacy path)
                 with open('frontend/public/hyperparams.json', 'w') as f:
                     json.dump(study.best_trial.params, f, indent=4)
                     

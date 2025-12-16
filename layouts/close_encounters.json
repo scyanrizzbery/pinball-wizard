@@ -254,6 +254,13 @@
             "camera_z": 1.1,
             "camera_pitch": 36,
             "camera_zoom": 1.9
+        },
+        "Top": {
+            "camera_x": 0.35,
+            "camera_y": 1.3,
+            "camera_z": 1.1,
+            "camera_pitch": 36,
+            "camera_zoom": 1.9
         }
     },
     "last_preset": ""

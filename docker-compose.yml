@@ -89,13 +89,24 @@ services:
     entrypoint: cypress open
 
   optuna-dashboard:
-    profiles: [ "optuna" ]
+    profiles: [ "optimize" ]
     build: .
     ports:
       - "8080:8080"
     volumes:
       - .:/app
     command: optuna-dashboard sqlite:///pinball_ppo_optimization.db --port 8080 --host 0.0.0.0
+    networks:
+      - pbwizard-network
+
+  optimize:
+    profiles: [ "optimize" ]
+    build: .
+    volumes:
+      - .:/app
+    command: python optimize.py
+    depends_on:
+      - optuna-dashboard
     networks:
       - pbwizard-network
 

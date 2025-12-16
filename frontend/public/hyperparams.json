@@ -1,8 +1,8 @@
 {
-    "learning_rate": 1.317699253554415e-05,
-    "ent_coef": 0.03710500479389933,
-    "gamma": 0.9,
+    "learning_rate": 1.904818538438805e-05,
+    "ent_coef": 0.004155156167645438,
+    "gamma": 0.98,
     "n_steps": 1024,
-    "batch_size": 64,
-    "gae_lambda": 0.95
+    "batch_size": 128,
+    "gae_lambda": 0.9
 }

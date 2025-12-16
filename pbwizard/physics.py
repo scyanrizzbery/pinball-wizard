@@ -666,9 +666,14 @@ class PymunkEngine(Physics):
 
     def update_bumpers(self, bumpers_data):
         """Update bumper positions dynamically."""
+        logger.info(f"Physics: Updating bumpers. Count: {len(bumpers_data)}")
+        
         # Remove existing bumper shapes
+        removed_count = 0
         for shape in list(self.bumper_shape_map.keys()):
             self.space.remove(shape)
+            removed_count += 1
+        logger.info(f"Physics: Removed {removed_count} old bumpers")
             
         self.bumper_states = []
         self.bumper_health = []
@@ -678,12 +683,17 @@ class PymunkEngine(Physics):
         # Re-create bumpers
         for i, b in enumerate(bumpers_data):
             pos = (b['x'] * self.width, b['y'] * self.height)
+            
             radius = 20.0
-            shape = self._add_static_circle(pos, radius, elasticity=1.5)
+            if 'radius_ratio' in b:
+                radius = b['radius_ratio'] * self.width
+                
+            shape = self._add_static_circle(pos, radius, elasticity=1.5, collision_type=COLLISION_TYPE_BUMPER)
             self.bumper_states.append(0.0)
             self.bumper_health.append(100)
             self.bumper_respawn_timers.append(0.0)
             self.bumper_shape_map[shape] = i
+            logger.info(f"Physics: Added Bumper {i} at {pos}, radius={radius}")
 
 
     def _handle_plunger_hit(self, arbiter, space, data):
@@ -1621,14 +1631,14 @@ class PymunkEngine(Physics):
                                 self.last_auto_plunger_time = -5.0 # Allow immediate first fire
 
                             if current_time - self.last_auto_plunger_time > 1.0:
-                                logger.info(f"Auto-firing plunger: Ball seated for {self.plunger_seat_time:.2f}s. Config: {auto_plunge}")
+                                logger.debug(f"Auto-firing plunger: Ball seated for {self.plunger_seat_time:.2f}s. Config: {auto_plunge}")
                                 self.fire_plunger()
                                 self.last_auto_plunger_time = current_time
                                 self.plunger_seat_time = 0.0
                         else:
                             # Log only once every few seconds to avoid spam
                             if self.plunger_seat_time % 2.0 < dt:
-                                logger.info(f"Ball in plunger lane ready, but Auto-Start DISABLED (cfg={auto_plunge}). Waiting for User Input.")
+                                logger.debug(f"Ball in plunger lane ready, but Auto-Start DISABLED (cfg={auto_plunge}). Waiting for User Input.")
             else:
                 # Ball left lane, reset timer
                 self.plunger_seat_time = 0.0
@@ -1910,10 +1920,59 @@ class PymunkEngine(Physics):
                         else:
                             p1_final = w_p1
                             
-                        vertices = self._create_thick_line_poly(p1_final, w_p2, thickness=thickness)
-                        if vertices:
-                            shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.01, collision_type=8)
-                            self.rail_shapes.append(shape)
+                        if 'c1' in rail and 'c2' in rail:
+                            # Curved Rail (Cubic Bezier)
+                            # Subdivide into segments
+                            steps = 10
+                            points = []
+                            
+                            # Bezier Helper
+                            def bezier_point(t, p0, p1, p2, p3):
+                                mt = 1 - t
+                                mt2 = mt * mt
+                                mt3 = mt2 * mt
+                                t2 = t * t
+                                t3 = t2 * t
+                                x = mt3 * p0[0] + 3 * mt2 * t * p1[0] + 3 * mt * t2 * p2[0] + t3 * p3[0]
+                                y = mt3 * p0[1] + 3 * mt2 * t * p1[1] + 3 * mt * t2 * p2[1] + t3 * p3[1]
+                                return (x, y)
+
+                            # Get Control Points (Apply offsets)
+                            # P1 and P2 are already offset in p1_final, w_p2
+                            
+                            # We need the raw offset values again to apply to c1/c2
+                            # Or just calculate the delta?
+                            # p1_final is (x * width, y * height)
+                            # rail['c1'] is normalized (0-1)
+                            
+                            c1_norm_x = rail['c1']['x'] + x_offset
+                            c1_norm_y = rail['c1']['y'] + y_offset
+                            c2_norm_x = rail['c2']['x'] + x_offset
+                            c2_norm_y = rail['c2']['y'] + y_offset
+                            
+                            w_c1 = self._layout_to_world(c1_norm_x, c1_norm_y)
+                            w_c2 = self._layout_to_world(c2_norm_x, c2_norm_y)
+                            
+                            # Generate segments
+                            prev_pt = p1_final
+                            
+                            for s in range(1, steps + 1):
+                                t = s / steps
+                                curr_pt = bezier_point(t, p1_final, w_c1, w_c2, w_p2)
+                                
+                                vertices = self._create_thick_line_poly(prev_pt, curr_pt, thickness=thickness)
+                                if vertices:
+                                    shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.01, collision_type=8)
+                                    self.rail_shapes.append(shape)
+                                
+                                prev_pt = curr_pt
+                                
+                        else: 
+                            # Straight Rail
+                            vertices = self._create_thick_line_poly(p1_final, w_p2, thickness=thickness)
+                            if vertices:
+                                shape = self._add_static_poly(vertices, elasticity=0.8, friction=0.01, collision_type=8)
+                                self.rail_shapes.append(shape)
                     except Exception as e:
                          logger.error(f"Error rebuilding rail {i}: {e}")
             logger.info(f"Rails rebuilt: {len(self.rail_shapes)} rails created")
