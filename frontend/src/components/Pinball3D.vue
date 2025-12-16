@@ -152,7 +152,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import SoundManager from '../utils/SoundManager'
@@ -3547,15 +3547,27 @@ watch(() => props.stats.is_high_score, (val) => {
     }
 })
 
-watch(() => props.stats.game_over, (val) => {
-    console.log('🏁 game_over watcher fired:', val)
-    if (val && props.stats.is_high_score) {
+watch(() => [props.stats.game_over, props.showHighScores], ([gameOver, showScores]) => {
+    // console.log('🏁 game_over/showHighScores watcher fired:', gameOver, showScores)
+    if ((gameOver || showScores) && props.stats.is_high_score) {
         triggerFireworks()
     } else {
-        if (!val && fireworksInterval) {
+        if (!gameOver && !showScores && fireworksInterval) {
             clearInterval(fireworksInterval)
             fireworksInterval = null
         }
+    }
+
+    // Auto-scroll to highlighted high score
+    if (gameOver || showScores) {
+        nextTick(() => {
+            const container = document.querySelector('.high-score-table-container')
+            const highlighted = container?.querySelector('.highlight')
+            if (container && highlighted) {
+                console.log("Scrolling high score into view")
+                highlighted.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            }
+        })
     }
 })
 

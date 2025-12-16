@@ -1104,22 +1104,22 @@ class PymunkEngine(Physics):
 
     def update_flipper_length(self, length_ratio):
         """Update flipper length and rebuild flippers."""
-        self.flipper_length_ratio = length_ratio
+        self.config.flipper_length = length_ratio
         self._rebuild_flippers()
 
     def update_flipper_width(self, width_ratio):
         """Update flipper width (thickness) and rebuild flippers."""
-        self.flipper_width_ratio = width_ratio
+        self.config.flipper_width = width_ratio
         self._rebuild_flippers()
 
     def update_flipper_tip_width(self, width_ratio):
         """Update flipper tip width (thickness) and rebuild flippers."""
-        self.flipper_tip_width_ratio = width_ratio
+        self.config.flipper_tip_width = width_ratio
         self._rebuild_flippers()
 
     def update_flipper_elasticity(self, elasticity):
         """Update flipper elasticity and rebuild flippers."""
-        self.flipper_elasticity = elasticity
+        self.config.flipper_elasticity = elasticity
         self._rebuild_flippers()
 
     def update_table_tilt(self, tilt_angle):
@@ -1133,9 +1133,25 @@ class PymunkEngine(Physics):
         for side, flipper in self.flippers.items():
             if side == 'upper':
                 for f in flipper:
-                    self.space.remove(f['body'], f['shape'])
+                    # Handle both single shape (legacy) and multiple shapes (new)
+                    shapes = f.get('shapes', [])
+                    if not shapes and 'shape' in f:
+                        shapes = [f['shape']]
+                    
+                    if shapes:
+                        self.space.remove(f['body'], *shapes)
+                    else:
+                        # Fallback just in case
+                        self.space.remove(f['body'])
             else:
-                self.space.remove(flipper['body'], flipper['shape'])
+                shapes = flipper.get('shapes', [])
+                if not shapes and 'shape' in flipper:
+                    shapes = [flipper['shape']]
+                
+                if shapes:
+                    self.space.remove(flipper['body'], *shapes)
+                else:
+                    self.space.remove(flipper['body'])
         
         self.flippers = {}
         self._setup_flippers()
@@ -1154,43 +1170,71 @@ class PymunkEngine(Physics):
         tip_width_ratio = self.config.flipper_tip_width # Default to base width if not set
         
         base_width = self.width * width_ratio
+        
+        # Handle case where tip_width_ratio is effectively None/0 in simple configs
+        if not tip_width_ratio:
+           tip_width_ratio = width_ratio / 2.0 # Default fallback
+           
         tip_width = self.width * tip_width_ratio
         
-        # Poly radius for smoothing (subtract from width to keep visual size accurate)
-        poly_radius = 2.0
+        # Radii for circles (Visuals match this exactly)
+        base_radius = base_width / 2.0
+        tip_radius = tip_width / 2.0
         
-        base_radius = (base_width / 2.0) - poly_radius
-        tip_radius = (tip_width / 2.0) - poly_radius
+        # Geometry:
+        # Visuals: Base Circle at 0, Tip Circle at L - tip_radius
+        # Physics: Same.
         
-        if base_radius < 1.0: base_radius = 1.0
-        if tip_radius < 1.0: tip_radius = 1.0
-
+        dist = length - tip_radius
+        if dist < base_radius: 
+            dist = base_radius # Prevent negative geometry
+            
+        shapes = []
+        
+        # 1. Base Circle (Pivot)
+        shape_base = pymunk.Circle(body, base_radius, (0, 0))
+        shapes.append(shape_base)
+        
+        # 2. Tip Circle
+        tip_offset = (dist, 0) if side == 'left' else (-dist, 0)
+        shape_tip = pymunk.Circle(body, tip_radius, tip_offset)
+        shapes.append(shape_tip)
+        
+        # 3. Polygon Body (Connecting tangents)
+        # Vertices relative to body center (0,0)
         if side == 'left':
-            # Points Right [0, length]
+            # Points Right
             vertices = [
                 (0, -base_radius),
                 (0, base_radius),
-                (length, tip_radius),
-                (length, -tip_radius)
+                (dist, tip_radius),
+                (dist, -tip_radius)
             ]
         else:
-            # Points Left [-length, 0]
+            # Points Left
             vertices = [
                 (0, -base_radius),
                 (0, base_radius),
-                (-length, tip_radius),
-                (-length, -tip_radius)
+                (-dist, tip_radius),
+                (-dist, -tip_radius)
             ]
             
-        shape = pymunk.Poly(body, vertices, radius=poly_radius)
-        shape.elasticity = self.config.flipper_elasticity
-        shape.friction = self.config.flipper_friction
-        shape.collision_type = COLLISION_TYPE_FLIPPER
-        self.space.add(body, shape)
+        # Use 0 radius for poly as circles handle the round parts
+        shape_poly = pymunk.Poly(body, vertices, radius=0.0)
+        shapes.append(shape_poly)
+        
+        # Apply properties to ALL shapes
+        for s in shapes:
+            s.elasticity = self.config.flipper_elasticity
+            s.friction = self.config.flipper_friction
+            s.collision_type = COLLISION_TYPE_FLIPPER
+            
+        self.space.add(body, *shapes)
         
         return {
             'body': body,
-            'shape': shape,
+            'shapes': shapes, # List of shapes
+            'shape': shapes[0], # Legacy support (just in case)
             'side': side,
             'angle': 0.0,
             'target_angle': 0.0
@@ -1902,33 +1946,43 @@ class PymunkEngine(Physics):
                  balls_to_remove.append(b)
                  continue
                  
-            # 3. Stuck Check
-            speed = b.velocity.length
-            # Threshold: 5.0 pixels/sec (very slow)
-            if speed < 5.0:
-                # Ignore if in plunger lane (x > 0.8 width)
-                if b.position.x > self.width * 0.8:
+            # 3. Stuck Check (Position-based for robustness against jitter)
+            # Threshold: Ball must stay within small radius for 10 seconds
+            if not hasattr(b, 'last_stuck_pos'):
+                b.last_stuck_pos = b.position
+                b.stuck_timer = 0.0
+                b.stuck_event_sent = False
+            
+            # Check deviation
+            dist = (b.position - b.last_stuck_pos).length
+            
+            # Reset if moved significantly (20 pixels)
+            if dist > 20.0:
+                b.last_stuck_pos = b.position
+                b.stuck_timer = 0.0
+                b.stuck_event_sent = False
+            else:
+                # Ball is effectively stationary (or trapped)
+                # Ignore if in plunger lane (Adjusted to 0.85 for tighter lane bound)
+                if b.position.x > self.width * 0.85:
                     b.stuck_timer = 0.0
                     b.stuck_event_sent = False
                     continue
                 
-                # Increment timer
-                if not hasattr(b, 'stuck_timer'):
-                    b.stuck_timer = 0.0
                 b.stuck_timer += dt
                 
-                # Trigger after 10 seconds (User feedback: 5s was too fast)
+                # Update reference position slowly to handle very slow drifts? 
+                # Actually, keeping it fixed at 'entry' of stuck zone is better.
+                # If it slowly drifts across table, it will eventually trip > 20.0.
+                
                 if b.stuck_timer > 10.0:
                     if not getattr(b, 'stuck_event_sent', False):
-                        logger.info(f"Stuck ball detected at {b.position}!")
+                        logger.info(f"Stuck ball detected at {b.position} (Timer: {b.stuck_timer:.1f}s)!")
                         self.events.append({
                             'type': 'stuck_ball',
                             'timestamp': time.time()
                         })
                         b.stuck_event_sent = True
-            else:
-                b.stuck_timer = 0.0
-                b.stuck_event_sent = False
 
         # Remove flagged balls
         for b in balls_to_remove:

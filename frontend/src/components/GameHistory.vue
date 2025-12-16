@@ -200,6 +200,10 @@ const distributionChartOptions = computed(() => {
     bins.push(count)
   }
   
+  // Reverse order so higher scores are at top
+  categories.reverse()
+  bins.reverse()
+  
   return {
     chart: {
       type: 'bar',
