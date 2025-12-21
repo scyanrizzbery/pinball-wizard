@@ -154,7 +154,7 @@ class WebStatsCallback(BaseCallback):
                 'loss': safe_float(logger_values.get('train/loss', 0.0)),
                 'value_loss': safe_float(logger_values.get('train/value_loss', 0.0)),
                 'policy_gradient_loss': safe_float(logger_values.get('train/policy_gradient_loss', 0.0)),
-                'entropy_loss': safe_float(logger_values.get('train/entropy_loss', 0.0)),
+                'entropy_loss': -safe_float(logger_values.get('train/entropy_loss', 0.0)),
                 'approx_kl': safe_float(logger_values.get('train/approx_kl', 0.0)),
                 'learning_rate': safe_float(logger_values.get('train/learning_rate', 0.0)),
                 'explained_variance': safe_float(logger_values.get('train/explained_variance', 0.0)),
@@ -291,8 +291,12 @@ def train_worker(config, state_queue, command_queue, status_queue):
         
         # Environment
         from stable_baselines3.common.monitor import Monitor
+        from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+        
         env = PinballEnv(vision_wrapper, hw, score_reader, headless=True, random_layouts=config.get('random_layouts', False))
         env = Monitor(env)
+        env = DummyVecEnv([lambda: env])
+        env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10., gamma=config.get('gamma', 0.99))
         
         # 2. Setup Agent
         model_name = config.get('model_name', 'ppo_pinball')

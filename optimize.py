@@ -186,7 +186,11 @@ def objective(trial):
     # Setup Environment
     # Pass global socketio_server only if this process has one (Manager)
     env, cap = create_env(socketio=socketio_server)
+    
+    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
     env = Monitor(env) # Monitor for stats
+    env = DummyVecEnv([lambda: env])
+    env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10., gamma=gamma)
     
     try:
         # Initialize Model

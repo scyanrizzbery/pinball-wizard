@@ -473,6 +473,8 @@ class PinballEnv(gym.Env):
         # Prefer vision capture score if available
         if hasattr(self.vision, 'get_score'):
             self.current_score = self.vision.get_score()
+        elif hasattr(self.vision, 'capture') and hasattr(self.vision.capture, 'get_score'):
+            self.current_score = self.vision.capture.get_score()
         elif hasattr(self.score_reader, 'read_score') and frame is not None:
             self.current_score = self.score_reader.read_score(frame)
 
